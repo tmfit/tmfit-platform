@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   Activity,
   CalendarDays,
   ChevronRight,
-  Download,
   Dumbbell,
-  FileText,
   LayoutDashboard,
   LockKeyhole,
   LogOut,
@@ -16,24 +15,68 @@ import {
   ShieldCheck,
   TrendingUp
 } from "lucide-react";
-import { clients, measurements, workoutRows } from "../lib/demoData";
+import { clients as demoClients, measurements, workoutRows } from "../lib/demoData";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 function Button({ children, className = "", ...props }) {
   return (
-    <button
-      className={`inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-black transition ${className}`}
-      {...props}
-    >
+    <button className={`inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-black transition ${className}`} {...props}>
       {children}
     </button>
   );
 }
 
 function Card({ children, className = "" }) {
+  return <div className={`rounded-3xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</div>;
+}
+
+function LoginScreen({ onEnter }) {
   return (
-    <div className={`rounded-3xl border border-slate-200 bg-white shadow-sm ${className}`}>
-      {children}
+    <div className="min-h-screen bg-[#07111f] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_10%,rgba(45,212,191,.15),transparent_32%),radial-gradient(circle_at_80%_80%,rgba(56,199,189,.08),transparent_36%)]" />
+      <div className="relative grid min-h-screen place-items-center p-6">
+        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[.06] p-8 shadow-2xl backdrop-blur-xl">
+          <div className="mb-8 text-center">
+            <div className="text-4xl font-black tracking-tight">TM FIT</div>
+            <div className="mt-2 text-xs font-black uppercase tracking-[0.35em] text-teal-300">Medical Platform</div>
+          </div>
+
+          <div className="space-y-4">
+            <input className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 font-semibold outline-none" placeholder="studio@tmfit.it" />
+            <input type="password" className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 font-semibold outline-none" placeholder="Password" />
+            <Button onClick={onEnter} className="h-12 w-full bg-teal-300 text-slate-950 hover:bg-teal-200">
+              <LockKeyhole size={18} className="mr-2" />
+              Accedi alla piattaforma
+            </Button>
+          </div>
+
+          <p className="mt-6 text-center text-xs font-semibold leading-5 text-slate-400">
+            Dashboard clienti, composizione corporea, allenamenti e report PDF in ambiente medical premium.
+          </p>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function StatCard({ label, value, unit, icon: Icon }) {
+  return (
+    <Card className="rounded-2xl">
+      <div className="flex items-center gap-4 p-5">
+        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-teal-50 text-teal-600">
+          <Icon size={22} />
+        </div>
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{label}</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">
+            {value} <span className="text-sm font-semibold text-slate-500">{unit}</span>
+          </p>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -67,114 +110,89 @@ function MiniLine({ data, field, label, suffix = "" }) {
             <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0" />
           </linearGradient>
         </defs>
-
         <polyline points={`8,78 ${points} 92,78`} fill={`url(#gradient-${field})`} stroke="none" />
-        <polyline
-          points={points}
-          fill="none"
-          stroke="#14b8a6"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <polyline points={points} fill="none" stroke="#14b8a6" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-    </div>
-  );
-}
-
-function StatCard({ label, value, unit, icon: Icon }) {
-  return (
-    <Card className="rounded-2xl">
-      <div className="flex items-center gap-4 p-5">
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-teal-50 text-teal-600">
-          <Icon size={22} />
-        </div>
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{label}</p>
-          <p className="mt-1 text-2xl font-black text-slate-950">
-            {value} <span className="text-sm font-semibold text-slate-500">{unit}</span>
-          </p>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function LoginScreen({ onEnter }) {
-  return (
-    <div className="min-h-screen bg-[#07111f] text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_10%,rgba(45,212,191,.15),transparent_32%),radial-gradient(circle_at_80%_80%,rgba(56,199,189,.08),transparent_36%)]" />
-
-      <div className="relative grid min-h-screen place-items-center p-6">
-        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[.06] p-8 shadow-2xl backdrop-blur-xl">
-          <div className="mb-8 text-center">
-            <div className="text-4xl font-black tracking-tight">TM FIT</div>
-            <div className="mt-2 text-xs font-black uppercase tracking-[0.35em] text-teal-300">
-              Medical Platform
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <input
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 font-semibold outline-none ring-teal-300/30 focus:ring-4"
-              placeholder="studio@tmfit.it"
-            />
-            <input
-              type="password"
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 font-semibold outline-none ring-teal-300/30 focus:ring-4"
-              placeholder="Password"
-            />
-
-            <Button onClick={onEnter} className="h-12 w-full bg-teal-300 text-slate-950 hover:bg-teal-200">
-              <LockKeyhole size={18} className="mr-2" />
-              Accedi alla piattaforma
-            </Button>
-          </div>
-
-          <p className="mt-6 text-center text-xs font-semibold leading-5 text-slate-400">
-            Dashboard clienti, composizione corporea, allenamenti e report PDF in ambiente medical premium.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }
 
 export default function Home() {
   const [logged, setLogged] = useState(false);
+  const [clients, setClients] = useState(demoClients);
   const [selectedId, setSelectedId] = useState(1);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("overview");
+  const [dbStatus, setDbStatus] = useState("demo");
+
+  useEffect(() => {
+    async function loadClients() {
+      if (!supabase) {
+        setDbStatus("demo");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.warn(error.message);
+        setDbStatus("Policy RLS da configurare");
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setDbStatus("Supabase vuoto");
+        return;
+      }
+
+      const mappedClients = data.map((client) => ({
+        id: client.id,
+        name: `${client.first_name || ""} ${client.last_name || ""}`.trim() || "Cliente senza nome",
+        goal: client.goal || "Obiettivo non impostato",
+        sex: client.gender || "—",
+        age: client.birth_date ? new Date().getFullYear() - new Date(client.birth_date).getFullYear() : "—",
+        height: client.height_cm || "—",
+        weight: 0,
+        bf: 0,
+        leanMass: 0,
+        fatMass: 0,
+        workouts: 0,
+        lastUpdate: "Database"
+      }));
+
+      setClients(mappedClients);
+      setSelectedId(mappedClients[0]?.id || 1);
+      setDbStatus("Supabase collegato");
+    }
+
+    loadClients();
+  }, []);
 
   const filteredClients = useMemo(
     () => clients.filter((client) => client.name.toLowerCase().includes(query.toLowerCase())),
-    [query]
+    [clients, query]
   );
 
   const selectedClient = clients.find((client) => client.id === selectedId) || clients[0];
-  const isWoman = selectedClient.sex.toLowerCase() === "donna";
-  const accentClass = isWoman ? "from-stone-300 to-violet-200" : "from-teal-400 to-cyan-300";
 
-  if (!logged) {
-    return <LoginScreen onEnter={() => setLogged(true)} />;
-  }
+  if (!logged) return <LoginScreen onEnter={() => setLogged(true)} />;
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <aside className="fixed left-0 top-0 hidden h-screen w-72 flex-col bg-[#07111f] p-6 text-white lg:flex">
         <div className="mb-10">
           <div className="text-3xl font-black tracking-tight">TM FIT</div>
-          <div className="mt-2 text-xs font-bold uppercase tracking-[0.35em] text-teal-300">
-            Medical Platform
-          </div>
+          <div className="mt-2 text-xs font-bold uppercase tracking-[0.35em] text-teal-300">Medical Platform</div>
         </div>
 
         <nav className="space-y-2">
           {[
             ["overview", LayoutDashboard, "Overview"],
             ["composition", Activity, "Composizione"],
-            ["training", Dumbbell, "Allenamento"],
-            ["reports", FileText, "Report"]
+            ["training", Dumbbell, "Allenamento"]
           ].map(([key, Icon, label]) => (
             <button
               key={key}
@@ -195,7 +213,7 @@ export default function Home() {
             <span className="text-sm font-black">Studio premium</span>
           </div>
           <p className="mt-2 text-xs leading-5 text-slate-300">
-            Area professionista + area cliente, pronta per collegamento a Supabase e Vercel.
+            Database: {dbStatus}
           </p>
         </div>
       </aside>
@@ -206,6 +224,9 @@ export default function Home() {
             <div>
               <h1 className="text-2xl font-black tracking-tight">Area Professionista</h1>
               <p className="text-sm font-medium text-slate-500">Clienti · Dashboard · Allenamenti · Report</p>
+              <p className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-widest text-slate-500">
+                Database: {dbStatus}
+              </p>
             </div>
 
             <div className="flex gap-3">
@@ -263,7 +284,7 @@ export default function Home() {
 
           <div className="space-y-6">
             <div className="overflow-hidden rounded-3xl bg-[#07111f] text-white shadow-luxury">
-              <div className={`h-1.5 bg-gradient-to-r ${accentClass}`} />
+              <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-300" />
               <div className="grid gap-6 p-7 md:grid-cols-[1fr_auto] md:items-center">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.35em] text-teal-200">Scheda cliente</p>
@@ -284,90 +305,49 @@ export default function Home() {
               </div>
             </div>
 
-            {(tab === "overview" || tab === "composition") && (
-              <>
-                <div className="grid gap-4 md:grid-cols-4">
-                  <StatCard label="Peso" value={selectedClient.weight.toLocaleString("it-IT")} unit="kg" icon={Activity} />
-                  <StatCard label="%BF" value={selectedClient.bf.toLocaleString("it-IT")} unit="%" icon={TrendingUp} />
-                  <StatCard label="Massa magra" value={selectedClient.leanMass.toLocaleString("it-IT")} unit="kg" icon={ShieldCheck} />
-                  <StatCard label="Allenamenti" value={selectedClient.workouts} unit="giorni" icon={Dumbbell} />
-                </div>
+            <div className="grid gap-4 md:grid-cols-4">
+              <StatCard label="Peso" value={selectedClient.weight || "--"} unit="kg" icon={Activity} />
+              <StatCard label="%BF" value={selectedClient.bf || "--"} unit="%" icon={TrendingUp} />
+              <StatCard label="Massa magra" value={selectedClient.leanMass || "--"} unit="kg" icon={ShieldCheck} />
+              <StatCard label="Allenamenti" value={selectedClient.workouts || "--"} unit="giorni" icon={Dumbbell} />
+            </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <MiniLine data={measurements} field="peso" label="Peso" suffix="kg" />
-                  <MiniLine data={measurements} field="bf" label="%BF" suffix="%" />
-                </div>
-              </>
-            )}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <MiniLine data={measurements} field="peso" label="Peso" suffix="kg" />
+              <MiniLine data={measurements} field="bf" label="%BF" suffix="%" />
+            </div>
 
-            {(tab === "overview" || tab === "training") && (
-              <Card>
-                <div className="flex items-center justify-between border-b border-slate-200 p-5">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">Piano allenamento</p>
-                    <h3 className="mt-1 text-xl font-black">Allenamento A</h3>
-                  </div>
-                  <Button className="bg-[#07111f] text-white hover:bg-[#0f172a]">
-                    <Download size={17} className="mr-2" />
-                    PDF
-                  </Button>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-widest text-slate-500">
-                      <tr>
-                        <th className="px-5 py-4">Esercizio</th>
-                        <th className="px-5 py-4">Serie/Rip</th>
-                        <th className="px-5 py-4">Recupero</th>
-                        <th className="px-5 py-4">Modalità</th>
-                        <th className="px-5 py-4">SS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workoutRows.map((row, index) => (
-                        <tr key={index} className="border-t border-slate-100">
-                          <td className="px-5 py-4 font-black">{row.exercise}</td>
-                          <td className="px-5 py-4 font-bold text-slate-700">{row.series}</td>
-                          <td className="px-5 py-4 text-slate-600">{row.recovery}</td>
-                          <td className="px-5 py-4 text-slate-600">{row.execution}</td>
-                          <td className="px-5 py-4">
-                            {row.superset ? (
-                              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700 ring-1 ring-amber-200">
-                                {row.superset}
-                              </span>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            )}
-
-            {tab === "reports" && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card>
-                  <div className="p-6">
-                    <FileText className="text-teal-600" />
-                    <h3 className="mt-4 text-xl font-black">Report composizione</h3>
-                    <p className="mt-2 text-sm text-slate-500">Genera PDF premium con dashboard, misurazioni e andamento.</p>
-                    <Button className="mt-5 bg-[#07111f] text-white">Genera PDF</Button>
-                  </div>
-                </Card>
-                <Card>
-                  <div className="p-6">
-                    <Dumbbell className="text-teal-600" />
-                    <h3 className="mt-4 text-xl font-black">Report allenamento</h3>
-                    <p className="mt-2 text-sm text-slate-500">Esporta scheda cliente con progressioni e superserie.</p>
-                    <Button className="mt-5 bg-[#07111f] text-white">Genera PDF</Button>
-                  </div>
-                </Card>
+            <Card>
+              <div className="border-b border-slate-200 p-5">
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">Piano allenamento</p>
+                <h3 className="mt-1 text-xl font-black">Allenamento A</h3>
               </div>
-            )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-widest text-slate-500">
+                    <tr>
+                      <th className="px-5 py-4">Esercizio</th>
+                      <th className="px-5 py-4">Serie/Rip</th>
+                      <th className="px-5 py-4">Recupero</th>
+                      <th className="px-5 py-4">Modalità</th>
+                      <th className="px-5 py-4">SS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workoutRows.map((row, index) => (
+                      <tr key={index} className="border-t border-slate-100">
+                        <td className="px-5 py-4 font-black">{row.exercise}</td>
+                        <td className="px-5 py-4 font-bold text-slate-700">{row.series}</td>
+                        <td className="px-5 py-4 text-slate-600">{row.recovery}</td>
+                        <td className="px-5 py-4 text-slate-600">{row.execution}</td>
+                        <td className="px-5 py-4">{row.superset || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           </div>
         </section>
       </main>
