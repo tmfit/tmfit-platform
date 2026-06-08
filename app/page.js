@@ -124,7 +124,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("overview");
   const [dbStatus, setDbStatus] = useState("demo");
-
+const [measurements, setMeasurements] = useState([]);
   useEffect(() => {
     async function loadClients() {
       if (!supabase) {
@@ -167,8 +167,18 @@ export default function Home() {
       setSelectedId(mappedClients[0]?.id || 1);
       setDbStatus("Supabase collegato");
     }
+async function loadMeasurements() {
+  const { data } = await supabase
+    .from("measurements")
+    .select("*")
+    .order("measurement_date", { ascending: true });
 
+  if (data) {
+    setMeasurements(data);
+  }
+}
     loadClients();
+    loadMeasurements();
   }, []);
 
   const filteredClients = useMemo(
