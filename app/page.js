@@ -124,7 +124,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("overview");
   const [dbStatus, setDbStatus] = useState("demo");
-const [measurements, setMeasurements] = useState([]);
+const [bodyMeasurements, setBodyMeasurements] = useState(measurements);
   useEffect(() => {
     async function loadClients() {
       if (!supabase) {
@@ -174,7 +174,7 @@ async function loadMeasurements() {
     .order("measurement_date", { ascending: true });
 
   if (data) {
-    setMeasurements(data);
+    setBodyMeasurements(data);
   }
 }
     loadClients();
@@ -323,8 +323,8 @@ async function loadMeasurements() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <MiniLine data={measurements} field="peso" label="Peso" suffix="kg" />
-              <MiniLine data={measurements} field="bf" label="%BF" suffix="%" />
+             <MiniLine data={bodyMeasurements} field="weight" label="Peso" suffix="kg" />
+             <MiniLine data={bodyMeasurements} field="body_fat" label="%BF" suffix="%" />
             </div>
 
             <Card>
