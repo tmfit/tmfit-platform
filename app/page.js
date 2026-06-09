@@ -380,24 +380,25 @@ async function loadMeasurements() {
              </section>
     </main>
 </div>
-    {showClientForm && (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/60">
-        <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-          <h2 className="mb-4 text-2xl font-black">Nuovo cliente</h2>
+          {showClientForm && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-4 text-2xl font-black">Nuovo cliente</h2>
 
-          <p className="mb-6 text-slate-600">
-            Form cliente in costruzione
-          </p>
+            <p className="mb-6 text-slate-600">
+              Form cliente in costruzione
+            </p>
 
-          <Button
-            onClick={() => setShowClientForm(false)}
-            className="bg-[#07111f] text-white"
-          >
-            Chiudi
-          </Button>
+            <Button
+              onClick={() => setShowClientForm(false)}
+              className="bg-[#07111f] text-white"
+            >
+              Chiudi
+            </Button>
+          </div>
         </div>
-      </div>
-    )}
+      )}
 
-);
+    </div>
+  );
 }
