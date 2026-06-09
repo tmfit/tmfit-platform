@@ -187,7 +187,9 @@ async function loadMeasurements() {
   );
 
   const selectedClient = clients.find((client) => client.id === selectedId) || clients[0];
-
+  const latestMeasurement = bodyMeasurements.find(
+  (m) => m.client_id === selectedClient?.id
+);
   if (!logged) return <LoginScreen onEnter={() => setLogged(true)} />;
 
   return (
@@ -316,9 +318,9 @@ async function loadMeasurements() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-4">
-              <StatCard label="Peso" value={selectedClient.weight || "--"} unit="kg" icon={Activity} />
-              <StatCard label="%BF" value={selectedClient.bf || "--"} unit="%" icon={TrendingUp} />
-              <StatCard label="Massa magra" value={selectedClient.leanMass || "--"} unit="kg" icon={ShieldCheck} />
+              <StatCard label="Peso" value={latestMeasurement?.weight ?? "--"} unit="kg" icon={Activity} />
+              <StatCard label="%BF" value={latestMeasurement?.body_fat ?? "--"} unit="%" icon={TrendingUp} />
+              <StatCard label="Massa magra" value={latestMeasurement?.lean_mass ?? "--"} unit="kg" icon={ShieldCheck} />
               <StatCard label="Allenamenti" value={selectedClient.workouts || "--"} unit="giorni" icon={Dumbbell} />
             </div>
 
