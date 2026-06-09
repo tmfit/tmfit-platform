@@ -202,6 +202,69 @@ async function loadMeasurements() {
   const latestMeasurement = bodyMeasurements.find(
   (m) => m.client_id === selectedClient?.id
 );
+  async function handleCreateClient(event) {
+  event.preventDefault();
+
+  if (!supabase) {
+    alert("Supabase non configurato");
+    return;
+  }
+
+  const payload = {
+    first_name: newClient.first_name,
+    last_name: newClient.last_name,
+    email: newClient.email || null,
+    phone: newClient.phone || null,
+    gender: newClient.gender,
+    birth_date: newClient.birth_date || null,
+    height_cm: newClient.height_cm ? Number(newClient.height_cm) : null,
+    goal: newClient.goal || null,
+    notes: newClient.notes || null
+  };
+
+  const { data, error } = await supabase
+    .from("clients")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.warn(error.message);
+    alert("Errore salvataggio cliente");
+    return;
+  }
+
+  const createdClient = {
+    id: data.id,
+    name: `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Cliente senza nome",
+    goal: data.goal || "Obiettivo non impostato",
+    sex: data.gender || "—",
+    age: data.birth_date ? new Date().getFullYear() - new Date(data.birth_date).getFullYear() : "—",
+    height: data.height_cm || "—",
+    weight: 0,
+    bf: 0,
+    leanMass: 0,
+    fatMass: 0,
+    workouts: 0,
+    lastUpdate: "Database"
+  };
+
+  setClients((prev) => [createdClient, ...prev]);
+  setSelectedId(createdClient.id);
+  setShowClientForm(false);
+
+  setNewClient({
+    first_name: "",
+    last_name: "",
+    email: "",
+    phone: "",
+    gender: "uomo",
+    birth_date: "",
+    height_cm: "",
+    goal: "",
+    notes: ""
+  });
+}
   if (!logged) return <LoginScreen onEnter={() => setLogged(true)} />;
 
  return (
@@ -379,23 +442,101 @@ async function loadMeasurements() {
                     </section>
 
         {showClientForm && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60">
-            <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-              <h2 className="mb-4 text-2xl font-black">Nuovo cliente</h2>
+  <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+    <form
+      onSubmit={handleCreateClient}
+      className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+    >
+      <h2 className="mb-4 text-2xl font-black">Nuovo cliente</h2>
 
-              <p className="mb-6 text-slate-600">
-                Form cliente in costruzione
-              </p>
+      <div className="grid gap-3">
+        <input
+          required
+          value={newClient.first_name}
+          onChange={(e) => setNewClient({ ...newClient, first_name: e.target.value })}
+          placeholder="Nome"
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
 
-              <Button
-                onClick={() => setShowClientForm(false)}
-                className="bg-[#07111f] text-white"
-              >
-                Chiudi
-              </Button>
-            </div>
-          </div>
-        )}
+        <input
+          required
+          value={newClient.last_name}
+          onChange={(e) => setNewClient({ ...newClient, last_name: e.target.value })}
+          placeholder="Cognome"
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+
+        <input
+          type="email"
+          value={newClient.email}
+          onChange={(e) => setNewClient({ ...newClient, email: e.target.value })}
+          placeholder="Email"
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+
+        <input
+          value={newClient.phone}
+          onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })}
+          placeholder="Telefono"
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+
+        <select
+          value={newClient.gender}
+          onChange={(e) => setNewClient({ ...newClient, gender: e.target.value })}
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        >
+          <option value="uomo">Uomo</option>
+          <option value="donna">Donna</option>
+          <option value="altro">Altro</option>
+        </select>
+
+        <input
+          type="date"
+          value={newClient.birth_date}
+          onChange={(e) => setNewClient({ ...newClient, birth_date: e.target.value })}
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+
+        <input
+          type="number"
+          value={newClient.height_cm}
+          onChange={(e) => setNewClient({ ...newClient, height_cm: e.target.value })}
+          placeholder="Altezza cm"
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+
+        <input
+          value={newClient.goal}
+          onChange={(e) => setNewClient({ ...newClient, goal: e.target.value })}
+          placeholder="Obiettivo"
+          className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+
+        <textarea
+          value={newClient.notes}
+          onChange={(e) => setNewClient({ ...newClient, notes: e.target.value })}
+          placeholder="Note"
+          className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none"
+        />
+      </div>
+
+      <div className="mt-6 flex gap-3">
+        <Button type="submit" className="bg-[#07111f] text-white">
+          Salva cliente
+        </Button>
+
+        <Button
+          type="button"
+          onClick={() => setShowClientForm(false)}
+          className="border border-slate-200 bg-white text-slate-900"
+        >
+          Annulla
+        </Button>
+      </div>
+    </form>
+  </div>
+)}
       </main>
     </div>
   );
