@@ -205,7 +205,6 @@ async function loadMeasurements() {
   if (!logged) return <LoginScreen onEnter={() => setLogged(true)} />;
 
  return (
-  <>
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <aside className="fixed left-0 top-0 hidden h-screen w-72 flex-col bg-[#07111f] p-6 text-white lg:flex">
         <div className="mb-10">
