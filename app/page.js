@@ -379,7 +379,7 @@ async function loadMeasurements() {
           </div>
              </section>
     </main>
-
+</div>
     {showClientForm && (
       <div className="fixed inset-0 z-50 grid place-items-center bg-black/60">
         <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
@@ -399,6 +399,5 @@ async function loadMeasurements() {
       </div>
     )}
 
-  </>
 );
 }
