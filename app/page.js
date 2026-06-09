@@ -242,7 +242,10 @@ async function loadMeasurements() {
             </div>
 
             <div className="flex gap-3">
-              <Button className="bg-[#07111f] text-white hover:bg-[#0f172a]">
+              <Button
+              onClick={() => alert("Nuovo cliente")}
+              className="bg-[#07111f] text-white hover:bg-[#0f172a]"
+              >
                 <Plus size={17} className="mr-2" />
                 Nuovo cliente
               </Button>
