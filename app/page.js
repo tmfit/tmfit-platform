@@ -124,6 +124,18 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("overview");
   const [dbStatus, setDbStatus] = useState("demo");
+  const [showClientForm, setShowClientForm] = useState(false);
+const [newClient, setNewClient] = useState({
+  first_name: "",
+  last_name: "",
+  email: "",
+  phone: "",
+  gender: "uomo",
+  birth_date: "",
+  height_cm: "",
+  goal: "",
+  notes: ""
+});
 const [bodyMeasurements, setBodyMeasurements] = useState(measurements);
   useEffect(() => {
     async function loadClients() {
@@ -192,7 +204,8 @@ async function loadMeasurements() {
 );
   if (!logged) return <LoginScreen onEnter={() => setLogged(true)} />;
 
-  return (
+ return (
+  <>
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <aside className="fixed left-0 top-0 hidden h-screen w-72 flex-col bg-[#07111f] p-6 text-white lg:flex">
         <div className="mb-10">
@@ -243,7 +256,7 @@ async function loadMeasurements() {
 
             <div className="flex gap-3">
               <Button
-              onClick={() => alert("Nuovo cliente")}
+              onClick={() => setShowClientForm(true)}
               className="bg-[#07111f] text-white hover:bg-[#0f172a]"
               >
                 <Plus size={17} className="mr-2" />
@@ -366,6 +379,26 @@ async function loadMeasurements() {
           </div>
         </section>
       </main>
+                    {showClientForm && (
+  <div className="fixed inset-0 z-50 grid place-items-center bg-black/60">
+    <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+      <h2 className="mb-4 text-2xl font-black">
+        Nuovo cliente
+      </h2>
+
+      <p className="mb-6 text-slate-600">
+        Form cliente in costruzione
+      </p>
+
+      <Button
+        onClick={() => setShowClientForm(false)}
+        className="bg-[#07111f] text-white"
+      >
+        Chiudi
+      </Button>
+    </div>
+  </div>
+)}
     </div>
   );
 }
