@@ -122,7 +122,6 @@ export async function POST(request) {
       .eq("client_id", String(clientId));
 
     await adminSupabase.from("workout_plans").delete().eq("client_id", clientId);
-
     await adminSupabase.from("clients").delete().eq("id", clientId);
 
     if (client.user_id) {
