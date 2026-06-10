@@ -9,7 +9,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "delete-client",
-    message: "API delete-client attiva"
+    message: "API delete-client TMFIT Pro V2 attiva"
   });
 }
 
@@ -30,7 +30,9 @@ export async function POST(request) {
 
     if (!token) {
       return NextResponse.json(
-        { error: "Token mancante. Effettua nuovamente il login." },
+        {
+          error: "Token mancante. Effettua nuovamente il login."
+        },
         { status: 401 }
       );
     }
@@ -40,7 +42,9 @@ export async function POST(request) {
 
     if (!clientId) {
       return NextResponse.json(
-        { error: "client_id mancante o non valido." },
+        {
+          error: "client_id mancante o non valido."
+        },
         { status: 400 }
       );
     }
@@ -54,7 +58,9 @@ export async function POST(request) {
 
     if (userError || !user) {
       return NextResponse.json(
-        { error: "Utente non autorizzato." },
+        {
+          error: "Utente non autorizzato."
+        },
         { status: 401 }
       );
     }
@@ -74,7 +80,9 @@ export async function POST(request) {
 
     if (profileError || profile?.role !== "professional") {
       return NextResponse.json(
-        { error: "Solo il professionista può eliminare clienti." },
+        {
+          error: "Solo il professionista può eliminare clienti."
+        },
         { status: 403 }
       );
     }
@@ -88,33 +96,79 @@ export async function POST(request) {
 
     if (clientError) {
       return NextResponse.json(
-        { error: `Errore lettura cliente: ${clientError.message}` },
+        {
+          error: `Errore lettura cliente: ${clientError.message}`
+        },
         { status: 500 }
       );
     }
 
     if (!client) {
       return NextResponse.json(
-        { error: "Cliente non trovato o non associato a questo professionista." },
+        {
+          error: "Cliente non trovato o non associato a questo professionista."
+        },
         { status: 404 }
       );
     }
 
-    const { data: diets } = await adminSupabase
+    const { data: dietFiles } = await adminSupabase
       .from("diets")
       .select("file_path")
       .eq("client_id", clientId);
 
-    const dietPaths = (diets || [])
-      .map((diet) => diet.file_path)
+    const dietPaths = (dietFiles || [])
+      .map((item) => item.file_path)
       .filter(Boolean);
 
     if (dietPaths.length > 0) {
       await adminSupabase.storage.from("diets").remove(dietPaths);
     }
 
+    const { data: progressFiles } = await adminSupabase
+      .from("progress_photos")
+      .select("file_path")
+      .eq("client_id", clientId);
+
+    const progressPaths = (progressFiles || [])
+      .map((item) => item.file_path)
+      .filter(Boolean);
+
+    if (progressPaths.length > 0) {
+      await adminSupabase.storage
+        .from("progress-photos")
+        .remove(progressPaths);
+    }
+
+    const { data: sessions } = await adminSupabase
+      .from("workout_sessions")
+      .select("id")
+      .eq("client_id", clientId);
+
+    const sessionIds = (sessions || []).map((item) => item.id);
+
+    if (sessionIds.length > 0) {
+      await adminSupabase
+        .from("workout_set_logs")
+        .delete()
+        .in("session_id", sessionIds);
+    }
+
+    await adminSupabase.from("workout_sessions").delete().eq("client_id", clientId);
+
     await adminSupabase.from("workout_logs").delete().eq("client_id", clientId);
+
+    await adminSupabase.from("client_checkins").delete().eq("client_id", clientId);
+
+    await adminSupabase.from("progress_photos").delete().eq("client_id", clientId);
+
+    await adminSupabase.from("client_measurements").delete().eq("client_id", clientId);
+
+    await adminSupabase.from("client_private_notes").delete().eq("client_id", clientId);
+
     await adminSupabase.from("diets").delete().eq("client_id", clientId);
+
+    await adminSupabase.from("coach_posts").delete().eq("client_id", clientId);
 
     await adminSupabase
       .from("measurements")
@@ -122,6 +176,7 @@ export async function POST(request) {
       .eq("client_id", String(clientId));
 
     await adminSupabase.from("workout_plans").delete().eq("client_id", clientId);
+
     await adminSupabase.from("clients").delete().eq("id", clientId);
 
     if (client.user_id) {
