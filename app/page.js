@@ -11,6 +11,7 @@ import {
   Save,
   Search,
   Timer,
+  Trash2,
   Upload,
   UserPlus
 } from "lucide-react";
@@ -390,6 +391,7 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [credentials, setCredentials] = useState(null);
   const [creatingClient, setCreatingClient] = useState(false);
   const [clientError, setClientError] = useState("");
+  const [deletingClient, setDeletingClient] = useState(false);
 
   const [planTitle, setPlanTitle] = useState("Scheda allenamento");
   const [dayTitle, setDayTitle] = useState("Allenamento A");
@@ -582,6 +584,64 @@ function ProfessionalDashboard({ session, onLogout }) {
       );
     } finally {
       setCreatingClient(false);
+    }
+  }
+
+  async function deleteSelectedClient() {
+    if (!selectedClient) return;
+
+    const confirmed = window.confirm(
+      `Vuoi davvero eliminare ${fullName(
+        selectedClient
+      )}? Questa azione elimina cliente, login, schede, log e diete.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingClient(true);
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError || !sessionData.session?.access_token) {
+        alert("Sessione non valida. Esci e rientra.");
+        return;
+      }
+
+      const response = await fetch("/api/delete-client", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`
+        },
+        body: JSON.stringify({
+          client_id: selectedClient.id
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || "Errore eliminazione cliente.");
+        return;
+      }
+
+      const remainingClients = clients.filter(
+        (client) => String(client.id) !== String(selectedClient.id)
+      );
+
+      setClients(remainingClients);
+      setSelectedClientId(
+        remainingClients[0]?.id ? String(remainingClients[0].id) : ""
+      );
+      setPlans([]);
+      setLogs([]);
+      setDiets([]);
+    } catch (error) {
+      alert(error.message || "Errore imprevisto durante eliminazione cliente.");
+    } finally {
+      setDeletingClient(false);
     }
   }
 
@@ -998,12 +1058,24 @@ function ProfessionalDashboard({ session, onLogout }) {
                   <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
                     Scheda cliente
                   </p>
+
                   <h2 className="mt-2 text-4xl font-black">
                     {fullName(selectedClient)}
                   </h2>
+
                   <p className="mt-2 text-slate-300">
                     {selectedClient.goal || "Obiettivo non impostato"}
                   </p>
+
+                  <Button
+                    type="button"
+                    disabled={deletingClient}
+                    onClick={deleteSelectedClient}
+                    className="mt-5 border border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                  >
+                    <Trash2 size={17} className="mr-2" />
+                    {deletingClient ? "Eliminazione..." : "Elimina cliente"}
+                  </Button>
                 </div>
               </Card>
 
