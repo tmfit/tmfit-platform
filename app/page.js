@@ -519,45 +519,70 @@ function ProfessionalDashboard({ session, onLogout }) {
     setCredentials(null);
     setCreatingClient(true);
 
-    const { data: sessionData } = await supabase.auth.getSession();
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
 
-    const response = await fetch("/api/create-client", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionData.session?.access_token}`
-      },
-      body: JSON.stringify(newClient)
-    });
+      if (sessionError || !sessionData.session?.access_token) {
+        setClientError(
+          "Sessione non valida. Esci e rientra con il login professionista."
+        );
+        return;
+      }
 
-    const result = await response.json();
+      const response = await fetch("/api/create-client", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`
+        },
+        body: JSON.stringify(newClient)
+      });
 
-    setCreatingClient(false);
+      const text = await response.text();
 
-    if (!response.ok) {
-      setClientError(result.error || "Errore creazione cliente.");
-      return;
+      let result = {};
+
+      try {
+        result = text ? JSON.parse(text) : {};
+      } catch {
+        setClientError(
+          "Risposta server non valida. Controlla che il file app/api/create-client/route.js esista ed è stato deployato."
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        setClientError(result.error || "Errore creazione cliente.");
+        return;
+      }
+
+      setCredentials({
+        email: result.login_email,
+        password: result.temporary_password
+      });
+
+      setClients((prev) => [result.client, ...prev]);
+      setSelectedClientId(String(result.client.id));
+
+      setNewClient({
+        first_name: "",
+        last_name: "",
+        email: "",
+        phone: "",
+        gender: "uomo",
+        birth_date: "",
+        height_cm: "",
+        goal: "",
+        notes: ""
+      });
+    } catch (error) {
+      setClientError(
+        error.message || "Errore imprevisto durante la creazione cliente."
+      );
+    } finally {
+      setCreatingClient(false);
     }
-
-    setCredentials({
-      email: result.login_email,
-      password: result.temporary_password
-    });
-
-    setClients((prev) => [result.client, ...prev]);
-    setSelectedClientId(String(result.client.id));
-
-    setNewClient({
-      first_name: "",
-      last_name: "",
-      email: "",
-      phone: "",
-      gender: "uomo",
-      birth_date: "",
-      height_cm: "",
-      goal: "",
-      notes: ""
-    });
   }
 
   function addExerciseRow() {
