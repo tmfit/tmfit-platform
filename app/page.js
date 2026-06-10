@@ -1677,7 +1677,6 @@ function ProfessionalDashboard({ session, onLogout }) {
                                                     next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].exercise_type = event.target.value;
                                                   })
                                                 }
-                                                }
                                               >
                                                 <option value="normal">Normale</option>
                                                 <option value="warmup">Riscaldamento</option>
