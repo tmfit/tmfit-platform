@@ -515,7 +515,7 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [creatingClient, setCreatingClient] = useState(false);
   const [clientError, setClientError] = useState("");
   const [deletingClient, setDeletingClient] = useState(false);
-
+  const [deletingProgramId, setDeletingProgramId] = useState("");
   const [newClient, setNewClient] = useState({
     first_name: "",
     last_name: "",
@@ -785,7 +785,55 @@ function ProfessionalDashboard({ session, onLogout }) {
       setDeletingClient(false);
     }
   }
+async function deleteProgram(program) {
+  if (!program) return;
 
+  const confirmed = window.confirm(
+    `Vuoi davvero eliminare il programma "${program.title}"? Questa azione elimina programma, settimane, giorni, blocchi, esercizi e serie.`
+  );
+
+  if (!confirmed) return;
+
+  setDeletingProgramId(program.id);
+
+  try {
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError || !sessionData.session?.access_token) {
+      alert("Sessione non valida. Esci e rientra.");
+      return;
+    }
+
+    const response = await fetch("/api/delete-program", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session.access_token}`
+      },
+      body: JSON.stringify({
+        program_id: program.id
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      alert(result.error || "Errore eliminazione programma.");
+      return;
+    }
+
+    setPlans((prev) => prev.filter((item) => item.id !== program.id));
+
+    if (selectedClient) {
+      await loadClientBundle(selectedClient.id);
+    }
+  } catch (error) {
+    alert(error.message || "Errore imprevisto durante eliminazione programma.");
+  } finally {
+    setDeletingProgramId("");
+  }
+}
   function updateBuilder(mutator) {
     setBuilder((prev) => {
       const next = clone(prev);
@@ -1866,7 +1914,11 @@ function ProfessionalDashboard({ session, onLogout }) {
                 </Card>
               )}
 
-              <PlansList plans={plans} />
+              <PlansList
+  plans={plans}
+  onDeleteProgram={deleteProgram}
+  deletingProgramId={deletingProgramId}
+/>
             </div>
           )}
 
@@ -2199,7 +2251,7 @@ function ProfessionalDashboard({ session, onLogout }) {
   );
 }
 
-function PlansList({ plans }) {
+function PlansList({ plans, onDeleteProgram, deletingProgramId }) {
   return (
     <Card className="p-5">
       <h2 className="text-xl font-black">Programmi salvati</h2>
@@ -2207,17 +2259,37 @@ function PlansList({ plans }) {
       <div className="mt-4 space-y-4">
         {plans.map((plan) => (
           <div key={plan.id} className="rounded-3xl border border-slate-200 p-4">
-            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <h3 className="text-lg font-black">{plan.title}</h3>
+
                 <p className="text-sm font-semibold text-slate-500">
                   {plan.goal || "Nessun obiettivo"}
                 </p>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Pill className="bg-teal-100 text-teal-700">
+                    {plan.status || "active"}
+                  </Pill>
+
+                  {plan.duration_weeks && (
+                    <Pill className="bg-slate-100 text-slate-700">
+                      {plan.duration_weeks} settimane
+                    </Pill>
+                  )}
+                </div>
               </div>
 
-              <Pill className="bg-teal-100 text-teal-700">
-                {plan.status || "active"}
-              </Pill>
+              <Button
+                onClick={() => onDeleteProgram(plan)}
+                disabled={deletingProgramId === plan.id}
+                className="border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+              >
+                <Trash2 size={16} className="mr-2" />
+                {deletingProgramId === plan.id
+                  ? "Eliminazione..."
+                  : "Elimina programma"}
+              </Button>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -2244,13 +2316,16 @@ function PlansList({ plans }) {
                                   key={exercise.id}
                                   className="mt-2 rounded-xl bg-slate-50 p-3 text-sm"
                                 >
-                                  <p className="font-black">{exercise.exercise_name}</p>
+                                  <p className="font-black">
+                                    {exercise.exercise_name}
+                                  </p>
 
                                   <p className="font-semibold text-slate-500">
                                     {exercise.workout_exercise_sets?.length ||
                                       exercise.sets ||
                                       "—"}{" "}
-                                    serie · recupero {exercise.recovery_seconds || "—"}s
+                                    serie · recupero{" "}
+                                    {exercise.recovery_seconds || "—"}s
                                   </p>
                                 </div>
                               ))}
@@ -2267,13 +2342,15 @@ function PlansList({ plans }) {
         ))}
 
         {plans.length === 0 && (
-          <Empty title="Nessun programma" text="Crea il primo programma completo." />
+          <Empty
+            title="Nessun programma"
+            text="Crea il primo programma completo."
+          />
         )}
       </div>
     </Card>
   );
 }
-
 function ClientDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
   const [client, setClient] = useState(null);
