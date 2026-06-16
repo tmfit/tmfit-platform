@@ -571,6 +571,7 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [clientError, setClientError] = useState("");
   const [deletingClient, setDeletingClient] = useState(false);
   const [deletingProgramId, setDeletingProgramId] = useState("");
+  const [updatingProgramId, setUpdatingProgramId] = useState("");
 
   const [newClient, setNewClient] = useState({
     first_name: "",
@@ -1126,7 +1127,146 @@ function updateProgressionField(
       setDeletingProgramId("");
     }
   }
+async function updateProgramStatus(program, status) {
+  if (!program) return;
 
+  const label = status === "active" ? "riattivare" : "archiviare";
+
+  const confirmed = window.confirm(
+    `Vuoi davvero ${label} il programma "${program.title}"?`
+  );
+
+  if (!confirmed) return;
+
+  setUpdatingProgramId(program.id);
+
+  try {
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError || !sessionData.session?.access_token) {
+      alert("Sessione non valida. Esci e rientra.");
+      return;
+    }
+
+    const response = await fetch("/api/update-program-status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session.access_token}`
+      },
+      body: JSON.stringify({
+        program_id: program.id,
+        status
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      alert(result.error || "Errore aggiornamento programma.");
+      return;
+    }
+
+    if (selectedClient) {
+      await loadClientBundle(selectedClient.id);
+    }
+  } catch (error) {
+    alert(error.message || "Errore imprevisto durante aggiornamento programma.");
+  } finally {
+    setUpdatingProgramId("");
+  }
+}
+
+function buildProgressionsFromExercise(exercise, weeks) {
+  const existing = exercise.workout_exercise_progressions || [];
+
+  return Array.from({ length: weeks }).map((_, index) => {
+    const weekNumber = index + 1;
+
+    const found = existing.find(
+      (item) => Number(item.week_number) === weekNumber
+    );
+
+    return {
+      temp_id: uid(),
+      week_number: weekNumber,
+      target_sets: found?.target_sets || "",
+      target_reps: found?.target_reps || "",
+      target_load_text: found?.target_load_text || "",
+      target_load_kg: found?.target_load_kg || "",
+      target_rpe: found?.target_rpe || "",
+      target_rir: found?.target_rir || "",
+      recovery_seconds: found?.recovery_seconds || "",
+      notes: found?.notes || ""
+    };
+  });
+}
+
+function duplicateProgramToBuilder(program) {
+  if (!program) return;
+
+  const weeks = Number(program.duration_weeks) || 4;
+
+  const days =
+    program.workout_weeks
+      ?.flatMap((week) => week.workout_days || [])
+      ?.map((day, dayIndex) => {
+        const exercises =
+          day.workout_blocks
+            ?.flatMap((block) => block.workout_exercises || [])
+            ?.map((exercise) => ({
+              temp_id: uid(),
+              exercise_name: exercise.exercise_name || "",
+              exercise_media_id:
+                exercise.exercise_media_id ||
+                exercise.exercise_media_library?.id ||
+                "",
+              sets: exercise.sets || "3",
+              reps: exercise.reps || "8-10",
+              recovery_seconds: exercise.recovery_seconds || 90,
+              target_rpe: exercise.target_rpe || "",
+              target_rir: exercise.target_rir || "",
+              execution_mode: exercise.execution_mode || "",
+              video_url: exercise.video_url || "",
+              image_url: exercise.image_url || "",
+              notes: exercise.notes || "",
+              has_weekly_progression: !!exercise.has_weekly_progression,
+              progressions: buildProgressionsFromExercise(exercise, weeks)
+            })) || [];
+
+        return {
+          temp_id: uid(),
+          title: day.title || `Allenamento ${String.fromCharCode(65 + dayIndex)}`,
+          estimated_minutes: day.estimated_minutes || 60,
+          notes: day.notes || "",
+          exercises: exercises.length ? exercises : [defaultExerciseRow()]
+        };
+      }) || [];
+
+  setBuilder({
+    title: `${program.title || "Programma"} copia`,
+    goal: program.goal || "",
+    start_date: today(),
+    end_date: "",
+    duration_weeks: weeks,
+    level: program.level || "intermedio",
+    location: program.location || "palestra",
+    notes: program.notes || "",
+    days: days.length ? days : [defaultWorkoutDay("A")]
+  });
+
+  setActiveTab("programs");
+
+  setTimeout(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }, 100);
+
+  alert("Programma copiato nel builder. Modificalo e poi salvalo come nuovo programma.");
+}
   async function saveWorkoutPlan(event) {
     event.preventDefault();
 
@@ -2389,10 +2529,13 @@ function updateProgressionField(
               )}
 
               <PlansList
-                plans={plans}
-                onDeleteProgram={deleteProgram}
-                deletingProgramId={deletingProgramId}
-              />
+  plans={plans}
+  onDeleteProgram={deleteProgram}
+  deletingProgramId={deletingProgramId}
+  onUpdateProgramStatus={updateProgramStatus}
+  updatingProgramId={updatingProgramId}
+  onDuplicateProgram={duplicateProgramToBuilder}
+/>
             </div>
           )}
           {activeTab === "monitor" && (
@@ -2805,104 +2948,171 @@ function updateProgressionField(
   );
 }
 
-function PlansList({ plans, onDeleteProgram, deletingProgramId }) {
+function PlansList({
+  plans,
+  onDeleteProgram,
+  deletingProgramId,
+  onUpdateProgramStatus,
+  updatingProgramId,
+  onDuplicateProgram
+}) {
   return (
     <Card className="p-5">
-      <h2 className="text-xl font-black">Programmi salvati</h2>
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-xl font-black">Programmi salvati</h2>
+          <p className="text-sm font-semibold text-slate-500">
+            Gestisci schede attive, archiviate e riutilizzabili.
+          </p>
+        </div>
+      </div>
 
       <div className="mt-4 space-y-4">
-        {plans.map((plan) => (
-          <div key={plan.id} className="rounded-3xl border border-slate-200 p-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h3 className="text-lg font-black">{plan.title}</h3>
+        {plans.map((plan) => {
+          const isActive = (plan.status || "active") === "active";
 
-                <p className="text-sm font-semibold text-slate-500">
-                  {plan.goal || "Nessun obiettivo"}
-                </p>
+          return (
+            <div
+              key={plan.id}
+              className={`rounded-3xl border p-4 ${
+                isActive
+                  ? "border-slate-200 bg-white"
+                  : "border-slate-200 bg-slate-50 opacity-80"
+              }`}
+            >
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <h3 className="text-lg font-black">{plan.title}</h3>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Pill className="bg-teal-100 text-teal-700">
-                    {plan.status || "active"}
-                  </Pill>
+                  <p className="text-sm font-semibold text-slate-500">
+                    {plan.goal || "Nessun obiettivo"}
+                  </p>
 
-                  {plan.duration_weeks && (
-                    <Pill className="bg-slate-100 text-slate-700">
-                      {plan.duration_weeks} settimane
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Pill
+                      className={
+                        isActive
+                          ? "bg-teal-100 text-teal-700"
+                          : "bg-slate-200 text-slate-600"
+                      }
+                    >
+                      {isActive ? "Attivo" : "Archiviato"}
                     </Pill>
+
+                    {plan.duration_weeks && (
+                      <Pill className="bg-slate-100 text-slate-700">
+                        {plan.duration_weeks} settimane
+                      </Pill>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => onDuplicateProgram(plan)}
+                    className="border border-slate-200 bg-white text-slate-900"
+                  >
+                    Duplica nel builder
+                  </Button>
+
+                  {isActive ? (
+                    <Button
+                      onClick={() => onUpdateProgramStatus(plan, "archived")}
+                      disabled={updatingProgramId === plan.id}
+                      className="border border-amber-200 bg-amber-50 text-amber-700"
+                    >
+                      {updatingProgramId === plan.id
+                        ? "Aggiornamento..."
+                        : "Archivia"}
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => onUpdateProgramStatus(plan, "active")}
+                      disabled={updatingProgramId === plan.id}
+                      className="border border-teal-200 bg-teal-50 text-teal-700"
+                    >
+                      {updatingProgramId === plan.id
+                        ? "Aggiornamento..."
+                        : "Riattiva"}
+                    </Button>
                   )}
+
+                  <Button
+                    onClick={() => onDeleteProgram(plan)}
+                    disabled={deletingProgramId === plan.id}
+                    className="border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                  >
+                    <Trash2 size={16} className="mr-2" />
+
+                    {deletingProgramId === plan.id
+                      ? "Eliminazione..."
+                      : "Elimina"}
+                  </Button>
                 </div>
               </div>
 
-              <Button
-                onClick={() => onDeleteProgram(plan)}
-                disabled={deletingProgramId === plan.id}
-                className="border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-              >
-                <Trash2 size={16} className="mr-2" />
+              <div className="mt-4 space-y-3">
+                {plan.workout_weeks?.map((week) => (
+                  <details
+                    key={week.id}
+                    className="rounded-2xl bg-slate-50 p-4"
+                  >
+                    <summary className="cursor-pointer font-black">
+                      {week.title || `Settimana ${week.week_number}`}
+                    </summary>
 
-                {deletingProgramId === plan.id
-                  ? "Eliminazione..."
-                  : "Elimina programma"}
-              </Button>
-            </div>
+                    <div className="mt-3 space-y-3">
+                      {week.workout_days?.map((day) => (
+                        <div key={day.id} className="rounded-2xl bg-white p-3">
+                          <p className="font-black text-teal-700">
+                            {day.title}
+                          </p>
 
-            <div className="mt-4 space-y-3">
-              {plan.workout_weeks?.map((week) => (
-                <details key={week.id} className="rounded-2xl bg-slate-50 p-4">
-                  <summary className="cursor-pointer font-black">
-                    {week.title || `Settimana ${week.week_number}`}
-                  </summary>
+                          <div className="mt-2 space-y-2">
+                            {day.workout_blocks?.map((block) => (
+                              <div key={block.id}>
+                                {block.workout_exercises?.map((exercise) => (
+                                  <div
+                                    key={exercise.id}
+                                    className="mt-2 rounded-xl bg-slate-50 p-3 text-sm"
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <ExerciseMediaPreview
+                                        media={exercise.exercise_media_library}
+                                      />
 
-                  <div className="mt-3 space-y-3">
-                    {week.workout_days?.map((day) => (
-                      <div key={day.id} className="rounded-2xl bg-white p-3">
-                        <p className="font-black text-teal-700">{day.title}</p>
+                                      <div className="flex-1">
+                                        <p className="font-black">
+                                          {exercise.exercise_name}
+                                        </p>
 
-                        <div className="mt-2 space-y-2">
-                          {day.workout_blocks?.map((block) => (
-                            <div key={block.id}>
-                              {block.workout_exercises?.map((exercise) => (
-                                <div
-                                  key={exercise.id}
-                                  className="mt-2 rounded-xl bg-slate-50 p-3 text-sm"
-                                >
-                                  <div className="flex items-start gap-3">
-                                    <ExerciseMediaPreview
-                                      media={exercise.exercise_media_library}
-                                    />
+                                        <p className="font-semibold text-slate-500">
+                                          {exercise.sets || "—"} serie ·{" "}
+                                          {exercise.reps || "—"} reps · recupero{" "}
+                                          {exercise.recovery_seconds || "—"}s
+                                        </p>
 
-                                    <div className="flex-1">
-                                      <p className="font-black">
-                                        {exercise.exercise_name}
-                                      </p>
-
-                                      <p className="font-semibold text-slate-500">
-                                        {exercise.sets || "—"} serie ·{" "}
-                                        {exercise.reps || "—"} reps · recupero{" "}
-                                        {exercise.recovery_seconds || "—"}s
-                                      </p>
-
-                                      {exercise.has_weekly_progression && (
-                                        <Pill className="mt-2 bg-teal-100 text-teal-700">
-                                          Progressione settimanale
-                                        </Pill>
-                                      )}
+                                        {exercise.has_weekly_progression && (
+                                          <Pill className="mt-2 bg-teal-100 text-teal-700">
+                                            Progressione settimanale
+                                          </Pill>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              ))}
-                            </div>
-                          ))}
+                                ))}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ))}
+                      ))}
+                    </div>
+                  </details>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {plans.length === 0 && (
           <Empty
