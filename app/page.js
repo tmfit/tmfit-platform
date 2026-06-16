@@ -572,7 +572,8 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [deletingClient, setDeletingClient] = useState(false);
   const [deletingProgramId, setDeletingProgramId] = useState("");
   const [updatingProgramId, setUpdatingProgramId] = useState("");
-
+const [editingProgramId, setEditingProgramId] = useState("");
+const [editingProgramTitle, setEditingProgramTitle] = useState("");
   const [newClient, setNewClient] = useState({
     first_name: "",
     last_name: "",
@@ -1267,6 +1268,114 @@ function duplicateProgramToBuilder(program) {
 
   alert("Programma copiato nel builder. Modificalo e poi salvalo come nuovo programma.");
 }
+  function editProgramInBuilder(program) {
+  if (!program) return;
+
+  const weeks = Number(program.duration_weeks) || 4;
+
+  const days =
+    program.workout_weeks
+      ?.flatMap((week) => week.workout_days || [])
+      ?.map((day, dayIndex) => {
+        const exercises =
+          day.workout_blocks
+            ?.flatMap((block) => block.workout_exercises || [])
+            ?.map((exercise) => ({
+              temp_id: uid(),
+              exercise_name: exercise.exercise_name || "",
+              exercise_media_id:
+                exercise.exercise_media_id ||
+                exercise.exercise_media_library?.id ||
+                "",
+              sets: exercise.sets || "3",
+              reps: exercise.reps || "8-10",
+              recovery_seconds: exercise.recovery_seconds || 90,
+              target_rpe: exercise.target_rpe || "",
+              target_rir: exercise.target_rir || "",
+              execution_mode: exercise.execution_mode || "",
+              video_url: exercise.video_url || "",
+              image_url: exercise.image_url || "",
+              notes: exercise.notes || "",
+              has_weekly_progression: !!exercise.has_weekly_progression,
+              progressions: buildProgressionsFromExercise(exercise, weeks)
+            })) || [];
+
+        return {
+          temp_id: uid(),
+          title: day.title || `Allenamento ${String.fromCharCode(65 + dayIndex)}`,
+          estimated_minutes: day.estimated_minutes || 60,
+          notes: day.notes || "",
+          exercises: exercises.length ? exercises : [defaultExerciseRow()]
+        };
+      }) || [];
+
+  setBuilder({
+    title: program.title || "Programma allenamento",
+    goal: program.goal || "",
+    start_date: program.start_date || today(),
+    end_date: program.end_date || "",
+    duration_weeks: weeks,
+    level: program.level || "intermedio",
+    location: program.location || "palestra",
+    notes: program.notes || "",
+    days: days.length ? days : [defaultWorkoutDay("A")]
+  });
+
+  setEditingProgramId(program.id);
+  setEditingProgramTitle(program.title || "Programma");
+  setActiveTab("programs");
+
+  setTimeout(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }, 100);
+
+  alert("Programma caricato nel builder. Modificalo e poi premi Aggiorna programma.");
+}
+
+function cancelProgramEditing() {
+  setEditingProgramId("");
+  setEditingProgramTitle("");
+  setBuilder(createSmartBuilder());
+}
+  async function replaceExistingProgram() {
+  const { data: sessionData, error: sessionError } =
+    await supabase.auth.getSession();
+
+  if (sessionError || !sessionData.session?.access_token) {
+    throw new Error("Sessione non valida. Esci e rientra.");
+  }
+
+  const response = await fetch("/api/replace-program", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionData.session.access_token}`
+    },
+    body: JSON.stringify({
+      program_id: editingProgramId,
+      builder
+    })
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || "Errore aggiornamento programma.");
+  }
+
+  setEditingProgramId("");
+  setEditingProgramTitle("");
+  setBuilder(createSmartBuilder());
+
+  if (selectedClient) {
+    await loadClientBundle(selectedClient.id);
+  }
+
+  alert("Programma aggiornato.");
+}
   async function saveWorkoutPlan(event) {
     event.preventDefault();
 
@@ -1286,8 +1395,13 @@ function duplicateProgramToBuilder(program) {
 
     setSavingPlan(true);
 
-    try {
-      const { data: plan, error: planError } = await supabase
+try {
+  if (editingProgramId) {
+    await replaceExistingProgram();
+    return;
+  }
+
+  const { data: plan, error: planError } = await supabase
         .from("workout_plans")
         .insert({
           client_id: Number(selectedClient.id),
@@ -1909,8 +2023,10 @@ function duplicateProgramToBuilder(program) {
                   <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h2 className="text-xl font-black">
-                        Smart Workout Builder
-                      </h2>
+  {editingProgramId
+    ? `Modifica programma: ${editingProgramTitle}`
+    : "Smart Workout Builder"}
+</h2>
 
                       <p className="text-sm font-semibold text-slate-500">
                         Allenamenti liberi, righe orizzontali, progressione solo
@@ -1918,13 +2034,31 @@ function duplicateProgramToBuilder(program) {
                       </p>
                     </div>
 
-                    <Button
-                      onClick={addWorkoutDay}
-                      className="border border-slate-200 bg-white text-slate-900"
-                    >
-                      <Plus size={16} className="mr-2" />
-                      Allenamento
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+  {editingProgramId && (
+    <Button
+      onClick={cancelProgramEditing}
+      className="border border-slate-200 bg-white text-slate-700"
+    >
+      <X size={16} className="mr-2" />
+      Annulla modifica
+    </Button>
+  )}
+
+  <Button
+    onClick={addWorkoutDay}
+    className="border border-slate-200 bg-white text-slate-900"
+  >
+    <Plus size={16} className="mr-2" />
+    Allenamento
+  </Button>
+  <Button
+  onClick={() => onEditProgram(plan)}
+  className="border border-teal-200 bg-teal-50 text-teal-700"
+>
+  Modifica
+</Button>
+</div>
                   </div>
 
                   <form onSubmit={saveWorkoutPlan} className="space-y-5">
@@ -2522,19 +2656,26 @@ function duplicateProgramToBuilder(program) {
                       className="w-full bg-[#07111f] text-white"
                     >
                       <Save size={17} className="mr-2" />
-                      {savingPlan ? "Salvataggio..." : "Salva programma smart"}
+                     {savingPlan
+  ? editingProgramId
+    ? "Aggiornamento..."
+    : "Salvataggio..."
+  : editingProgramId
+    ? "Aggiorna programma"
+    : "Salva programma smart"}
                     </Button>
                   </form>
                 </Card>
               )}
 
-              <PlansList
+             <PlansList
   plans={plans}
   onDeleteProgram={deleteProgram}
   deletingProgramId={deletingProgramId}
   onUpdateProgramStatus={updateProgramStatus}
   updatingProgramId={updatingProgramId}
   onDuplicateProgram={duplicateProgramToBuilder}
+  onEditProgram={editProgramInBuilder}
 />
             </div>
           )}
@@ -2954,7 +3095,8 @@ function PlansList({
   deletingProgramId,
   onUpdateProgramStatus,
   updatingProgramId,
-  onDuplicateProgram
+  onDuplicateProgram,
+  onEditProgram
 }) {
   return (
     <Card className="p-5">
