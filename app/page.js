@@ -854,7 +854,34 @@ if (historyError) {
       }) || null
     );
   }
+function getBuilderStats() {
+  const totalDays = builder.days.length;
 
+  const totalExercises = builder.days.reduce((sum, day) => {
+    return sum + day.exercises.filter((exercise) => exercise.exercise_name.trim()).length;
+  }, 0);
+
+  const totalProgressions = builder.days.reduce((sum, day) => {
+    return (
+      sum +
+      day.exercises.filter(
+        (exercise) =>
+          exercise.exercise_name.trim() && exercise.has_weekly_progression
+      ).length
+    );
+  }, 0);
+
+  const estimatedMinutes = builder.days.reduce((sum, day) => {
+    return sum + (Number(day.estimated_minutes) || 0);
+  }, 0);
+
+  return {
+    totalDays,
+    totalExercises,
+    totalProgressions,
+    estimatedMinutes
+  };
+}
   function updateBuilder(mutator) {
     setBuilder((prev) => {
       const next = clone(prev);
@@ -1966,7 +1993,7 @@ async function savePrivateNote(event) {
 
   function SelectedClientHero() {
     if (!selectedClient) return null;
-
+const builderStats = getBuilderStats();
     return (
       <Card className="overflow-hidden">
         <div className="bg-[#07111f] p-5 text-white md:p-6">
@@ -2357,6 +2384,16 @@ async function savePrivateNote(event) {
                   </div>
 
                   <form onSubmit={saveWorkoutPlan} className="space-y-5">
+    <SmartBuilderOverview
+  builder={builder}
+  editingProgramId={editingProgramId}
+  editingProgramTitle={editingProgramTitle}
+  stats={builderStats}
+  savingPlan={savingPlan}
+  savingTemplate={savingTemplate}
+  onSaveTemplate={saveBuilderAsTemplate}
+  onCancelEditing={cancelProgramEditing}
+/>
                     <div className="grid gap-3 md:grid-cols-3">
                       <Label title="Titolo programma">
                         <Input
@@ -2454,7 +2491,7 @@ async function savePrivateNote(event) {
                     {builder.days.map((day, dayIndex) => (
                       <div
                         key={day.temp_id}
-                        className="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-4"
+                        className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm"
                       >
                         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                           <div className="grid flex-1 gap-3 md:grid-cols-3">
@@ -2515,9 +2552,9 @@ async function savePrivateNote(event) {
                           </div>
                         </div>
 
-                        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
-                          <table className="w-[1400px] text-left text-sm">
-                            <thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-400">
+                        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
+                          <table className="w-[1320px] text-left text-sm">
+                            <thead className="bg-[#07111f] text-xs font-black uppercase tracking-wider text-white">
                               <tr>
                                 <th className="p-3">Img</th>
                                 <th className="p-3">Esercizio</th>
@@ -2948,7 +2985,7 @@ async function savePrivateNote(event) {
                     <Button
                       type="submit"
                       disabled={savingPlan}
-                      className="w-full bg-[#07111f] text-white"
+                      className="sticky bottom-4 z-10 w-full bg-[#07111f] text-white shadow-2xl"
                     >
                       <Save size={17} className="mr-2" />
                      {savingPlan
@@ -3388,6 +3425,98 @@ async function savePrivateNote(event) {
           )}
         </section>
       </main>
+    </div>
+  );
+}
+function SmartBuilderOverview({
+  builder,
+  editingProgramId,
+  editingProgramTitle,
+  stats,
+  savingPlan,
+  savingTemplate,
+  onSaveTemplate,
+  onCancelEditing
+}) {
+  return (
+    <div className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
+            {editingProgramId ? "Modalità modifica" : "Smart Builder"}
+          </p>
+
+          <h3 className="mt-1 text-2xl font-black text-slate-950">
+            {editingProgramId
+              ? editingProgramTitle || "Modifica programma"
+              : builder.title || "Nuovo programma"}
+          </h3>
+
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {builder.goal || "Obiettivo non impostato"} ·{" "}
+            {builder.duration_weeks || 4} settimane · {builder.location}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <p className="text-2xl font-black">{stats.totalDays}</p>
+            <p className="text-[11px] font-black uppercase text-slate-400">
+              Allenamenti
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <p className="text-2xl font-black">{stats.totalExercises}</p>
+            <p className="text-[11px] font-black uppercase text-slate-400">
+              Esercizi
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <p className="text-2xl font-black">{stats.totalProgressions}</p>
+            <p className="text-[11px] font-black uppercase text-slate-400">
+              Progressioni
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+            <p className="text-2xl font-black">{stats.estimatedMinutes}</p>
+            <p className="text-[11px] font-black uppercase text-slate-400">
+              Min totali
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+        <Button
+          type="button"
+          onClick={onSaveTemplate}
+          disabled={savingTemplate}
+          className="border border-slate-200 bg-slate-50 text-slate-900"
+        >
+          <Save size={16} className="mr-2" />
+          {savingTemplate ? "Salvataggio template..." : "Salva come template"}
+        </Button>
+
+        {editingProgramId && (
+          <Button
+            type="button"
+            onClick={onCancelEditing}
+            className="border border-amber-200 bg-amber-50 text-amber-700"
+          >
+            <X size={16} className="mr-2" />
+            Annulla modifica
+          </Button>
+        )}
+
+        <div className="ml-auto hidden items-center rounded-2xl bg-teal-50 px-4 py-3 text-xs font-black uppercase tracking-wider text-teal-700 md:flex">
+          {editingProgramId
+            ? "Stai aggiornando una scheda esistente"
+            : "Stai creando una nuova scheda"}
+        </div>
+      </div>
     </div>
   );
 }
