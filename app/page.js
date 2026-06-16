@@ -937,7 +937,25 @@ function ProfessionalDashboard({ session, onLogout }) {
       exercise.progressions = exercise.progressions.slice(0, weeks);
     });
   }
+function updateExerciseField(dayIndex, exerciseIndex, field, value) {
+  updateBuilder((next) => {
+    next.days[dayIndex].exercises[exerciseIndex][field] = value;
+  });
+}
 
+function updateProgressionField(
+  dayIndex,
+  exerciseIndex,
+  progressionIndex,
+  field,
+  value
+) {
+  updateBuilder((next) => {
+    next.days[dayIndex].exercises[exerciseIndex].progressions[
+      progressionIndex
+    ][field] = value;
+  });
+}
   async function createClient(event) {
     event.preventDefault();
 
@@ -2017,29 +2035,34 @@ function ProfessionalDashboard({ session, onLogout }) {
 
                                     <td className="w-24 p-3">
                                       <Input
-                                        value={exercise.sets}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].sets = event.target.value;
-                                          })
-                                        }
-                                      />
+  type="text"
+  inputMode="text"
+  value={exercise.sets}
+  onChange={(event) =>
+    updateExerciseField(
+      dayIndex,
+      exerciseIndex,
+      "sets",
+      event.currentTarget.value
+    )
+  }
+/>
                                     </td>
 
                                     <td className="w-28 p-3">
                                       <Input
-                                        value={exercise.reps}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].reps = event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
+  type="text"
+  inputMode="text"
+  value={exercise.reps}
+  onChange={(event) =>
+    updateExerciseField(
+      dayIndex,
+      exerciseIndex,
+      "reps",
+      event.currentTarget.value
+    )
+  }
+/>
 
                                     <td className="w-32 p-3">
                                       <Input
@@ -2058,29 +2081,33 @@ function ProfessionalDashboard({ session, onLogout }) {
 
                                     <td className="w-24 p-3">
                                       <Input
-                                        value={exercise.target_rpe}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].target_rpe = event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
+  type="text"
+  inputMode="text"
+  value={exercise.target_rpe}
+  onChange={(event) =>
+    updateExerciseField(
+      dayIndex,
+      exerciseIndex,
+      "target_rpe",
+      event.currentTarget.value
+    )
+  }
+/>
 
                                     <td className="w-24 p-3">
                                       <Input
-                                        value={exercise.target_rir}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].target_rir = event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
+  type="text"
+  inputMode="text"
+  value={exercise.target_rir}
+  onChange={(event) =>
+    updateExerciseField(
+      dayIndex,
+      exerciseIndex,
+      "target_rir",
+      event.currentTarget.value
+    )
+  }
+/>
 
                                     <td className="min-w-[180px] p-3">
                                       <Input
