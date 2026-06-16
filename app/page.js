@@ -565,6 +565,9 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [privateNotes, setPrivateNotes] = useState([]);
   const [posts, setPosts] = useState([]);
   const [exerciseMedia, setExerciseMedia] = useState([]);
+  const [templates, setTemplates] = useState([]);
+const [savingTemplate, setSavingTemplate] = useState(false);
+const [deletingTemplateId, setDeletingTemplateId] = useState("");
 
   const [credentials, setCredentials] = useState(null);
   const [creatingClient, setCreatingClient] = useState(false);
@@ -650,10 +653,11 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   ];
 
   useEffect(() => {
-    loadClients();
-    loadPosts();
-    loadExerciseMedia();
-  }, []);
+  loadClients();
+  loadPosts();
+  loadExerciseMedia();
+  loadTemplates();
+}, []);
 
   useEffect(() => {
     if (selectedClient) {
@@ -694,7 +698,20 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
 
     setExerciseMedia(data || []);
   }
+async function loadTemplates() {
+  const { data, error } = await supabase
+    .from("workout_program_templates")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
 
+  if (error) {
+    console.warn(error.message);
+    return;
+  }
+
+  setTemplates(data || []);
+}
   async function loadClientBundle(clientId) {
     const numericClientId = Number(clientId);
 
@@ -1375,6 +1392,170 @@ function cancelProgramEditing() {
   }
 
   alert("Programma aggiornato.");
+}
+  function hydrateBuilderFromTemplate(templateData) {
+  const data = templateData || createSmartBuilder();
+  const weeks = Number(data.duration_weeks) || 4;
+
+  const days =
+    Array.isArray(data.days) && data.days.length > 0
+      ? data.days.map((day, dayIndex) => ({
+          temp_id: uid(),
+          title: day.title || `Allenamento ${String.fromCharCode(65 + dayIndex)}`,
+          estimated_minutes: day.estimated_minutes || 60,
+          notes: day.notes || "",
+          exercises:
+            Array.isArray(day.exercises) && day.exercises.length > 0
+              ? day.exercises.map((exercise) => ({
+                  temp_id: uid(),
+                  exercise_name: exercise.exercise_name || "",
+                  exercise_media_id: exercise.exercise_media_id || "",
+                  sets: exercise.sets || "3",
+                  reps: exercise.reps || "8-10",
+                  recovery_seconds: exercise.recovery_seconds || 90,
+                  target_rpe: exercise.target_rpe || "",
+                  target_rir: exercise.target_rir || "",
+                  execution_mode: exercise.execution_mode || "",
+                  video_url: exercise.video_url || "",
+                  image_url: exercise.image_url || "",
+                  notes: exercise.notes || "",
+                  has_weekly_progression: !!exercise.has_weekly_progression,
+                  progressions: Array.from({ length: weeks }).map((_, index) => {
+                    const weekNumber = index + 1;
+                    const found = (exercise.progressions || []).find(
+                      (item) => Number(item.week_number) === weekNumber
+                    );
+
+                    return {
+                      temp_id: uid(),
+                      week_number: weekNumber,
+                      target_sets: found?.target_sets || "",
+                      target_reps: found?.target_reps || "",
+                      target_load_text: found?.target_load_text || "",
+                      target_load_kg: found?.target_load_kg || "",
+                      target_rpe: found?.target_rpe || "",
+                      target_rir: found?.target_rir || "",
+                      recovery_seconds: found?.recovery_seconds || "",
+                      notes: found?.notes || ""
+                    };
+                  })
+                }))
+              : [defaultExerciseRow()]
+        }))
+      : [defaultWorkoutDay("A")];
+
+  return {
+    title: data.title || "Programma allenamento",
+    goal: data.goal || "",
+    start_date: today(),
+    end_date: "",
+    duration_weeks: weeks,
+    level: data.level || "intermedio",
+    location: data.location || "palestra",
+    notes: data.notes || "",
+    days
+  };
+}
+
+async function saveBuilderAsTemplate() {
+  const hasExercise = builder.days.some((day) =>
+    day.exercises.some((exercise) => exercise.exercise_name.trim())
+  );
+
+  if (!hasExercise) {
+    alert("Inserisci almeno un esercizio prima di salvare il template.");
+    return;
+  }
+
+  const title = window.prompt(
+    "Nome del template",
+    builder.title || "Template allenamento"
+  );
+
+  if (!title) return;
+
+  setSavingTemplate(true);
+
+  try {
+    const templateData = clone(builder);
+    templateData.title = title;
+    templateData.start_date = "";
+    templateData.end_date = "";
+
+    const { error } = await supabase.from("workout_program_templates").insert({
+      professional_id: session.user.id,
+      title,
+      description: builder.notes || null,
+      goal: builder.goal || null,
+      level: builder.level || null,
+      location: builder.location || null,
+      duration_weeks: Number(builder.duration_weeks) || 4,
+      template_data: templateData,
+      is_global: false,
+      is_active: true
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadTemplates();
+    alert("Template salvato.");
+  } finally {
+    setSavingTemplate(false);
+  }
+}
+
+function useTemplateInBuilder(template) {
+  if (!template?.template_data) return;
+
+  const confirmed = window.confirm(
+    `Vuoi caricare il template "${template.title}" nel builder? I dati attuali del builder verranno sostituiti.`
+  );
+
+  if (!confirmed) return;
+
+  setEditingProgramId("");
+  setEditingProgramTitle("");
+  setBuilder(hydrateBuilderFromTemplate(template.template_data));
+
+  setActiveTab("programs");
+
+  setTimeout(() => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }, 100);
+}
+
+async function deleteTemplate(template) {
+  if (!template) return;
+
+  const confirmed = window.confirm(
+    `Vuoi davvero eliminare il template "${template.title}"?`
+  );
+
+  if (!confirmed) return;
+
+  setDeletingTemplateId(template.id);
+
+  try {
+    const { error } = await supabase
+      .from("workout_program_templates")
+      .delete()
+      .eq("id", template.id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadTemplates();
+  } finally {
+    setDeletingTemplateId("");
+  }
 }
   async function saveWorkoutPlan(event) {
     event.preventDefault();
@@ -2668,6 +2849,14 @@ try {
                 </Card>
               )}
 
+                <TemplatesPanel
+  templates={templates}
+  savingTemplate={savingTemplate}
+  deletingTemplateId={deletingTemplateId}
+  onSaveTemplate={saveBuilderAsTemplate}
+  onUseTemplate={useTemplateInBuilder}
+  onDeleteTemplate={deleteTemplate}
+/>
              <PlansList
   plans={plans}
   onDeleteProgram={deleteProgram}
@@ -3088,7 +3277,121 @@ try {
     </div>
   );
 }
+function TemplatesPanel({
+  templates,
+  savingTemplate,
+  deletingTemplateId,
+  onSaveTemplate,
+  onUseTemplate,
+  onDeleteTemplate
+}) {
+  const [search, setSearch] = useState("");
 
+  const filteredTemplates = templates.filter((template) => {
+    const text = `${template.title || ""} ${template.goal || ""} ${
+      template.level || ""
+    } ${template.location || ""}`.toLowerCase();
+
+    return text.includes(search.toLowerCase());
+  });
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-xl font-black">Template schede</h2>
+          <p className="text-sm font-semibold text-slate-500">
+            Salva strutture riutilizzabili e caricale nel builder in un click.
+          </p>
+        </div>
+
+        <Button
+          onClick={onSaveTemplate}
+          disabled={savingTemplate}
+          className="bg-[#07111f] text-white"
+        >
+          <Save size={17} className="mr-2" />
+          {savingTemplate ? "Salvataggio..." : "Salva builder come template"}
+        </Button>
+      </div>
+
+      <div className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <Search size={17} className="text-slate-400" />
+
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Cerca template"
+          className="w-full bg-transparent text-sm font-bold outline-none"
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {filteredTemplates.map((template) => (
+          <div
+            key={template.id}
+            className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="font-black">{template.title}</h3>
+
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {template.goal || "Nessun obiettivo"}
+                </p>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Pill className="bg-teal-100 text-teal-700">
+                    {template.duration_weeks || 4} settimane
+                  </Pill>
+
+                  {template.level && (
+                    <Pill className="bg-white text-slate-700">
+                      {template.level}
+                    </Pill>
+                  )}
+
+                  {template.location && (
+                    <Pill className="bg-white text-slate-700">
+                      {template.location}
+                    </Pill>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                onClick={() => onUseTemplate(template)}
+                className="bg-[#07111f] text-white"
+              >
+                Usa nel builder
+              </Button>
+
+              <Button
+                onClick={() => onDeleteTemplate(template)}
+                disabled={deletingTemplateId === template.id}
+                className="border border-red-200 bg-red-50 text-red-700"
+              >
+                <Trash2 size={16} className="mr-2" />
+                {deletingTemplateId === template.id
+                  ? "Eliminazione..."
+                  : "Elimina"}
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {filteredTemplates.length === 0 && (
+          <Empty
+            title="Nessun template"
+            text="Compila una scheda nel builder e salvala come template."
+          />
+        )}
+      </div>
+    </Card>
+  );
+}
 function PlansList({
   plans,
   onDeleteProgram,
