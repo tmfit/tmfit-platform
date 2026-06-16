@@ -1964,244 +1964,220 @@ function updateProgressionField(
                                 <th className="p-3">Azioni</th>
                               </tr>
                             </thead>
+<tbody>
+  {day.exercises.map((exercise, exerciseIndex) => {
+    const matchedMedia = exercise.exercise_media_id
+      ? mediaById.get(exercise.exercise_media_id)
+      : findMediaForExercise(exercise.exercise_name);
 
-                            <tbody>
-                              {day.exercises.map((exercise, exerciseIndex) => {
-                                const matchedMedia = exercise.exercise_media_id
-                                  ? mediaById.get(exercise.exercise_media_id)
-                                  : findMediaForExercise(
-                                      exercise.exercise_name
-                                    );
+    return (
+      <tr
+        key={exercise.temp_id}
+        className="border-t border-slate-100 align-top"
+      >
+        <td className="p-3">
+          <ExerciseMediaPreview media={matchedMedia} />
+        </td>
 
-                                return (
-                                  <tr
-                                    key={exercise.temp_id}
-                                    className="border-t border-slate-100 align-top"
-                                  >
-                                    <td className="p-3">
-                                      <ExerciseMediaPreview
-                                        media={matchedMedia}
-                                      />
-                                    </td>
+        <td className="min-w-[260px] p-3">
+          <Input
+            list="exercise-media-list"
+            placeholder="Scrivi esercizio"
+            value={exercise.exercise_name}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "exercise_name",
+                event.currentTarget.value
+              )
+            }
+          />
 
-                                    <td className="min-w-[260px] p-3">
-                                      <Input
-                                        list="exercise-media-list"
-                                        placeholder="Scrivi esercizio"
-                                        value={exercise.exercise_name}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            const row =
-                                              next.days[dayIndex].exercises[
-                                                exerciseIndex
-                                              ];
+          <select
+            value={exercise.exercise_media_id}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "exercise_media_id",
+                event.currentTarget.value
+              )
+            }
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          >
+            <option value="">Immagine auto/opzionale</option>
 
-                                            row.exercise_name =
-                                              event.target.value;
+            {exerciseMedia.map((media) => (
+              <option key={media.id} value={media.id}>
+                {media.name}
+              </option>
+            ))}
+          </select>
+        </td>
 
-                                            const media = findMediaForExercise(
-                                              event.target.value
-                                            );
+        <td className="w-24 p-3">
+          <Input
+            type="text"
+            inputMode="text"
+            value={exercise.sets}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "sets",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                            row.exercise_media_id =
-                                              media?.id || row.exercise_media_id;
-                                          })
-                                        }
-                                      />
+        <td className="w-28 p-3">
+          <Input
+            type="text"
+            inputMode="text"
+            value={exercise.reps}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "reps",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                      <select
-                                        value={exercise.exercise_media_id}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].exercise_media_id =
-                                              event.target.value;
-                                          })
-                                        }
-                                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                                      >
-                                        <option value="">
-                                          Immagine auto/opzionale
-                                        </option>
+        <td className="w-32 p-3">
+          <Input
+            type="number"
+            value={exercise.recovery_seconds}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "recovery_seconds",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                        {exerciseMedia.map((media) => (
-                                          <option key={media.id} value={media.id}>
-                                            {media.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </td>
+        <td className="w-24 p-3">
+          <Input
+            type="text"
+            inputMode="text"
+            value={exercise.target_rpe}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "target_rpe",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                    <td className="w-24 p-3">
-                                      <Input
-  type="text"
-  inputMode="text"
-  value={exercise.sets}
-  onChange={(event) =>
-    updateExerciseField(
-      dayIndex,
-      exerciseIndex,
-      "sets",
-      event.currentTarget.value
-    )
-  }
-/>
-                                    </td>
+        <td className="w-24 p-3">
+          <Input
+            type="text"
+            inputMode="text"
+            value={exercise.target_rir}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "target_rir",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                    <td className="w-28 p-3">
-                                      <Input
-  type="text"
-  inputMode="text"
-  value={exercise.reps}
-  onChange={(event) =>
-    updateExerciseField(
-      dayIndex,
-      exerciseIndex,
-      "reps",
-      event.currentTarget.value
-    )
-  }
-/>
+        <td className="min-w-[180px] p-3">
+          <Input
+            placeholder="Controllata..."
+            value={exercise.execution_mode}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "execution_mode",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                    <td className="w-32 p-3">
-                                      <Input
-                                        type="number"
-                                        value={exercise.recovery_seconds}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].recovery_seconds =
-                                              event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
+        <td className="min-w-[210px] p-3">
+          <Input
+            placeholder="Link non obbligatorio"
+            value={exercise.video_url}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "video_url",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                    <td className="w-24 p-3">
-                                      <Input
-  type="text"
-  inputMode="text"
-  value={exercise.target_rpe}
-  onChange={(event) =>
-    updateExerciseField(
-      dayIndex,
-      exerciseIndex,
-      "target_rpe",
-      event.currentTarget.value
-    )
-  }
-/>
+        <td className="min-w-[210px] p-3">
+          <Input
+            placeholder="Note"
+            value={exercise.notes}
+            onChange={(event) =>
+              updateExerciseField(
+                dayIndex,
+                exerciseIndex,
+                "notes",
+                event.currentTarget.value
+              )
+            }
+          />
+        </td>
 
-                                    <td className="w-24 p-3">
-                                      <Input
-  type="text"
-  inputMode="text"
-  value={exercise.target_rir}
-  onChange={(event) =>
-    updateExerciseField(
-      dayIndex,
-      exerciseIndex,
-      "target_rir",
-      event.currentTarget.value
-    )
-  }
-/>
+        <td className="w-40 p-3">
+          <label className="flex items-center gap-2 text-xs font-black">
+            <input
+              type="checkbox"
+              checked={exercise.has_weekly_progression}
+              onChange={(event) =>
+                toggleExerciseProgression(
+                  dayIndex,
+                  exerciseIndex,
+                  event.target.checked
+                )
+              }
+            />
+            Progressione
+          </label>
+        </td>
 
-                                    <td className="min-w-[180px] p-3">
-                                      <Input
-                                        placeholder="Controllata..."
-                                        value={exercise.execution_mode}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].execution_mode =
-                                              event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
+        <td className="w-44 p-3">
+          <div className="flex gap-2">
+            <Button
+              onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
+              className="border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900"
+            >
+              Duplica
+            </Button>
 
-                                    <td className="min-w-[210px] p-3">
-                                      <Input
-                                        placeholder="Link non obbligatorio"
-                                        value={exercise.video_url}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].video_url = event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
-
-                                    <td className="min-w-[210px] p-3">
-                                      <Input
-                                        placeholder="Note"
-                                        value={exercise.notes}
-                                        onChange={(event) =>
-                                          updateBuilder((next) => {
-                                            next.days[dayIndex].exercises[
-                                              exerciseIndex
-                                            ].notes = event.target.value;
-                                          })
-                                        }
-                                      />
-                                    </td>
-
-                                    <td className="w-40 p-3">
-                                      <label className="flex items-center gap-2 text-xs font-black">
-                                        <input
-                                          type="checkbox"
-                                          checked={
-                                            exercise.has_weekly_progression
-                                          }
-                                          onChange={(event) =>
-                                            toggleExerciseProgression(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              event.target.checked
-                                            )
-                                          }
-                                        />
-                                        Progressione
-                                      </label>
-                                    </td>
-
-                                    <td className="w-44 p-3">
-                                      <div className="flex gap-2">
-                                        <Button
-                                          onClick={() =>
-                                            duplicateExerciseRow(
-                                              dayIndex,
-                                              exerciseIndex
-                                            )
-                                          }
-                                          className="border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900"
-                                        >
-                                          Duplica
-                                        </Button>
-
-                                        <Button
-                                          onClick={() =>
-                                            removeExerciseRow(
-                                              dayIndex,
-                                              exerciseIndex
-                                            )
-                                          }
-                                          className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
-                                        >
-                                          <X size={14} />
-                                        </Button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
+            <Button
+              onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
+              className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+            >
+              <X size={14} />
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
                           </table>
                         </div>
 
