@@ -5,10 +5,12 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Activity,
   Camera,
+  Check,
   ClipboardCheck,
   Dumbbell,
   FileText,
   HomeIcon,
+  Link as LinkIcon,
   LogOut,
   Megaphone,
   Plus,
@@ -25,12 +27,19 @@ import {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 const today = () => new Date().toISOString().slice(0, 10);
-const clone = (value) => JSON.parse(JSON.stringify(value));
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
 function fullName(client) {
   return `${client?.first_name || ""} ${client?.last_name || ""}`.trim() || "Cliente";
@@ -53,22 +62,30 @@ function sortByOrder(items = [], field = "sort_order") {
 function normalizePlans(plans = []) {
   return plans.map((plan) => ({
     ...plan,
-    workout_weeks: sortByOrder(plan.workout_weeks || [], "week_number").map((week) => ({
-      ...week,
-      workout_days: sortByOrder(week.workout_days || []).map((day) => ({
-        ...day,
-        workout_blocks: sortByOrder(day.workout_blocks || []).map((block) => ({
-          ...block,
-          workout_exercises: sortByOrder(block.workout_exercises || []).map((exercise) => ({
-            ...exercise,
-            workout_exercise_sets: sortByOrder(
-              exercise.workout_exercise_sets || [],
-              "set_number"
+    workout_weeks: sortByOrder(plan.workout_weeks || [], "week_number").map(
+      (week) => ({
+        ...week,
+        workout_days: sortByOrder(week.workout_days || []).map((day) => ({
+          ...day,
+          workout_blocks: sortByOrder(day.workout_blocks || []).map((block) => ({
+            ...block,
+            workout_exercises: sortByOrder(block.workout_exercises || []).map(
+              (exercise) => ({
+                ...exercise,
+                workout_exercise_sets: sortByOrder(
+                  exercise.workout_exercise_sets || [],
+                  "set_number"
+                ),
+                workout_exercise_progressions: sortByOrder(
+                  exercise.workout_exercise_progressions || [],
+                  "week_number"
+                )
+              })
             )
           }))
         }))
-      }))
-    }))
+      })
+    )
   }));
 }
 
@@ -101,7 +118,9 @@ function Button({ children, className = "", type = "button", ...props }) {
 
 function Card({ children, className = "" }) {
   return (
-    <section className={`rounded-[1.6rem] border border-slate-200 bg-white shadow-sm ${className}`}>
+    <section
+      className={`rounded-[1.6rem] border border-slate-200 bg-white shadow-sm ${className}`}
+    >
       {children}
     </section>
   );
@@ -151,14 +170,18 @@ function Empty({ title, text }) {
   return (
     <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
       <p className="font-black text-slate-800">{title}</p>
-      {text && <p className="mt-1 text-sm font-semibold text-slate-500">{text}</p>}
+      {text && (
+        <p className="mt-1 text-sm font-semibold text-slate-500">{text}</p>
+      )}
     </div>
   );
 }
 
 function Pill({ children, className = "" }) {
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${className}`}>
+    <span
+      className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${className}`}
+    >
       {children}
     </span>
   );
@@ -208,6 +231,7 @@ function RestTimer({ seconds = 90 }) {
           setRunning(false);
           return 0;
         }
+
         return prev - 1;
       });
     }, 1000);
@@ -227,6 +251,7 @@ function RestTimer({ seconds = 90 }) {
             {minutes}:{String(secs).padStart(2, "0")}
           </span>
         </div>
+
         <div className="flex gap-2">
           <button
             type="button"
@@ -235,6 +260,7 @@ function RestTimer({ seconds = 90 }) {
           >
             Start
           </button>
+
           <button
             type="button"
             onClick={() => {
@@ -267,7 +293,12 @@ function LoginScreen() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
     setLoading(false);
 
     if (error) setError(error.message);
@@ -302,6 +333,7 @@ function LoginScreen() {
               className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
               placeholder="Email"
             />
+
             <input
               type="password"
               required
@@ -310,6 +342,7 @@ function LoginScreen() {
               className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
               placeholder="Password"
             />
+
             <Button
               type="submit"
               disabled={loading}
@@ -324,75 +357,88 @@ function LoginScreen() {
   );
 }
 
-function createDefaultBuilder() {
+function defaultProgressions() {
+  return [1, 2, 3, 4].map((week) => ({
+    temp_id: uid(),
+    week_number: week,
+    target_sets: "",
+    target_reps: "",
+    target_load_text: "",
+    target_load_kg: "",
+    target_rpe: "",
+    target_rir: "",
+    recovery_seconds: "",
+    notes: ""
+  }));
+}
+
+function defaultExerciseRow() {
+  return {
+    temp_id: uid(),
+    exercise_name: "",
+    exercise_media_id: "",
+    sets: "3",
+    reps: "8-10",
+    recovery_seconds: 90,
+    target_rpe: "",
+    target_rir: "",
+    execution_mode: "",
+    video_url: "",
+    image_url: "",
+    notes: "",
+    has_weekly_progression: false,
+    progressions: defaultProgressions()
+  };
+}
+
+function defaultWorkoutDay(letter = "A") {
+  return {
+    temp_id: uid(),
+    title: `Allenamento ${letter}`,
+    estimated_minutes: 60,
+    notes: "",
+    exercises: [defaultExerciseRow()]
+  };
+}
+
+function createSmartBuilder() {
   return {
     title: "Programma allenamento",
     goal: "",
-    notes: "",
     start_date: today(),
     end_date: "",
     duration_weeks: 4,
     level: "intermedio",
     location: "palestra",
-    weeks: [
-      {
-        temp_id: uid(),
-        week_number: 1,
-        title: "Settimana 1",
-        goal: "",
-        notes: "",
-        days: [
-          {
-            temp_id: uid(),
-            title: "Allenamento A",
-            day_type: "training",
-            estimated_minutes: 60,
-            notes: "",
-            blocks: [
-              {
-                temp_id: uid(),
-                title: "Blocco principale",
-                block_type: "normal",
-                instructions: "",
-                exercises: [
-                  {
-                    temp_id: uid(),
-                    exercise_name: "",
-                    exercise_type: "normal",
-                    execution_mode: "Controllata",
-                    tracking_type: "load_reps",
-                    target_load: "",
-                    target_rpe: "",
-                    target_rir: "",
-                    tempo: "",
-                    recovery_seconds: 90,
-                    weekly_progression: "",
-                    video_url: "",
-                    image_url: "",
-                    substitution: "",
-                    coach_cues: "",
-                    notes: "",
-                    sets: [
-                      {
-                        temp_id: uid(),
-                        set_number: 1,
-                        target_reps: "8-10",
-                        target_load_kg: "",
-                        target_rpe: "",
-                        target_rir: "",
-                        rest_seconds: 90,
-                        notes: ""
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]
+    notes: "",
+    days: [defaultWorkoutDay("A")]
   };
+}
+
+function ExerciseMediaPreview({ media }) {
+  if (!media) {
+    return (
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-xs font-black text-slate-400">
+        IMG
+      </div>
+    );
+  }
+
+  if (media.image_url) {
+    return (
+      <img
+        src={media.image_url}
+        alt={media.name}
+        className="h-16 w-16 rounded-2xl border border-slate-200 object-cover"
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-50 text-center text-[10px] font-black text-teal-700">
+      TMFIT
+    </div>
+  );
 }
 
 export default function Home() {
@@ -429,6 +475,7 @@ export default function Home() {
       }
 
       setLoadingProfile(true);
+
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
@@ -436,6 +483,7 @@ export default function Home() {
         .maybeSingle();
 
       if (error) console.warn(error.message);
+
       setProfile(data || null);
       setLoadingProfile(false);
     }
@@ -455,7 +503,7 @@ export default function Home() {
         <Card className="max-w-xl p-8 text-center text-slate-950">
           <h1 className="text-2xl font-black">Supabase non configurato</h1>
           <p className="mt-3 text-sm font-semibold text-slate-500">
-            Controlla le variabili NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.
+            Controlla NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.
           </p>
         </Card>
       </div>
@@ -478,8 +526,10 @@ export default function Home() {
         <Card className="max-w-xl p-8 text-center">
           <h1 className="text-2xl font-black">Profilo non configurato</h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">
-            L’utente esiste in Supabase Auth, ma manca la riga nella tabella profiles.
+            L’utente esiste in Supabase Auth, ma manca la riga nella tabella
+            profiles.
           </p>
+
           <Button onClick={handleLogout} className="mt-5 bg-[#07111f] text-white">
             Esci
           </Button>
@@ -496,7 +546,11 @@ export default function Home() {
 }
 function ProfessionalDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_pro_tab", "clients");
-  const [selectedClientId, setSelectedClientId] = usePersistedState("tmfit_selected_client", "");
+  const [selectedClientId, setSelectedClientId] = usePersistedState(
+    "tmfit_selected_client",
+    ""
+  );
+
   const [clients, setClients] = useState([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -510,12 +564,14 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [photos, setPhotos] = useState([]);
   const [privateNotes, setPrivateNotes] = useState([]);
   const [posts, setPosts] = useState([]);
+  const [exerciseMedia, setExerciseMedia] = useState([]);
 
   const [credentials, setCredentials] = useState(null);
   const [creatingClient, setCreatingClient] = useState(false);
   const [clientError, setClientError] = useState("");
   const [deletingClient, setDeletingClient] = useState(false);
   const [deletingProgramId, setDeletingProgramId] = useState("");
+
   const [newClient, setNewClient] = useState({
     first_name: "",
     last_name: "",
@@ -528,10 +584,15 @@ function ProfessionalDashboard({ session, onLogout }) {
     notes: ""
   });
 
-  const [builder, setBuilder] = useState(createDefaultBuilder());
+  const [builder, setBuilder] = useState(createSmartBuilder());
   const [savingPlan, setSavingPlan] = useState(false);
 
-  const [dietForm, setDietForm] = useState({ title: "", start_date: "", end_date: "", notes: "" });
+  const [dietForm, setDietForm] = useState({
+    title: "",
+    start_date: "",
+    end_date: "",
+    notes: ""
+  });
   const [dietFile, setDietFile] = useState(null);
 
   const [measurementForm, setMeasurementForm] = useState({
@@ -550,18 +611,32 @@ function ProfessionalDashboard({ session, onLogout }) {
     notes: ""
   });
 
-  const [noteForm, setNoteForm] = useState({ title: "", note_type: "general", body: "" });
-  const [postForm, setPostForm] = useState({ title: "", body: "", client_scope: "selected", is_pinned: false });
+  const [postForm, setPostForm] = useState({
+    title: "",
+    body: "",
+    client_scope: "selected",
+    is_pinned: false
+  });
 
   const selectedClient =
-    clients.find((client) => String(client.id) === String(selectedClientId)) || null;
+    clients.find((client) => String(client.id) === String(selectedClientId)) ||
+    null;
 
   const filteredClients = useMemo(() => {
     return clients.filter((client) => {
-      const haystack = `${fullName(client)} ${client.email || ""} ${client.goal || ""}`.toLowerCase();
-      return haystack.includes(query.toLowerCase());
+      const text = `${fullName(client)} ${client.email || ""} ${
+        client.goal || ""
+      }`.toLowerCase();
+
+      return text.includes(query.toLowerCase());
     });
   }, [clients, query]);
+
+  const mediaById = useMemo(() => {
+    const map = new Map();
+    exerciseMedia.forEach((item) => map.set(item.id, item));
+    return map;
+  }, [exerciseMedia]);
 
   const professionalTabs = [
     { id: "clients", label: "Clienti", icon: <Users size={17} /> },
@@ -575,24 +650,47 @@ function ProfessionalDashboard({ session, onLogout }) {
   useEffect(() => {
     loadClients();
     loadPosts();
+    loadExerciseMedia();
   }, []);
 
   useEffect(() => {
-    if (selectedClient) loadClientBundle(selectedClient.id);
+    if (selectedClient) {
+      loadClientBundle(selectedClient.id);
+    }
   }, [selectedClientId, clients.length]);
 
   async function loadClients() {
     setLoading(true);
+
     const { data, error } = await supabase
       .from("clients")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) console.warn(error.message);
+
     const rows = data || [];
     setClients(rows);
-    if (rows.length && !selectedClientId) setSelectedClientId(String(rows[0].id));
+
+    if (rows.length && !selectedClientId) {
+      setSelectedClientId(String(rows[0].id));
+    }
+
     setLoading(false);
+  }
+
+  async function loadExerciseMedia() {
+    const { data, error } = await supabase
+      .from("exercise_media_library")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.warn(error.message);
+      return;
+    }
+
+    setExerciseMedia(data || []);
   }
 
   async function loadClientBundle(clientId) {
@@ -611,7 +709,9 @@ function ProfessionalDashboard({ session, onLogout }) {
               *,
               workout_exercises (
                 *,
-                workout_exercise_sets (*)
+                exercise_media_library (*),
+                workout_exercise_sets (*),
+                workout_exercise_progressions (*)
               )
             )
           )
@@ -630,14 +730,18 @@ function ProfessionalDashboard({ session, onLogout }) {
       .eq("client_id", numericClientId)
       .order("created_at", { ascending: false })
       .limit(30);
+
     setSessions(sessionData || []);
 
     const { data: logData } = await supabase
       .from("workout_set_logs")
-      .select("*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)")
+      .select(
+        "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
+      )
       .eq("workout_sessions.client_id", numericClientId)
       .order("created_at", { ascending: false })
       .limit(50);
+
     setLogs(logData || []);
 
     const { data: dietData } = await supabase
@@ -645,6 +749,7 @@ function ProfessionalDashboard({ session, onLogout }) {
       .select("*")
       .eq("client_id", numericClientId)
       .order("created_at", { ascending: false });
+
     setDiets(dietData || []);
 
     const { data: checkinData } = await supabase
@@ -653,6 +758,7 @@ function ProfessionalDashboard({ session, onLogout }) {
       .eq("client_id", numericClientId)
       .order("checkin_date", { ascending: false })
       .limit(30);
+
     setCheckins(checkinData || []);
 
     const { data: measurementData } = await supabase
@@ -660,6 +766,7 @@ function ProfessionalDashboard({ session, onLogout }) {
       .select("*")
       .eq("client_id", numericClientId)
       .order("measurement_date", { ascending: false });
+
     setMeasurements(measurementData || []);
 
     const { data: photoData } = await supabase
@@ -667,6 +774,7 @@ function ProfessionalDashboard({ session, onLogout }) {
       .select("*")
       .eq("client_id", numericClientId)
       .order("photo_date", { ascending: false });
+
     setPhotos(photoData || []);
 
     const { data: noteData } = await supabase
@@ -674,6 +782,7 @@ function ProfessionalDashboard({ session, onLogout }) {
       .select("*")
       .eq("client_id", numericClientId)
       .order("created_at", { ascending: false });
+
     setPrivateNotes(noteData || []);
   }
 
@@ -683,19 +792,167 @@ function ProfessionalDashboard({ session, onLogout }) {
       .select("*")
       .order("created_at", { ascending: false })
       .limit(50);
+
     setPosts(data || []);
+  }
+
+  function normalizeName(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function findMediaForExercise(name) {
+    const normalized = normalizeName(name);
+
+    if (!normalized) return null;
+
+    const exact = exerciseMedia.find((item) => normalizeName(item.name) === normalized);
+    if (exact) return exact;
+
+    return (
+      exerciseMedia.find((item) => {
+        const mediaName = normalizeName(item.name);
+        return mediaName.includes(normalized) || normalized.includes(mediaName);
+      }) || null
+    );
+  }
+
+  function updateBuilder(mutator) {
+    setBuilder((prev) => {
+      const next = clone(prev);
+      mutator(next);
+      return next;
+    });
+  }
+
+  function updateDurationWeeks(value) {
+    const weeks = Number(value) || 1;
+
+    updateBuilder((next) => {
+      next.duration_weeks = weeks;
+
+      next.days.forEach((day) => {
+        day.exercises.forEach((exercise) => {
+          const current = exercise.progressions || [];
+          const updated = [];
+
+          for (let index = 1; index <= weeks; index += 1) {
+            const existing = current.find(
+              (item) => Number(item.week_number) === index
+            );
+
+            updated.push(
+              existing || {
+                temp_id: uid(),
+                week_number: index,
+                target_sets: "",
+                target_reps: "",
+                target_load_text: "",
+                target_load_kg: "",
+                target_rpe: "",
+                target_rir: "",
+                recovery_seconds: "",
+                notes: ""
+              }
+            );
+          }
+
+          exercise.progressions = updated;
+        });
+      });
+    });
+  }
+
+  function addWorkoutDay() {
+    updateBuilder((next) => {
+      const letter = String.fromCharCode(65 + next.days.length);
+      next.days.push(defaultWorkoutDay(letter));
+    });
+  }
+
+  function removeWorkoutDay(dayIndex) {
+    updateBuilder((next) => {
+      if (next.days.length > 1) {
+        next.days.splice(dayIndex, 1);
+      }
+    });
+  }
+
+  function addExerciseRow(dayIndex) {
+    updateBuilder((next) => {
+      next.days[dayIndex].exercises.push(defaultExerciseRow());
+    });
+  }
+
+  function duplicateExerciseRow(dayIndex, exerciseIndex) {
+    updateBuilder((next) => {
+      const copy = clone(next.days[dayIndex].exercises[exerciseIndex]);
+      copy.temp_id = uid();
+      copy.exercise_name = `${copy.exercise_name} copia`;
+      copy.progressions = copy.progressions.map((progression) => ({
+        ...progression,
+        temp_id: uid()
+      }));
+      next.days[dayIndex].exercises.splice(exerciseIndex + 1, 0, copy);
+    });
+  }
+
+  function removeExerciseRow(dayIndex, exerciseIndex) {
+    updateBuilder((next) => {
+      if (next.days[dayIndex].exercises.length > 1) {
+        next.days[dayIndex].exercises.splice(exerciseIndex, 1);
+      }
+    });
+  }
+
+  function toggleExerciseProgression(dayIndex, exerciseIndex, checked) {
+    updateBuilder((next) => {
+      const exercise = next.days[dayIndex].exercises[exerciseIndex];
+      exercise.has_weekly_progression = checked;
+
+      if (!exercise.progressions || exercise.progressions.length === 0) {
+        exercise.progressions = defaultProgressions();
+      }
+
+      const weeks = Number(next.duration_weeks) || 4;
+
+      while (exercise.progressions.length < weeks) {
+        exercise.progressions.push({
+          temp_id: uid(),
+          week_number: exercise.progressions.length + 1,
+          target_sets: "",
+          target_reps: "",
+          target_load_text: "",
+          target_load_kg: "",
+          target_rpe: "",
+          target_rir: "",
+          recovery_seconds: "",
+          notes: ""
+        });
+      }
+
+      exercise.progressions = exercise.progressions.slice(0, weeks);
+    });
   }
 
   async function createClient(event) {
     event.preventDefault();
+
     setClientError("");
     setCredentials(null);
     setCreatingClient(true);
 
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
       if (sessionError || !sessionData.session?.access_token) {
-        setClientError("Sessione non valida. Esci e rientra con il login professionista.");
+        setClientError(
+          "Sessione non valida. Esci e rientra con il login professionista."
+        );
         return;
       }
 
@@ -709,14 +966,20 @@ function ProfessionalDashboard({ session, onLogout }) {
       });
 
       const result = await response.json();
+
       if (!response.ok) {
         setClientError(result.error || "Errore creazione cliente.");
         return;
       }
 
-      setCredentials({ email: result.login_email, password: result.temporary_password });
+      setCredentials({
+        email: result.login_email,
+        password: result.temporary_password
+      });
+
       setClients((prev) => [result.client, ...prev]);
       setSelectedClientId(String(result.client.id));
+
       setNewClient({
         first_name: "",
         last_name: "",
@@ -729,7 +992,9 @@ function ProfessionalDashboard({ session, onLogout }) {
         notes: ""
       });
     } catch (error) {
-      setClientError(error.message || "Errore imprevisto durante la creazione cliente.");
+      setClientError(
+        error.message || "Errore imprevisto durante la creazione cliente."
+      );
     } finally {
       setCreatingClient(false);
     }
@@ -739,13 +1004,19 @@ function ProfessionalDashboard({ session, onLogout }) {
     if (!selectedClient) return;
 
     const confirmed = window.confirm(
-      `Vuoi davvero eliminare ${fullName(selectedClient)}? Verranno eliminati login, schede, log, diete, check-in, foto e misurazioni.`
+      `Vuoi davvero eliminare ${fullName(
+        selectedClient
+      )}? Verranno eliminati login, schede, log, diete, check-in, foto e misurazioni.`
     );
+
     if (!confirmed) return;
 
     setDeletingClient(true);
+
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
       if (sessionError || !sessionData.session?.access_token) {
         alert("Sessione non valida. Esci e rientra.");
         return;
@@ -761,6 +1032,7 @@ function ProfessionalDashboard({ session, onLogout }) {
       });
 
       const result = await response.json();
+
       if (!response.ok) {
         alert(result.error || "Errore eliminazione cliente.");
         return;
@@ -769,8 +1041,11 @@ function ProfessionalDashboard({ session, onLogout }) {
       const remainingClients = clients.filter(
         (client) => String(client.id) !== String(selectedClient.id)
       );
+
       setClients(remainingClients);
-      setSelectedClientId(remainingClients[0]?.id ? String(remainingClients[0].id) : "");
+      setSelectedClientId(
+        remainingClients[0]?.id ? String(remainingClients[0].id) : ""
+      );
       setPlans([]);
       setLogs([]);
       setSessions([]);
@@ -785,206 +1060,65 @@ function ProfessionalDashboard({ session, onLogout }) {
       setDeletingClient(false);
     }
   }
-async function deleteProgram(program) {
-  if (!program) return;
 
-  const confirmed = window.confirm(
-    `Vuoi davvero eliminare il programma "${program.title}"? Questa azione elimina programma, settimane, giorni, blocchi, esercizi e serie.`
-  );
+  async function deleteProgram(program) {
+    if (!program) return;
 
-  if (!confirmed) return;
+    const confirmed = window.confirm(
+      `Vuoi davvero eliminare il programma "${program.title}"?`
+    );
 
-  setDeletingProgramId(program.id);
+    if (!confirmed) return;
 
-  try {
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession();
+    setDeletingProgramId(program.id);
 
-    if (sessionError || !sessionData.session?.access_token) {
-      alert("Sessione non valida. Esci e rientra.");
-      return;
-    }
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
 
-    const response = await fetch("/api/delete-program", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionData.session.access_token}`
-      },
-      body: JSON.stringify({
-        program_id: program.id
-      })
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      alert(result.error || "Errore eliminazione programma.");
-      return;
-    }
-
-    setPlans((prev) => prev.filter((item) => item.id !== program.id));
-
-    if (selectedClient) {
-      await loadClientBundle(selectedClient.id);
-    }
-  } catch (error) {
-    alert(error.message || "Errore imprevisto durante eliminazione programma.");
-  } finally {
-    setDeletingProgramId("");
-  }
-}
-  function updateBuilder(mutator) {
-    setBuilder((prev) => {
-      const next = clone(prev);
-      mutator(next);
-      return next;
-    });
-  }
-
-  function addWeek() {
-    updateBuilder((next) => {
-      const number = next.weeks.length + 1;
-      const week = createDefaultBuilder().weeks[0];
-      week.temp_id = uid();
-      week.week_number = number;
-      week.title = `Settimana ${number}`;
-      week.days[0].temp_id = uid();
-      week.days[0].blocks[0].temp_id = uid();
-      week.days[0].blocks[0].exercises[0].temp_id = uid();
-      week.days[0].blocks[0].exercises[0].sets[0].temp_id = uid();
-      next.weeks.push(week);
-    });
-  }
-
-  function duplicatePreviousWeek() {
-    updateBuilder((next) => {
-      const source = next.weeks[next.weeks.length - 1];
-      const copy = clone(source);
-      copy.temp_id = uid();
-      copy.week_number = next.weeks.length + 1;
-      copy.title = `Settimana ${copy.week_number}`;
-      copy.days.forEach((day) => {
-        day.temp_id = uid();
-        day.blocks.forEach((block) => {
-          block.temp_id = uid();
-          block.exercises.forEach((exercise) => {
-            exercise.temp_id = uid();
-            exercise.sets.forEach((set) => {
-              set.temp_id = uid();
-            });
-          });
-        });
-      });
-      next.weeks.push(copy);
-      next.duration_weeks = next.weeks.length;
-    });
-  }
-
-  function addDay(weekIndex) {
-    updateBuilder((next) => {
-      const dayNumber = next.weeks[weekIndex].days.length + 1;
-      const day = createDefaultBuilder().weeks[0].days[0];
-      day.temp_id = uid();
-      day.title = `Allenamento ${String.fromCharCode(64 + dayNumber)}`;
-      day.blocks[0].temp_id = uid();
-      day.blocks[0].exercises[0].temp_id = uid();
-      day.blocks[0].exercises[0].sets[0].temp_id = uid();
-      next.weeks[weekIndex].days.push(day);
-    });
-  }
-
-  function addBlock(weekIndex, dayIndex) {
-    updateBuilder((next) => {
-      const block = createDefaultBuilder().weeks[0].days[0].blocks[0];
-      block.temp_id = uid();
-      block.title = `Blocco ${next.weeks[weekIndex].days[dayIndex].blocks.length + 1}`;
-      block.exercises[0].temp_id = uid();
-      block.exercises[0].sets[0].temp_id = uid();
-      next.weeks[weekIndex].days[dayIndex].blocks.push(block);
-    });
-  }
-
-  function addExercise(weekIndex, dayIndex, blockIndex) {
-    updateBuilder((next) => {
-      const exercise = createDefaultBuilder().weeks[0].days[0].blocks[0].exercises[0];
-      exercise.temp_id = uid();
-      exercise.sets[0].temp_id = uid();
-      next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises.push(exercise);
-    });
-  }
-
-  function addSet(weekIndex, dayIndex, blockIndex, exerciseIndex) {
-    updateBuilder((next) => {
-      const sets = next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets;
-      sets.push({
-        temp_id: uid(),
-        set_number: sets.length + 1,
-        target_reps: "8-10",
-        target_load_kg: "",
-        target_rpe: "",
-        target_rir: "",
-        rest_seconds: 90,
-        notes: ""
-      });
-    });
-  }
-
-  function removeWeek(weekIndex) {
-    updateBuilder((next) => {
-      if (next.weeks.length > 1) next.weeks.splice(weekIndex, 1);
-      next.weeks.forEach((week, index) => {
-        week.week_number = index + 1;
-        week.title = week.title || `Settimana ${index + 1}`;
-      });
-      next.duration_weeks = next.weeks.length;
-    });
-  }
-
-  function removeDay(weekIndex, dayIndex) {
-    updateBuilder((next) => {
-      if (next.weeks[weekIndex].days.length > 1) {
-        next.weeks[weekIndex].days.splice(dayIndex, 1);
+      if (sessionError || !sessionData.session?.access_token) {
+        alert("Sessione non valida. Esci e rientra.");
+        return;
       }
-    });
-  }
 
-  function removeBlock(weekIndex, dayIndex, blockIndex) {
-    updateBuilder((next) => {
-      if (next.weeks[weekIndex].days[dayIndex].blocks.length > 1) {
-        next.weeks[weekIndex].days[dayIndex].blocks.splice(blockIndex, 1);
-      }
-    });
-  }
-
-  function removeExercise(weekIndex, dayIndex, blockIndex, exerciseIndex) {
-    updateBuilder((next) => {
-      const exercises = next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises;
-      if (exercises.length > 1) exercises.splice(exerciseIndex, 1);
-    });
-  }
-
-  function removeSet(weekIndex, dayIndex, blockIndex, exerciseIndex, setIndex) {
-    updateBuilder((next) => {
-      const sets = next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets;
-      if (sets.length > 1) sets.splice(setIndex, 1);
-      sets.forEach((set, index) => {
-        set.set_number = index + 1;
+      const response = await fetch("/api/delete-program", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`
+        },
+        body: JSON.stringify({ program_id: program.id })
       });
-    });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || "Errore eliminazione programma.");
+        return;
+      }
+
+      setPlans((prev) => prev.filter((item) => item.id !== program.id));
+
+      if (selectedClient) {
+        await loadClientBundle(selectedClient.id);
+      }
+    } catch (error) {
+      alert(error.message || "Errore imprevisto durante eliminazione programma.");
+    } finally {
+      setDeletingProgramId("");
+    }
   }
 
   async function saveWorkoutPlan(event) {
     event.preventDefault();
+
     if (!selectedClient) {
       alert("Seleziona un cliente.");
       return;
     }
 
-    const hasExercise = builder.weeks.some((week) =>
-      week.days.some((day) =>
-        day.blocks.some((block) => block.exercises.some((exercise) => exercise.exercise_name.trim()))
-      )
+    const hasExercise = builder.days.some((day) =>
+      day.exercises.some((exercise) => exercise.exercise_name.trim())
     );
 
     if (!hasExercise) {
@@ -1005,7 +1139,7 @@ async function deleteProgram(program) {
           notes: builder.notes || null,
           start_date: builder.start_date || null,
           end_date: builder.end_date || null,
-          duration_weeks: Number(builder.duration_weeks) || builder.weeks.length,
+          duration_weeks: Number(builder.duration_weeks) || 4,
           level: builder.level || null,
           location: builder.location || null,
           status: "active"
@@ -1015,113 +1149,147 @@ async function deleteProgram(program) {
 
       if (planError) throw planError;
 
-      for (let weekIndex = 0; weekIndex < builder.weeks.length; weekIndex += 1) {
-        const week = builder.weeks[weekIndex];
-        const { data: weekRow, error: weekError } = await supabase
-          .from("workout_weeks")
+      const { data: weekRow, error: weekError } = await supabase
+        .from("workout_weeks")
+        .insert({
+          plan_id: plan.id,
+          week_number: 1,
+          title: "Programma base",
+          goal: builder.goal || null,
+          notes: "Settimana tecnica usata per organizzare la scheda.",
+          sort_order: 1
+        })
+        .select()
+        .single();
+
+      if (weekError) throw weekError;
+
+      for (let dayIndex = 0; dayIndex < builder.days.length; dayIndex += 1) {
+        const day = builder.days[dayIndex];
+
+        const { data: dayRow, error: dayError } = await supabase
+          .from("workout_days")
           .insert({
             plan_id: plan.id,
-            week_number: Number(week.week_number) || weekIndex + 1,
-            title: week.title || `Settimana ${weekIndex + 1}`,
-            goal: week.goal || null,
-            notes: week.notes || null,
-            sort_order: weekIndex + 1
+            week_id: weekRow.id,
+            title: day.title || `Allenamento ${dayIndex + 1}`,
+            day_type: "training",
+            estimated_minutes: numberOrNull(day.estimated_minutes),
+            notes: day.notes || null,
+            sort_order: dayIndex + 1
           })
           .select()
           .single();
 
-        if (weekError) throw weekError;
+        if (dayError) throw dayError;
 
-        for (let dayIndex = 0; dayIndex < week.days.length; dayIndex += 1) {
-          const day = week.days[dayIndex];
-          const { data: dayRow, error: dayError } = await supabase
-            .from("workout_days")
+        const { data: blockRow, error: blockError } = await supabase
+          .from("workout_blocks")
+          .insert({
+            day_id: dayRow.id,
+            title: "Esercizi",
+            block_type: "normal",
+            instructions: null,
+            sort_order: 1
+          })
+          .select()
+          .single();
+
+        if (blockError) throw blockError;
+
+        for (
+          let exerciseIndex = 0;
+          exerciseIndex < day.exercises.length;
+          exerciseIndex += 1
+        ) {
+          const exercise = day.exercises[exerciseIndex];
+
+          if (!exercise.exercise_name.trim()) continue;
+
+          const matchedMedia = exercise.exercise_media_id
+            ? mediaById.get(exercise.exercise_media_id)
+            : findMediaForExercise(exercise.exercise_name);
+
+          const mediaId =
+            exercise.exercise_media_id || matchedMedia?.id || null;
+
+          const { data: exerciseRow, error: exerciseError } = await supabase
+            .from("workout_exercises")
             .insert({
-              plan_id: plan.id,
-              week_id: weekRow.id,
-              title: day.title || `Allenamento ${dayIndex + 1}`,
-              day_type: day.day_type || "training",
-              estimated_minutes: numberOrNull(day.estimated_minutes),
-              notes: day.notes || null,
-              sort_order: dayIndex + 1
+              day_id: dayRow.id,
+              block_id: blockRow.id,
+              exercise_media_id: mediaId,
+              exercise_name: exercise.exercise_name.trim(),
+              sets: exercise.sets || null,
+              reps: exercise.reps || null,
+              recovery_seconds: Number(exercise.recovery_seconds) || 90,
+              execution_mode: exercise.execution_mode || null,
+              target_rpe: exercise.target_rpe || null,
+              target_rir: exercise.target_rir || null,
+              video_url: exercise.video_url || null,
+              image_url: exercise.image_url || matchedMedia?.image_url || null,
+              notes: exercise.notes || null,
+              smart_notes: exercise.notes || null,
+              sort_order: exerciseIndex + 1,
+              exercise_type: "normal",
+              tracking_type: "load_reps",
+              has_weekly_progression: !!exercise.has_weekly_progression,
+              progression_mode: exercise.has_weekly_progression
+                ? "weekly"
+                : "none",
+              is_active: true
             })
             .select()
             .single();
 
-          if (dayError) throw dayError;
+          if (exerciseError) throw exerciseError;
 
-          for (let blockIndex = 0; blockIndex < day.blocks.length; blockIndex += 1) {
-            const block = day.blocks[blockIndex];
-            const { data: blockRow, error: blockError } = await supabase
-              .from("workout_blocks")
-              .insert({
-                day_id: dayRow.id,
-                title: block.title || `Blocco ${blockIndex + 1}`,
-                block_type: block.block_type || "normal",
-                instructions: block.instructions || null,
-                sort_order: blockIndex + 1
-              })
-              .select()
-              .single();
+          const setsCount = Number(exercise.sets) || 1;
 
-            if (blockError) throw blockError;
+          const setRows = Array.from({ length: setsCount }).map((_, index) => ({
+            workout_exercise_id: exerciseRow.id,
+            set_number: index + 1,
+            target_reps: exercise.reps || null,
+            target_load_kg: null,
+            target_rpe: numberOrNull(exercise.target_rpe),
+            target_rir: numberOrNull(exercise.target_rir),
+            rest_seconds: Number(exercise.recovery_seconds) || 90,
+            notes: null
+          }));
 
-            for (let exerciseIndex = 0; exerciseIndex < block.exercises.length; exerciseIndex += 1) {
-              const exercise = block.exercises[exerciseIndex];
-              if (!exercise.exercise_name.trim()) continue;
+          const { error: setsError } = await supabase
+            .from("workout_exercise_sets")
+            .insert(setRows);
 
-              const firstSet = exercise.sets[0] || {};
-              const { data: exerciseRow, error: exerciseError } = await supabase
-                .from("workout_exercises")
-                .insert({
-                  day_id: dayRow.id,
-                  block_id: blockRow.id,
-                  exercise_name: exercise.exercise_name.trim(),
-                  sets: String(exercise.sets.length),
-                  reps: firstSet.target_reps || null,
-                  recovery_seconds: Number(firstSet.rest_seconds || exercise.recovery_seconds) || 90,
-                  execution_mode: exercise.execution_mode || null,
-                  weekly_progression: exercise.weekly_progression || null,
-                  video_url: exercise.video_url || null,
-                  image_url: exercise.image_url || null,
-                  notes: exercise.notes || null,
-                  sort_order: exerciseIndex + 1,
-                  exercise_type: exercise.exercise_type || "normal",
-                  tracking_type: exercise.tracking_type || "load_reps",
-                  target_load: exercise.target_load || null,
-                  target_rpe: exercise.target_rpe || null,
-                  target_rir: exercise.target_rir || null,
-                  tempo: exercise.tempo || null,
-                  substitution: exercise.substitution || null,
-                  coach_cues: exercise.coach_cues || null,
-                  is_active: true
-                })
-                .select()
-                .single();
+          if (setsError) throw setsError;
 
-              if (exerciseError) throw exerciseError;
-
-              const setRows = exercise.sets.map((set, setIndex) => ({
+          if (exercise.has_weekly_progression) {
+            const progressionRows = (exercise.progressions || []).map(
+              (progression, index) => ({
                 workout_exercise_id: exerciseRow.id,
-                set_number: setIndex + 1,
-                target_reps: set.target_reps || null,
-                target_load_kg: numberOrNull(set.target_load_kg),
-                target_rpe: numberOrNull(set.target_rpe),
-                target_rir: numberOrNull(set.target_rir),
-                rest_seconds: Number(set.rest_seconds) || 90,
-                notes: set.notes || null
-              }));
+                week_number: Number(progression.week_number) || index + 1,
+                target_sets: progression.target_sets || null,
+                target_reps: progression.target_reps || null,
+                target_load_text: progression.target_load_text || null,
+                target_load_kg: numberOrNull(progression.target_load_kg),
+                target_rpe: progression.target_rpe || null,
+                target_rir: progression.target_rir || null,
+                recovery_seconds: numberOrNull(progression.recovery_seconds),
+                notes: progression.notes || null,
+                sort_order: index + 1
+              })
+            );
 
-              const { error: setsError } = await supabase
-                .from("workout_exercise_sets")
-                .insert(setRows);
-              if (setsError) throw setsError;
-            }
+            const { error: progressionError } = await supabase
+              .from("workout_exercise_progressions")
+              .insert(progressionRows);
+
+            if (progressionError) throw progressionError;
           }
         }
       }
 
-      setBuilder(createDefaultBuilder());
+      setBuilder(createSmartBuilder());
       await loadClientBundle(selectedClient.id);
       alert("Programma salvato.");
     } catch (error) {
@@ -1130,9 +1298,9 @@ async function deleteProgram(program) {
       setSavingPlan(false);
     }
   }
-
-  async function saveMeasurement(event) {
+    async function saveMeasurement(event) {
     event.preventDefault();
+
     if (!selectedClient) return;
 
     const payload = {
@@ -1154,6 +1322,7 @@ async function deleteProgram(program) {
     };
 
     const { error } = await supabase.from("client_measurements").insert(payload);
+
     if (error) {
       alert(error.message);
       return;
@@ -1174,11 +1343,13 @@ async function deleteProgram(program) {
       left_thigh_cm: "",
       notes: ""
     });
+
     await loadClientBundle(selectedClient.id);
   }
 
   async function uploadDiet(event) {
     event.preventDefault();
+
     if (!selectedClient || !dietFile) {
       alert("Seleziona cliente e file dieta.");
       return;
@@ -1187,7 +1358,10 @@ async function deleteProgram(program) {
     const safeName = dietFile.name.replaceAll(" ", "-");
     const path = `${selectedClient.id}/${Date.now()}-${safeName}`;
 
-    const { error: uploadError } = await supabase.storage.from("diets").upload(path, dietFile);
+    const { error: uploadError } = await supabase.storage
+      .from("diets")
+      .upload(path, dietFile);
+
     if (uploadError) {
       alert(uploadError.message);
       return;
@@ -1211,36 +1385,25 @@ async function deleteProgram(program) {
       return;
     }
 
-    setDietForm({ title: "", start_date: "", end_date: "", notes: "" });
-    setDietFile(null);
-    await loadClientBundle(selectedClient.id);
-  }
-
-  async function savePrivateNote(event) {
-    event.preventDefault();
-    if (!selectedClient) return;
-
-    const { error } = await supabase.from("client_private_notes").insert({
-      client_id: Number(selectedClient.id),
-      professional_id: session.user.id,
-      title: noteForm.title || "Nota coach",
-      note_type: noteForm.note_type || "general",
-      body: noteForm.body || null
+    setDietForm({
+      title: "",
+      start_date: "",
+      end_date: "",
+      notes: ""
     });
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+    setDietFile(null);
 
-    setNoteForm({ title: "", note_type: "general", body: "" });
     await loadClientBundle(selectedClient.id);
   }
 
   async function savePost(event) {
     event.preventDefault();
-    const clientScope = postForm.client_scope;
-    const clientId = clientScope === "selected" && selectedClient ? Number(selectedClient.id) : null;
+
+    const clientId =
+      postForm.client_scope === "selected" && selectedClient
+        ? Number(selectedClient.id)
+        : null;
 
     const { error } = await supabase.from("coach_posts").insert({
       professional_id: session.user.id,
@@ -1257,16 +1420,26 @@ async function deleteProgram(program) {
       return;
     }
 
-    setPostForm({ title: "", body: "", client_scope: "selected", is_pinned: false });
+    setPostForm({
+      title: "",
+      body: "",
+      client_scope: "selected",
+      is_pinned: false
+    });
+
     await loadPosts();
   }
 
   async function openStorageFile(bucket, path) {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 120);
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(path, 120);
+
     if (error) {
       alert(error.message);
       return;
     }
+
     window.open(data.signedUrl, "_blank");
   }
 
@@ -1281,12 +1454,22 @@ async function deleteProgram(program) {
               <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
                 Cliente selezionato
               </p>
-              <h2 className="mt-2 text-3xl font-black md:text-4xl">{fullName(selectedClient)}</h2>
+
+              <h2 className="mt-2 text-3xl font-black md:text-4xl">
+                {fullName(selectedClient)}
+              </h2>
+
               <div className="mt-3 flex flex-wrap gap-2">
-                <Pill className="bg-teal-300 text-slate-950">{selectedClient.status || "active"}</Pill>
-                <Pill className="bg-white/10 text-white">{selectedClient.goal || "Obiettivo non impostato"}</Pill>
+                <Pill className="bg-teal-300 text-slate-950">
+                  {selectedClient.status || "active"}
+                </Pill>
+
+                <Pill className="bg-white/10 text-white">
+                  {selectedClient.goal || "Obiettivo non impostato"}
+                </Pill>
               </div>
             </div>
+
             <Button
               disabled={deletingClient}
               onClick={deleteSelectedClient}
@@ -1307,9 +1490,15 @@ async function deleteProgram(program) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black">TM FIT</h1>
-            <p className="text-sm font-bold text-slate-300">Area professionista · Webapp mobile-first</p>
+            <p className="text-sm font-bold text-slate-300">
+              Area professionista · Smart Builder V3
+            </p>
           </div>
-          <Button onClick={onLogout} className="border border-white/10 bg-white/10 text-white">
+
+          <Button
+            onClick={onLogout}
+            className="border border-white/10 bg-white/10 text-white"
+          >
             <LogOut size={17} className="mr-2" />
             Esci
           </Button>
@@ -1323,6 +1512,7 @@ async function deleteProgram(program) {
           <Card className="p-4">
             <div className="mb-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
               <Search size={17} className="text-slate-400" />
+
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
@@ -1343,10 +1533,16 @@ async function deleteProgram(program) {
                   }`}
                 >
                   <p className="font-black">{fullName(client)}</p>
-                  <p className="mt-1 truncate text-xs font-bold text-slate-500">{client.email || "—"}</p>
+
+                  <p className="mt-1 truncate text-xs font-bold text-slate-500">
+                    {client.email || "—"}
+                  </p>
                 </button>
               ))}
-              {!loading && filteredClients.length === 0 && <Empty title="Nessun cliente" text="Crea il primo cliente." />}
+
+              {!loading && filteredClients.length === 0 && (
+                <Empty title="Nessun cliente" text="Crea il primo cliente." />
+              )}
             </div>
           </Card>
         </aside>
@@ -1370,9 +1566,17 @@ async function deleteProgram(program) {
 
                 {credentials && (
                   <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4">
-                    <p className="text-sm font-black text-teal-800">Credenziali create</p>
-                    <p className="mt-2 text-sm font-bold">Email: {credentials.email}</p>
-                    <p className="text-sm font-bold">Password: {credentials.password}</p>
+                    <p className="text-sm font-black text-teal-800">
+                      Credenziali create
+                    </p>
+
+                    <p className="mt-2 text-sm font-bold">
+                      Email: {credentials.email}
+                    </p>
+
+                    <p className="text-sm font-bold">
+                      Password: {credentials.password}
+                    </p>
                   </div>
                 )}
 
@@ -1382,60 +1586,118 @@ async function deleteProgram(program) {
                       required
                       placeholder="Nome"
                       value={newClient.first_name}
-                      onChange={(event) => setNewClient({ ...newClient, first_name: event.target.value })}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          first_name: event.target.value
+                        })
+                      }
                     />
+
                     <Input
                       required
                       placeholder="Cognome"
                       value={newClient.last_name}
-                      onChange={(event) => setNewClient({ ...newClient, last_name: event.target.value })}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          last_name: event.target.value
+                        })
+                      }
                     />
                   </div>
+
                   <Input
                     type="email"
                     placeholder="Email cliente opzionale"
                     value={newClient.email}
-                    onChange={(event) => setNewClient({ ...newClient, email: event.target.value })}
+                    onChange={(event) =>
+                      setNewClient({
+                        ...newClient,
+                        email: event.target.value
+                      })
+                    }
                   />
+
                   <div className="grid gap-3 md:grid-cols-2">
                     <Input
                       placeholder="Telefono"
                       value={newClient.phone}
-                      onChange={(event) => setNewClient({ ...newClient, phone: event.target.value })}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          phone: event.target.value
+                        })
+                      }
                     />
+
                     <Select
                       value={newClient.gender}
-                      onChange={(event) => setNewClient({ ...newClient, gender: event.target.value })}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          gender: event.target.value
+                        })
+                      }
                     >
                       <option value="uomo">Uomo</option>
                       <option value="donna">Donna</option>
                       <option value="altro">Altro</option>
                     </Select>
                   </div>
+
                   <div className="grid gap-3 md:grid-cols-2">
                     <Input
                       type="date"
                       value={newClient.birth_date}
-                      onChange={(event) => setNewClient({ ...newClient, birth_date: event.target.value })}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          birth_date: event.target.value
+                        })
+                      }
                     />
+
                     <Input
                       type="number"
                       placeholder="Altezza cm"
                       value={newClient.height_cm}
-                      onChange={(event) => setNewClient({ ...newClient, height_cm: event.target.value })}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          height_cm: event.target.value
+                        })
+                      }
                     />
                   </div>
+
                   <Input
                     placeholder="Obiettivo"
                     value={newClient.goal}
-                    onChange={(event) => setNewClient({ ...newClient, goal: event.target.value })}
+                    onChange={(event) =>
+                      setNewClient({
+                        ...newClient,
+                        goal: event.target.value
+                      })
+                    }
                   />
+
                   <Textarea
                     placeholder="Note interne"
                     value={newClient.notes}
-                    onChange={(event) => setNewClient({ ...newClient, notes: event.target.value })}
+                    onChange={(event) =>
+                      setNewClient({
+                        ...newClient,
+                        notes: event.target.value
+                      })
+                    }
                   />
-                  <Button type="submit" disabled={creatingClient} className="w-full bg-[#07111f] text-white">
+
+                  <Button
+                    type="submit"
+                    disabled={creatingClient}
+                    className="w-full bg-[#07111f] text-white"
+                  >
                     {creatingClient ? "Creazione..." : "Crea cliente e login"}
                   </Button>
                 </form>
@@ -1443,22 +1705,32 @@ async function deleteProgram(program) {
 
               <Card className="p-5">
                 <h2 className="text-xl font-black">Panoramica</h2>
+
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="rounded-3xl bg-slate-50 p-4">
                     <p className="text-3xl font-black">{clients.length}</p>
-                    <p className="text-xs font-bold text-slate-500">Clienti totali</p>
+                    <p className="text-xs font-bold text-slate-500">
+                      Clienti totali
+                    </p>
                   </div>
+
                   <div className="rounded-3xl bg-slate-50 p-4">
                     <p className="text-3xl font-black">{plans.length}</p>
-                    <p className="text-xs font-bold text-slate-500">Programmi cliente</p>
+                    <p className="text-xs font-bold text-slate-500">
+                      Programmi cliente
+                    </p>
                   </div>
+
                   <div className="rounded-3xl bg-slate-50 p-4">
                     <p className="text-3xl font-black">{checkins.length}</p>
                     <p className="text-xs font-bold text-slate-500">Check-in</p>
                   </div>
+
                   <div className="rounded-3xl bg-slate-50 p-4">
-                    <p className="text-3xl font-black">{logs.length}</p>
-                    <p className="text-xs font-bold text-slate-500">Log set</p>
+                    <p className="text-3xl font-black">{exerciseMedia.length}</p>
+                    <p className="text-xs font-bold text-slate-500">
+                      Esercizi libreria
+                    </p>
                   </div>
                 </div>
               </Card>
@@ -1467,70 +1739,110 @@ async function deleteProgram(program) {
 
           {activeTab === "programs" && (
             <div className="space-y-5">
-              {!selectedClient && <Empty title="Seleziona un cliente" text="Poi crea il programma avanzato." />}
+              {!selectedClient && (
+                <Empty
+                  title="Seleziona un cliente"
+                  text="Poi crea il programma smart."
+                />
+              )}
 
               {selectedClient && (
                 <Card className="p-5">
                   <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <h2 className="text-xl font-black">Builder programma avanzato</h2>
+                      <h2 className="text-xl font-black">
+                        Smart Workout Builder
+                      </h2>
+
                       <p className="text-sm font-semibold text-slate-500">
-                        Settimane → Giorni → Blocchi → Esercizi → Serie.
+                        Allenamenti liberi, righe orizzontali, progressione solo
+                        dove serve.
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button onClick={addWeek} className="border border-slate-200 bg-white text-slate-900">
-                        <Plus size={16} className="mr-2" /> Settimana
-                      </Button>
-                      <Button onClick={duplicatePreviousWeek} className="border border-slate-200 bg-white text-slate-900">
-                        Duplica ultima
-                      </Button>
-                    </div>
+
+                    <Button
+                      onClick={addWorkoutDay}
+                      className="border border-slate-200 bg-white text-slate-900"
+                    >
+                      <Plus size={16} className="mr-2" />
+                      Allenamento
+                    </Button>
                   </div>
 
                   <form onSubmit={saveWorkoutPlan} className="space-y-5">
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-3 md:grid-cols-3">
                       <Label title="Titolo programma">
                         <Input
                           value={builder.title}
-                          onChange={(event) => setBuilder({ ...builder, title: event.target.value })}
+                          onChange={(event) =>
+                            setBuilder({
+                              ...builder,
+                              title: event.target.value
+                            })
+                          }
                         />
                       </Label>
+
                       <Label title="Obiettivo">
                         <Input
                           value={builder.goal}
-                          onChange={(event) => setBuilder({ ...builder, goal: event.target.value })}
-                          placeholder="Ipertrofia, forza, ricomposizione..."
+                          onChange={(event) =>
+                            setBuilder({
+                              ...builder,
+                              goal: event.target.value
+                            })
+                          }
+                          placeholder="Ipertrofia, forza..."
                         />
                       </Label>
+
+                      <Label title="Settimane">
+                        <Input
+                          type="number"
+                          min="1"
+                          max="12"
+                          value={builder.duration_weeks}
+                          onChange={(event) =>
+                            updateDurationWeeks(event.target.value)
+                          }
+                        />
+                      </Label>
+
                       <Label title="Inizio">
                         <Input
                           type="date"
                           value={builder.start_date}
-                          onChange={(event) => setBuilder({ ...builder, start_date: event.target.value })}
+                          onChange={(event) =>
+                            setBuilder({
+                              ...builder,
+                              start_date: event.target.value
+                            })
+                          }
                         />
                       </Label>
+
                       <Label title="Fine">
                         <Input
                           type="date"
                           value={builder.end_date}
-                          onChange={(event) => setBuilder({ ...builder, end_date: event.target.value })}
+                          onChange={(event) =>
+                            setBuilder({
+                              ...builder,
+                              end_date: event.target.value
+                            })
+                          }
                         />
                       </Label>
-                      <Label title="Livello">
-                        <Select
-                          value={builder.level}
-                          onChange={(event) => setBuilder({ ...builder, level: event.target.value })}
-                        >
-                          <option value="principiante">Principiante</option>
-                          <option value="intermedio">Intermedio</option>
-                          <option value="avanzato">Avanzato</option>
-                        </Select>
-                      </Label>
+
                       <Label title="Luogo">
                         <Select
                           value={builder.location}
-                          onChange={(event) => setBuilder({ ...builder, location: event.target.value })}
+                          onChange={(event) =>
+                            setBuilder({
+                              ...builder,
+                              location: event.target.value
+                            })
+                          }
                         >
                           <option value="palestra">Palestra</option>
                           <option value="casa">Casa</option>
@@ -1538,463 +1850,675 @@ async function deleteProgram(program) {
                         </Select>
                       </Label>
                     </div>
-                    <Label title="Note programma">
+
+                    <Label title="Note generali">
                       <Textarea
                         value={builder.notes}
-                        onChange={(event) => setBuilder({ ...builder, notes: event.target.value })}
-                        placeholder="Indicazioni generali, focus tecnico, progressione..."
+                        onChange={(event) =>
+                          setBuilder({
+                            ...builder,
+                            notes: event.target.value
+                          })
+                        }
+                        placeholder="Indicazioni generali, focus tecnico, gestione carichi..."
                       />
                     </Label>
 
-                    {builder.weeks.map((week, weekIndex) => (
-                      <div key={week.temp_id} className="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-4">
-                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    {builder.days.map((day, dayIndex) => (
+                      <div
+                        key={day.temp_id}
+                        className="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                           <div className="grid flex-1 gap-3 md:grid-cols-3">
-                            <Label title="Settimana">
+                            <Label title="Allenamento">
+                              <Input
+                                value={day.title}
+                                onChange={(event) =>
+                                  updateBuilder((next) => {
+                                    next.days[dayIndex].title =
+                                      event.target.value;
+                                  })
+                                }
+                              />
+                            </Label>
+
+                            <Label title="Minuti stimati">
                               <Input
                                 type="number"
-                                value={week.week_number}
+                                value={day.estimated_minutes}
                                 onChange={(event) =>
                                   updateBuilder((next) => {
-                                    next.weeks[weekIndex].week_number = event.target.value;
+                                    next.days[dayIndex].estimated_minutes =
+                                      event.target.value;
                                   })
                                 }
                               />
                             </Label>
-                            <Label title="Titolo">
+
+                            <Label title="Note giorno">
                               <Input
-                                value={week.title}
+                                value={day.notes}
                                 onChange={(event) =>
                                   updateBuilder((next) => {
-                                    next.weeks[weekIndex].title = event.target.value;
+                                    next.days[dayIndex].notes =
+                                      event.target.value;
                                   })
                                 }
-                              />
-                            </Label>
-                            <Label title="Focus">
-                              <Input
-                                value={week.goal}
-                                onChange={(event) =>
-                                  updateBuilder((next) => {
-                                    next.weeks[weekIndex].goal = event.target.value;
-                                  })
-                                }
-                                placeholder="Accumulo / intensità / scarico"
+                                placeholder="Focus gambe, upper, push..."
                               />
                             </Label>
                           </div>
-                          <Button onClick={() => removeWeek(weekIndex)} className="border border-red-200 bg-white text-red-600">
-                            <X size={16} />
-                          </Button>
+
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={() => addExerciseRow(dayIndex)}
+                              className="border border-slate-200 bg-white text-slate-900"
+                            >
+                              <Plus size={16} className="mr-2" />
+                              Esercizio
+                            </Button>
+
+                            <Button
+                              onClick={() => removeWorkoutDay(dayIndex)}
+                              className="border border-red-200 bg-white text-red-600"
+                            >
+                              <X size={16} />
+                            </Button>
+                          </div>
                         </div>
 
-                        <div className="space-y-4">
-                          {week.days.map((day, dayIndex) => (
-                            <div key={day.temp_id} className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
-                              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                                <div className="grid flex-1 gap-3 md:grid-cols-3">
-                                  <Label title="Giorno">
-                                    <Input
-                                      value={day.title}
-                                      onChange={(event) =>
-                                        updateBuilder((next) => {
-                                          next.weeks[weekIndex].days[dayIndex].title = event.target.value;
-                                        })
-                                      }
-                                    />
-                                  </Label>
-                                  <Label title="Tipo">
-                                    <Select
-                                      value={day.day_type}
-                                      onChange={(event) =>
-                                        updateBuilder((next) => {
-                                          next.weeks[weekIndex].days[dayIndex].day_type = event.target.value;
-                                        })
-                                      }
-                                    >
-                                      <option value="training">Allenamento</option>
-                                      <option value="cardio">Cardio</option>
-                                      <option value="mobility">Mobility</option>
-                                      <option value="rest">Riposo attivo</option>
-                                    </Select>
-                                  </Label>
-                                  <Label title="Minuti stimati">
-                                    <Input
-                                      type="number"
-                                      value={day.estimated_minutes}
-                                      onChange={(event) =>
-                                        updateBuilder((next) => {
-                                          next.weeks[weekIndex].days[dayIndex].estimated_minutes = event.target.value;
-                                        })
-                                      }
-                                    />
-                                  </Label>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button onClick={() => addBlock(weekIndex, dayIndex)} className="border border-slate-200 bg-white text-slate-900">
-                                    <Plus size={16} className="mr-2" /> Blocco
-                                  </Button>
-                                  <Button onClick={() => removeDay(weekIndex, dayIndex)} className="border border-red-200 bg-white text-red-600">
-                                    <X size={16} />
-                                  </Button>
-                                </div>
-                              </div>
+                        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
+                          <table className="w-[1400px] text-left text-sm">
+                            <thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-400">
+                              <tr>
+                                <th className="p-3">Img</th>
+                                <th className="p-3">Esercizio</th>
+                                <th className="p-3">Serie</th>
+                                <th className="p-3">Reps</th>
+                                <th className="p-3">Recupero sec</th>
+                                <th className="p-3">RPE</th>
+                                <th className="p-3">RIR</th>
+                                <th className="p-3">Esecuzione</th>
+                                <th className="p-3">Video opz.</th>
+                                <th className="p-3">Note</th>
+                                <th className="p-3">Progressione</th>
+                                <th className="p-3">Azioni</th>
+                              </tr>
+                            </thead>
 
-                              <div className="space-y-4">
-                                {day.blocks.map((block, blockIndex) => (
-                                  <div key={block.temp_id} className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
-                                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                                      <div className="grid flex-1 gap-3 md:grid-cols-2">
-                                        <Label title="Blocco">
-                                          <Input
-                                            value={block.title}
-                                            onChange={(event) =>
-                                              updateBuilder((next) => {
-                                                next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].title = event.target.value;
-                                              })
-                                            }
-                                          />
-                                        </Label>
-                                        <Label title="Metodo">
-                                          <Select
-                                            value={block.block_type}
-                                            onChange={(event) =>
-                                              updateBuilder((next) => {
-                                                next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].block_type = event.target.value;
-                                              })
-                                            }
-                                          >
-                                            <option value="normal">Normale</option>
-                                            <option value="superset">Superset</option>
-                                            <option value="circuit">Circuito</option>
-                                            <option value="rest_pause">Rest pause</option>
-                                            <option value="drop_set">Drop set</option>
-                                          </Select>
-                                        </Label>
-                                      </div>
-                                      <div className="flex gap-2">
-                                        <Button onClick={() => addExercise(weekIndex, dayIndex, blockIndex)} className="border border-slate-200 bg-white text-slate-900">
-                                          <Plus size={16} className="mr-2" /> Esercizio
-                                        </Button>
-                                        <Button onClick={() => removeBlock(weekIndex, dayIndex, blockIndex)} className="border border-red-200 bg-white text-red-600">
-                                          <X size={16} />
-                                        </Button>
-                                      </div>
-                                    </div>
+                            <tbody>
+                              {day.exercises.map((exercise, exerciseIndex) => {
+                                const matchedMedia = exercise.exercise_media_id
+                                  ? mediaById.get(exercise.exercise_media_id)
+                                  : findMediaForExercise(
+                                      exercise.exercise_name
+                                    );
 
-                                    <Label title="Istruzioni blocco">
-                                      <Textarea
-                                        value={block.instructions}
+                                return (
+                                  <tr
+                                    key={exercise.temp_id}
+                                    className="border-t border-slate-100 align-top"
+                                  >
+                                    <td className="p-3">
+                                      <ExerciseMediaPreview
+                                        media={matchedMedia}
+                                      />
+                                    </td>
+
+                                    <td className="min-w-[260px] p-3">
+                                      <Input
+                                        list="exercise-media-list"
+                                        placeholder="Scrivi esercizio"
+                                        value={exercise.exercise_name}
                                         onChange={(event) =>
                                           updateBuilder((next) => {
-                                            next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].instructions = event.target.value;
+                                            const row =
+                                              next.days[dayIndex].exercises[
+                                                exerciseIndex
+                                              ];
+
+                                            row.exercise_name =
+                                              event.target.value;
+
+                                            const media = findMediaForExercise(
+                                              event.target.value
+                                            );
+
+                                            row.exercise_media_id =
+                                              media?.id || row.exercise_media_id;
                                           })
                                         }
-                                        placeholder="Esempio: esegui gli esercizi in superset, poi recupera 90 sec."
                                       />
-                                    </Label>
 
-                                    <div className="mt-4 space-y-4">
-                                      {block.exercises.map((exercise, exerciseIndex) => (
-                                        <div key={exercise.temp_id} className="rounded-[1.1rem] border border-slate-200 bg-white p-4">
-                                          <div className="mb-3 flex items-center justify-between gap-2">
-                                            <p className="font-black">Esercizio {exerciseIndex + 1}</p>
-                                            <Button onClick={() => removeExercise(weekIndex, dayIndex, blockIndex, exerciseIndex)} className="border border-red-200 bg-white px-3 py-2 text-red-600">
-                                              <X size={15} />
-                                            </Button>
-                                          </div>
+                                      <select
+                                        value={exercise.exercise_media_id}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].exercise_media_id =
+                                              event.target.value;
+                                          })
+                                        }
+                                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                                      >
+                                        <option value="">
+                                          Immagine auto/opzionale
+                                        </option>
 
-                                          <div className="grid gap-3 md:grid-cols-2">
-                                            <Label title="Nome esercizio">
-                                              <Input
-                                                required
-                                                value={exercise.exercise_name}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].exercise_name = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="Panca piana bilanciere"
-                                              />
-                                            </Label>
-                                            <Label title="Tipo esercizio">
-                                              <Select
-                                                value={exercise.exercise_type}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].exercise_type = event.target.value;
-                                                  })
-                                                }
-                                              >
-                                                <option value="normal">Normale</option>
-                                                <option value="warmup">Riscaldamento</option>
-                                                <option value="technical">Tecnico</option>
-                                                <option value="amrap">AMRAP</option>
-                                                <option value="finisher">Finisher</option>
-                                              </Select>
-                                            </Label>
-                                            <Label title="Tempo">
-                                              <Input
-                                                value={exercise.tempo}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].tempo = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="3-1-1"
-                                              />
-                                            </Label>
-                                            <Label title="Esecuzione">
-                                              <Input
-                                                value={exercise.execution_mode}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].execution_mode = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="Controllata, esplosiva, fermo 1 sec..."
-                                              />
-                                            </Label>
-                                            <Label title="Carico target">
-                                              <Input
-                                                value={exercise.target_load}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].target_load = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="70%, ultimo carico +2.5kg, libero..."
-                                              />
-                                            </Label>
-                                            <Label title="RPE / RIR target">
-                                              <Input
-                                                value={exercise.target_rpe}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].target_rpe = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="RPE 8 / RIR 2"
-                                              />
-                                            </Label>
-                                            <Label title="Link video">
-                                              <Input
-                                                value={exercise.video_url}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].video_url = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="https://..."
-                                              />
-                                            </Label>
-                                            <Label title="Link foto">
-                                              <Input
-                                                value={exercise.image_url}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].image_url = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="https://..."
-                                              />
-                                            </Label>
-                                          </div>
+                                        {exerciseMedia.map((media) => (
+                                          <option key={media.id} value={media.id}>
+                                            {media.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
 
-                                          <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                            <Label title="Progressione settimanale">
-                                              <Textarea
-                                                value={exercise.weekly_progression}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].weekly_progression = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="Settimana 1 RPE 7, settimana 2 +2.5kg..."
-                                              />
-                                            </Label>
-                                            <Label title="Cue / note tecniche">
-                                              <Textarea
-                                                value={exercise.coach_cues}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].coach_cues = event.target.value;
-                                                  })
-                                                }
-                                                placeholder="Scapole addotte, fermo al petto..."
-                                              />
-                                            </Label>
-                                          </div>
+                                    <td className="w-24 p-3">
+                                      <Input
+                                        value={exercise.sets}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].sets = event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
 
-                                          <div className="mt-4 space-y-2">
-                                            <div className="flex items-center justify-between">
-                                              <p className="text-sm font-black uppercase tracking-wider text-slate-400">Serie</p>
-                                              <Button onClick={() => addSet(weekIndex, dayIndex, blockIndex, exerciseIndex)} className="border border-slate-200 bg-white px-3 py-2 text-slate-900">
-                                                <Plus size={15} className="mr-1" /> Serie
-                                              </Button>
-                                            </div>
+                                    <td className="w-28 p-3">
+                                      <Input
+                                        value={exercise.reps}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].reps = event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
 
-                                            {exercise.sets.map((set, setIndex) => (
-                                              <div key={set.temp_id} className="grid gap-2 rounded-2xl bg-slate-50 p-3 md:grid-cols-[80px_1fr_1fr_1fr_1fr_48px]">
-                                                <Input
-                                                  type="number"
-                                                  value={set.set_number}
-                                                  onChange={(event) =>
-                                                    updateBuilder((next) => {
-                                                      next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets[setIndex].set_number = event.target.value;
-                                                    })
-                                                  }
-                                                />
-                                                <Input
-                                                  value={set.target_reps}
-                                                  onChange={(event) =>
-                                                    updateBuilder((next) => {
-                                                      next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets[setIndex].target_reps = event.target.value;
-                                                    })
-                                                  }
-                                                  placeholder="Reps"
-                                                />
-                                                <Input
-                                                  type="number"
-                                                  value={set.target_load_kg}
-                                                  onChange={(event) =>
-                                                    updateBuilder((next) => {
-                                                      next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets[setIndex].target_load_kg = event.target.value;
-                                                    })
-                                                  }
-                                                  placeholder="Kg target"
-                                                />
-                                                <Input
-                                                  type="number"
-                                                  value={set.target_rpe}
-                                                  onChange={(event) =>
-                                                    updateBuilder((next) => {
-                                                      next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets[setIndex].target_rpe = event.target.value;
-                                                    })
-                                                  }
-                                                  placeholder="RPE"
-                                                />
-                                                <Input
-                                                  type="number"
-                                                  value={set.rest_seconds}
-                                                  onChange={(event) =>
-                                                    updateBuilder((next) => {
-                                                      next.weeks[weekIndex].days[dayIndex].blocks[blockIndex].exercises[exerciseIndex].sets[setIndex].rest_seconds = event.target.value;
-                                                    })
-                                                  }
-                                                  placeholder="Rest"
-                                                />
-                                                <Button onClick={() => removeSet(weekIndex, dayIndex, blockIndex, exerciseIndex, setIndex)} className="border border-red-200 bg-white px-3 py-2 text-red-600">
-                                                  <X size={15} />
-                                                </Button>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
+                                    <td className="w-32 p-3">
+                                      <Input
+                                        type="number"
+                                        value={exercise.recovery_seconds}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].recovery_seconds =
+                                              event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
 
-                              <Button onClick={() => addDay(weekIndex)} className="mt-4 border border-slate-200 bg-white text-slate-900">
-                                <Plus size={16} className="mr-2" /> Giorno
-                              </Button>
-                            </div>
+                                    <td className="w-24 p-3">
+                                      <Input
+                                        value={exercise.target_rpe}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].target_rpe = event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
+
+                                    <td className="w-24 p-3">
+                                      <Input
+                                        value={exercise.target_rir}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].target_rir = event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
+
+                                    <td className="min-w-[180px] p-3">
+                                      <Input
+                                        placeholder="Controllata..."
+                                        value={exercise.execution_mode}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].execution_mode =
+                                              event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
+
+                                    <td className="min-w-[210px] p-3">
+                                      <Input
+                                        placeholder="Link non obbligatorio"
+                                        value={exercise.video_url}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].video_url = event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
+
+                                    <td className="min-w-[210px] p-3">
+                                      <Input
+                                        placeholder="Note"
+                                        value={exercise.notes}
+                                        onChange={(event) =>
+                                          updateBuilder((next) => {
+                                            next.days[dayIndex].exercises[
+                                              exerciseIndex
+                                            ].notes = event.target.value;
+                                          })
+                                        }
+                                      />
+                                    </td>
+
+                                    <td className="w-40 p-3">
+                                      <label className="flex items-center gap-2 text-xs font-black">
+                                        <input
+                                          type="checkbox"
+                                          checked={
+                                            exercise.has_weekly_progression
+                                          }
+                                          onChange={(event) =>
+                                            toggleExerciseProgression(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              event.target.checked
+                                            )
+                                          }
+                                        />
+                                        Progressione
+                                      </label>
+                                    </td>
+
+                                    <td className="w-44 p-3">
+                                      <div className="flex gap-2">
+                                        <Button
+                                          onClick={() =>
+                                            duplicateExerciseRow(
+                                              dayIndex,
+                                              exerciseIndex
+                                            )
+                                          }
+                                          className="border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900"
+                                        >
+                                          Duplica
+                                        </Button>
+
+                                        <Button
+                                          onClick={() =>
+                                            removeExerciseRow(
+                                              dayIndex,
+                                              exerciseIndex
+                                            )
+                                          }
+                                          className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+                                        >
+                                          <X size={14} />
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <datalist id="exercise-media-list">
+                          {exerciseMedia.map((media) => (
+                            <option key={media.id} value={media.name} />
                           ))}
+                        </datalist>
+
+                        <div className="mt-4 space-y-3">
+                          {day.exercises.map((exercise, exerciseIndex) => {
+                            if (!exercise.has_weekly_progression) return null;
+
+                            return (
+                              <div
+                                key={`${exercise.temp_id}-progression`}
+                                className="rounded-3xl border border-teal-200 bg-teal-50 p-4"
+                              >
+                                <div className="mb-3 flex items-center gap-2">
+                                  <Check size={17} className="text-teal-700" />
+
+                                  <p className="font-black text-teal-900">
+                                    Progressione settimanale ·{" "}
+                                    {exercise.exercise_name ||
+                                      `Esercizio ${exerciseIndex + 1}`}
+                                  </p>
+                                </div>
+
+                                <div className="overflow-x-auto rounded-2xl border border-teal-100 bg-white">
+                                  <table className="w-[1000px] text-sm">
+                                    <thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-400">
+                                      <tr>
+                                        <th className="p-3">Week</th>
+                                        <th className="p-3">Serie</th>
+                                        <th className="p-3">Reps</th>
+                                        <th className="p-3">Kg / Target</th>
+                                        <th className="p-3">RPE</th>
+                                        <th className="p-3">RIR</th>
+                                        <th className="p-3">Recupero sec</th>
+                                        <th className="p-3">Note</th>
+                                      </tr>
+                                    </thead>
+
+                                    <tbody>
+                                      {exercise.progressions.map(
+                                        (progression, progressionIndex) => (
+                                          <tr
+                                            key={progression.temp_id}
+                                            className="border-t border-slate-100"
+                                          >
+                                            <td className="p-3 font-black">
+                                              {progression.week_number}
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                value={progression.target_sets}
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].target_sets =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                value={progression.target_reps}
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].target_reps =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                placeholder="70kg / +2.5kg"
+                                                value={
+                                                  progression.target_load_text
+                                                }
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].target_load_text =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                value={progression.target_rpe}
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].target_rpe =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                value={progression.target_rir}
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].target_rir =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                type="number"
+                                                value={
+                                                  progression.recovery_seconds
+                                                }
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].recovery_seconds =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+
+                                            <td className="p-3">
+                                              <Input
+                                                value={progression.notes}
+                                                onChange={(event) =>
+                                                  updateBuilder((next) => {
+                                                    next.days[
+                                                      dayIndex
+                                                    ].exercises[
+                                                      exerciseIndex
+                                                    ].progressions[
+                                                      progressionIndex
+                                                    ].notes =
+                                                      event.target.value;
+                                                  })
+                                                }
+                                              />
+                                            </td>
+                                          </tr>
+                                        )
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
 
-                    <Button type="submit" disabled={savingPlan} className="w-full bg-[#07111f] text-white">
+                    <Button
+                      type="submit"
+                      disabled={savingPlan}
+                      className="w-full bg-[#07111f] text-white"
+                    >
                       <Save size={17} className="mr-2" />
-                      {savingPlan ? "Salvataggio..." : "Salva programma completo"}
+                      {savingPlan ? "Salvataggio..." : "Salva programma smart"}
                     </Button>
                   </form>
                 </Card>
               )}
 
               <PlansList
-  plans={plans}
-  onDeleteProgram={deleteProgram}
-  deletingProgramId={deletingProgramId}
-/>
+                plans={plans}
+                onDeleteProgram={deleteProgram}
+                deletingProgramId={deletingProgramId}
+              />
             </div>
           )}
-
           {activeTab === "monitor" && (
             <div className="grid gap-5 lg:grid-cols-2">
               <Card className="p-5">
                 <h2 className="text-xl font-black">Ultimi check-in</h2>
+
                 <div className="mt-4 space-y-3">
                   {checkins.map((checkin) => (
-                    <div key={checkin.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div
+                      key={checkin.id}
+                      className="rounded-2xl border border-slate-200 p-4"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-black">{checkin.checkin_date}</p>
-                        <Pill className="bg-slate-100 text-slate-700">Peso {checkin.weight_kg || "—"} kg</Pill>
+
+                        <Pill className="bg-slate-100 text-slate-700">
+                          Peso {checkin.weight_kg || "—"} kg
+                        </Pill>
                       </div>
+
                       <p className="mt-2 text-sm font-semibold text-slate-500">
-                        Energia {checkin.energy_level || "—"}/10 · Sonno {checkin.sleep_quality || "—"}/10 · Stress {checkin.stress_level || "—"}/10
+                        Energia {checkin.energy_level || "—"}/10 · Sonno{" "}
+                        {checkin.sleep_quality || "—"}/10 · Stress{" "}
+                        {checkin.stress_level || "—"}/10
                       </p>
-                      {checkin.notes && <p className="mt-2 text-sm font-semibold text-slate-600">{checkin.notes}</p>}
+
+                      {checkin.notes && (
+                        <p className="mt-2 text-sm font-semibold text-slate-600">
+                          {checkin.notes}
+                        </p>
+                      )}
                     </div>
                   ))}
-                  {checkins.length === 0 && <Empty title="Nessun check-in" text="Il cliente non ha ancora compilato check-in." />}
+
+                  {checkins.length === 0 && (
+                    <Empty
+                      title="Nessun check-in"
+                      text="Il cliente non ha ancora compilato check-in."
+                    />
+                  )}
                 </div>
               </Card>
 
               <Card className="p-5">
                 <h2 className="text-xl font-black">Ultimi log allenamento</h2>
+
                 <div className="mt-4 space-y-3">
                   {logs.map((log) => (
-                    <div key={log.id} className="rounded-2xl border border-slate-200 p-4">
-                      <p className="font-black">{log.workout_exercises?.exercise_name || "Esercizio"}</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        {log.workout_sessions?.session_date || "—"} · set {log.set_number || "—"} · {log.load_kg || "—"} kg x {log.reps_done || "—"} · RPE {log.rpe || "—"}
+                    <div
+                      key={log.id}
+                      className="rounded-2xl border border-slate-200 p-4"
+                    >
+                      <p className="font-black">
+                        {log.workout_exercises?.exercise_name || "Esercizio"}
                       </p>
-                      {log.notes && <p className="mt-2 text-sm font-semibold text-slate-600">{log.notes}</p>}
+
+                      <p className="mt-1 text-sm font-semibold text-slate-500">
+                        {log.workout_sessions?.session_date || "—"} · set{" "}
+                        {log.set_number || "—"} · {log.load_kg || "—"} kg x{" "}
+                        {log.reps_done || "—"} · RPE {log.rpe || "—"}
+                      </p>
+
+                      {log.notes && (
+                        <p className="mt-2 text-sm font-semibold text-slate-600">
+                          {log.notes}
+                        </p>
+                      )}
                     </div>
                   ))}
-                  {logs.length === 0 && <Empty title="Nessun log" text="Il cliente non ha ancora registrato carichi." />}
+
+                  {logs.length === 0 && (
+                    <Empty
+                      title="Nessun log"
+                      text="Il cliente non ha ancora registrato carichi."
+                    />
+                  )}
                 </div>
               </Card>
 
               <Card className="p-5 lg:col-span-2">
                 <h2 className="text-xl font-black">Foto progressi</h2>
+
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
                   {photos.map((photo) => (
                     <button
                       key={photo.id}
                       type="button"
-                      onClick={() => openStorageFile("progress-photos", photo.file_path)}
+                      onClick={() =>
+                        openStorageFile("progress-photos", photo.file_path)
+                      }
                       className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left"
                     >
                       <Camera size={20} className="text-teal-600" />
+
                       <p className="mt-2 font-black">{photo.photo_type}</p>
-                      <p className="text-sm font-semibold text-slate-500">{photo.photo_date}</p>
+
+                      <p className="text-sm font-semibold text-slate-500">
+                        {photo.photo_date}
+                      </p>
                     </button>
                   ))}
-                  {photos.length === 0 && <Empty title="Nessuna foto" text="Le foto compariranno qui." />}
+
+                  {photos.length === 0 && (
+                    <Empty title="Nessuna foto" text="Le foto compariranno qui." />
+                  )}
                 </div>
               </Card>
             </div>
           )}
+
           {activeTab === "measurements" && (
             <div className="grid gap-5 lg:grid-cols-2">
               <Card className="p-5">
                 <h2 className="text-xl font-black">Misurazioni private</h2>
+
                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Questa sezione è solo professionista.
+                  Sezione visibile solo al professionista.
                 </p>
 
-                <form onSubmit={saveMeasurement} className="mt-4 grid gap-3 md:grid-cols-2">
+                <form
+                  onSubmit={saveMeasurement}
+                  className="mt-4 grid gap-3 md:grid-cols-2"
+                >
                   {Object.entries(measurementForm).map(([key, value]) => {
                     if (key === "notes") return null;
 
-                    const label = key.replaceAll("_", " ");
-
                     return (
-                      <Label key={key} title={label}>
+                      <Label key={key} title={key.replaceAll("_", " ")}>
                         <Input
                           type={key === "measurement_date" ? "date" : "number"}
                           value={value}
@@ -2021,7 +2545,10 @@ async function deleteProgram(program) {
                     }
                   />
 
-                  <Button type="submit" className="bg-[#07111f] text-white md:col-span-2">
+                  <Button
+                    type="submit"
+                    className="bg-[#07111f] text-white md:col-span-2"
+                  >
                     Salva misurazione
                   </Button>
                 </form>
@@ -2032,7 +2559,10 @@ async function deleteProgram(program) {
 
                 <div className="mt-4 space-y-3">
                   {measurements.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-slate-200 p-4"
+                    >
                       <p className="font-black">{item.measurement_date}</p>
 
                       <p className="mt-1 text-sm font-semibold text-slate-500">
@@ -2049,7 +2579,10 @@ async function deleteProgram(program) {
                   ))}
 
                   {measurements.length === 0 && (
-                    <Empty title="Nessuna misurazione" text="Inserisci la prima misurazione." />
+                    <Empty
+                      title="Nessuna misurazione"
+                      text="Inserisci la prima misurazione."
+                    />
                   )}
                 </div>
               </Card>
@@ -2099,7 +2632,9 @@ async function deleteProgram(program) {
 
                   <input
                     type="file"
-                    onChange={(event) => setDietFile(event.target.files?.[0] || null)}
+                    onChange={(event) =>
+                      setDietFile(event.target.files?.[0] || null)
+                    }
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold"
                   />
 
@@ -2126,10 +2661,14 @@ async function deleteProgram(program) {
 
                 <div className="mt-4 space-y-3">
                   {diets.map((diet) => (
-                    <div key={diet.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div
+                      key={diet.id}
+                      className="rounded-2xl border border-slate-200 p-4"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="font-black">{diet.title}</p>
+
                           <p className="text-sm font-semibold text-slate-500">
                             {diet.file_name}
                           </p>
@@ -2146,7 +2685,10 @@ async function deleteProgram(program) {
                   ))}
 
                   {diets.length === 0 && (
-                    <Empty title="Nessuna dieta" text="Carica il primo file dieta." />
+                    <Empty
+                      title="Nessuna dieta"
+                      text="Carica il primo file dieta."
+                    />
                   )}
                 </div>
               </Card>
@@ -2220,11 +2762,17 @@ async function deleteProgram(program) {
 
                 <div className="mt-4 space-y-3">
                   {posts.map((post) => (
-                    <div key={post.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div
+                      key={post.id}
+                      className="rounded-2xl border border-slate-200 p-4"
+                    >
                       <div className="flex items-center gap-2">
                         <p className="font-black">{post.title}</p>
+
                         {post.is_pinned && (
-                          <Pill className="bg-teal-100 text-teal-700">Fissato</Pill>
+                          <Pill className="bg-teal-100 text-teal-700">
+                            Fissato
+                          </Pill>
                         )}
                       </div>
 
@@ -2239,7 +2787,10 @@ async function deleteProgram(program) {
                   ))}
 
                   {posts.length === 0 && (
-                    <Empty title="Nessun messaggio" text="Pubblica il primo messaggio." />
+                    <Empty
+                      title="Nessun messaggio"
+                      text="Pubblica il primo messaggio."
+                    />
                   )}
                 </div>
               </Card>
@@ -2286,6 +2837,7 @@ function PlansList({ plans, onDeleteProgram, deletingProgramId }) {
                 className="border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
               >
                 <Trash2 size={16} className="mr-2" />
+
                 {deletingProgramId === plan.id
                   ? "Eliminazione..."
                   : "Elimina programma"}
@@ -2307,26 +2859,34 @@ function PlansList({ plans, onDeleteProgram, deletingProgramId }) {
                         <div className="mt-2 space-y-2">
                           {day.workout_blocks?.map((block) => (
                             <div key={block.id}>
-                              <p className="text-sm font-black text-slate-500">
-                                {block.title}
-                              </p>
-
                               {block.workout_exercises?.map((exercise) => (
                                 <div
                                   key={exercise.id}
                                   className="mt-2 rounded-xl bg-slate-50 p-3 text-sm"
                                 >
-                                  <p className="font-black">
-                                    {exercise.exercise_name}
-                                  </p>
+                                  <div className="flex items-start gap-3">
+                                    <ExerciseMediaPreview
+                                      media={exercise.exercise_media_library}
+                                    />
 
-                                  <p className="font-semibold text-slate-500">
-                                    {exercise.workout_exercise_sets?.length ||
-                                      exercise.sets ||
-                                      "—"}{" "}
-                                    serie · recupero{" "}
-                                    {exercise.recovery_seconds || "—"}s
-                                  </p>
+                                    <div className="flex-1">
+                                      <p className="font-black">
+                                        {exercise.exercise_name}
+                                      </p>
+
+                                      <p className="font-semibold text-slate-500">
+                                        {exercise.sets || "—"} serie ·{" "}
+                                        {exercise.reps || "—"} reps · recupero{" "}
+                                        {exercise.recovery_seconds || "—"}s
+                                      </p>
+
+                                      {exercise.has_weekly_progression && (
+                                        <Pill className="mt-2 bg-teal-100 text-teal-700">
+                                          Progressione settimanale
+                                        </Pill>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -2351,6 +2911,7 @@ function PlansList({ plans, onDeleteProgram, deletingProgramId }) {
     </Card>
   );
 }
+
 function ClientDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
   const [client, setClient] = useState(null);
@@ -2361,6 +2922,7 @@ function ClientDashboard({ session, onLogout }) {
   const [photos, setPhotos] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
+
   const [checkinForm, setCheckinForm] = useState({
     checkin_date: today(),
     weight_kg: "",
@@ -2375,6 +2937,7 @@ function ClientDashboard({ session, onLogout }) {
     steps: "",
     notes: ""
   });
+
   const [photoFile, setPhotoFile] = useState(null);
   const [photoForm, setPhotoForm] = useState({
     photo_date: today(),
@@ -2406,7 +2969,9 @@ function ClientDashboard({ session, onLogout }) {
       console.warn(clientError.message);
       return;
     }
-        setClient(clientData);
+
+    setClient(clientData);
+
     if (!clientData) return;
 
     const numericClientId = Number(clientData.id);
@@ -2424,7 +2989,9 @@ function ClientDashboard({ session, onLogout }) {
               *,
               workout_exercises (
                 *,
-                workout_exercise_sets (*)
+                exercise_media_library (*),
+                workout_exercise_sets (*),
+                workout_exercise_progressions (*)
               )
             )
           )
@@ -2469,6 +3036,27 @@ function ClientDashboard({ session, onLogout }) {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
+  }
+
+  function currentWeekNumber(plan) {
+    if (!plan?.start_date) return 1;
+
+    const start = new Date(plan.start_date);
+    const now = new Date();
+    const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    const week = Math.floor(diffDays / 7) + 1;
+
+    return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
+  }
+
+  function progressionForExercise(plan, exercise) {
+    const week = currentWeekNumber(plan);
+
+    return (
+      exercise.workout_exercise_progressions?.find(
+        (item) => Number(item.week_number) === week
+      ) || null
+    );
   }
 
   function updateDraft(key, field, value) {
@@ -2534,7 +3122,6 @@ function ClientDashboard({ session, onLogout }) {
   async function saveSetLog(plan, day, exercise, set) {
     const key = `${exercise.id}-${set.id}`;
     const draft = drafts[key] || {};
-
     const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
 
     if (!sessionId) return;
@@ -2608,7 +3195,6 @@ function ClientDashboard({ session, onLogout }) {
     });
 
     await loadClientArea();
-
     alert("Check-in salvato.");
   }
 
@@ -2741,243 +3327,262 @@ function ClientDashboard({ session, onLogout }) {
           <div className="space-y-5">
             {plans.map((plan) => (
               <Card key={plan.id} className="p-5">
-                <h2 className="text-2xl font-black">{plan.title}</h2>
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h2 className="text-2xl font-black">{plan.title}</h2>
 
-                {plan.goal && (
-                  <p className="mt-1 text-sm font-bold text-teal-700">
-                    {plan.goal}
-                  </p>
-                )}
+                    {plan.goal && (
+                      <p className="mt-1 text-sm font-bold text-teal-700">
+                        {plan.goal}
+                      </p>
+                    )}
+
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      Settimana corrente: {currentWeekNumber(plan)}
+                    </p>
+                  </div>
+
+                  <Pill className="bg-teal-100 text-teal-700">
+                    {plan.duration_weeks || 4} settimane
+                  </Pill>
+                </div>
 
                 {plan.notes && (
-                  <p className="mt-2 text-sm font-semibold text-slate-500">
+                  <p className="mt-3 text-sm font-semibold text-slate-500">
                     {plan.notes}
                   </p>
                 )}
 
                 <div className="mt-5 space-y-5">
-                  {plan.workout_weeks?.map((week) => (
-                    <details
-                      key={week.id}
-                      open
-                      className="rounded-3xl bg-slate-50 p-4"
-                    >
-                      <summary className="cursor-pointer text-lg font-black">
-                        {week.title || `Settimana ${week.week_number}`}
-                      </summary>
+                  {plan.workout_weeks?.map((week) =>
+                    week.workout_days?.map((day) => (
+                      <details
+                        key={day.id}
+                        open
+                        className="rounded-3xl bg-slate-50 p-4"
+                      >
+                        <summary className="cursor-pointer text-lg font-black">
+                          {day.title}
+                        </summary>
 
-                      <div className="mt-4 space-y-4">
-                        {week.workout_days?.map((day) => (
-                          <div key={day.id} className="rounded-3xl bg-white p-4">
-                            <h3 className="rounded-2xl bg-[#07111f] px-4 py-3 font-black text-white">
-                              {day.title}
-                            </h3>
+                        {day.notes && (
+                          <p className="mt-2 text-sm font-semibold text-slate-500">
+                            {day.notes}
+                          </p>
+                        )}
 
-                            {day.notes && (
-                              <p className="mt-2 text-sm font-semibold text-slate-500">
-                                {day.notes}
-                              </p>
-                            )}
+                        <div className="mt-4 space-y-4">
+                          {day.workout_blocks?.map((block) =>
+                            block.workout_exercises?.map((exercise) => {
+                              const progression = progressionForExercise(
+                                plan,
+                                exercise
+                              );
 
-                            <div className="mt-4 space-y-4">
-                              {day.workout_blocks?.map((block) => (
+                              const targetSets =
+                                progression?.target_sets || exercise.sets;
+                              const targetReps =
+                                progression?.target_reps || exercise.reps;
+                              const targetRecovery =
+                                progression?.recovery_seconds ||
+                                exercise.recovery_seconds ||
+                                90;
+
+                              return (
                                 <div
-                                  key={block.id}
-                                  className="rounded-2xl border border-slate-200 p-3"
+                                  key={exercise.id}
+                                  className="rounded-2xl bg-white p-4"
                                 >
-                                  <p className="font-black text-teal-700">
-                                    {block.title}
-                                  </p>
+                                  <div className="flex flex-col gap-4 md:flex-row md:items-start">
+                                    <ExerciseMediaPreview
+                                      media={exercise.exercise_media_library}
+                                    />
 
-                                  {block.instructions && (
-                                    <p className="mt-1 text-sm font-semibold text-slate-500">
-                                      {block.instructions}
-                                    </p>
-                                  )}
+                                    <div className="flex-1">
+                                      <h4 className="text-lg font-black">
+                                        {exercise.exercise_name}
+                                      </h4>
 
-                                  <div className="mt-3 space-y-4">
-                                    {block.workout_exercises?.map((exercise) => (
-                                      <div
-                                        key={exercise.id}
-                                        className="rounded-2xl bg-slate-50 p-4"
-                                      >
-                                        <h4 className="text-lg font-black">
-                                          {exercise.exercise_name}
-                                        </h4>
+                                      <p className="mt-1 text-sm font-bold text-slate-600">
+                                        {targetSets || "—"} serie ·{" "}
+                                        {targetReps || "—"} reps · recupero{" "}
+                                        {targetRecovery}s
+                                      </p>
 
-                                        <p className="mt-1 text-sm font-bold text-slate-600">
-                                          Tempo {exercise.tempo || "—"} · RPE{" "}
-                                          {exercise.target_rpe || "—"} · Recupero{" "}
-                                          {exercise.recovery_seconds || "—"}s
+                                      {progression && (
+                                        <div className="mt-3 rounded-2xl bg-teal-50 p-3 text-sm font-bold text-teal-800">
+                                          Target settimana{" "}
+                                          {progression.week_number}:{" "}
+                                          {progression.target_load_text ||
+                                            progression.target_load_kg ||
+                                            "carico libero"}{" "}
+                                          · RPE{" "}
+                                          {progression.target_rpe || "—"} · RIR{" "}
+                                          {progression.target_rir || "—"}
+                                          {progression.notes && (
+                                            <p className="mt-1">
+                                              Note: {progression.notes}
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {exercise.execution_mode && (
+                                        <p className="mt-2 text-sm font-semibold text-slate-500">
+                                          Esecuzione: {exercise.execution_mode}
                                         </p>
+                                      )}
 
-                                        {exercise.coach_cues && (
-                                          <p className="mt-2 text-sm font-semibold text-slate-500">
-                                            Cue: {exercise.coach_cues}
-                                          </p>
+                                      {exercise.notes && (
+                                        <p className="mt-1 text-sm font-semibold text-slate-500">
+                                          Note: {exercise.notes}
+                                        </p>
+                                      )}
+
+                                      <div className="mt-3 flex flex-wrap gap-2">
+                                        {exercise.video_url && (
+                                          <a
+                                            href={exercise.video_url}
+                                            target="_blank"
+                                            className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
+                                          >
+                                            Video
+                                          </a>
                                         )}
 
-                                        {exercise.weekly_progression && (
-                                          <div className="mt-3 rounded-2xl bg-teal-50 p-3 text-sm font-bold text-teal-800">
-                                            Progressione:{" "}
-                                            {exercise.weekly_progression}
-                                          </div>
+                                        {exercise.image_url && (
+                                          <a
+                                            href={exercise.image_url}
+                                            target="_blank"
+                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black"
+                                          >
+                                            Immagine
+                                          </a>
                                         )}
-
-                                        <div className="mt-3 flex flex-wrap gap-2">
-                                          {exercise.video_url && (
-                                            <a
-                                              href={exercise.video_url}
-                                              target="_blank"
-                                              className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
-                                            >
-                                              Video
-                                            </a>
-                                          )}
-
-                                          {exercise.image_url && (
-                                            <a
-                                              href={exercise.image_url}
-                                              target="_blank"
-                                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black"
-                                            >
-                                              Foto
-                                            </a>
-                                          )}
-                                        </div>
-
-                                        <div className="mt-4 space-y-3">
-                                          {exercise.workout_exercise_sets?.map(
-                                            (set) => {
-                                              const key = `${exercise.id}-${set.id}`;
-                                              const draft = drafts[key] || {};
-
-                                              return (
-                                                <div
-                                                  key={set.id}
-                                                  className="rounded-2xl bg-white p-3"
-                                                >
-                                                  <div className="mb-2 flex items-center justify-between gap-3">
-                                                    <p className="font-black">
-                                                      Serie {set.set_number}
-                                                    </p>
-
-                                                    <Pill className="bg-slate-100 text-slate-700">
-                                                      Target{" "}
-                                                      {set.target_reps || "—"}
-                                                    </Pill>
-                                                  </div>
-
-                                                  <div className="grid gap-2 md:grid-cols-5">
-                                                    <Input
-                                                      type="number"
-                                                      placeholder="Kg"
-                                                      value={
-                                                        draft.load_kg || ""
-                                                      }
-                                                      onChange={(event) =>
-                                                        updateDraft(
-                                                          key,
-                                                          "load_kg",
-                                                          event.target.value
-                                                        )
-                                                      }
-                                                    />
-
-                                                    <Input
-                                                      type="number"
-                                                      placeholder="Reps"
-                                                      value={
-                                                        draft.reps_done || ""
-                                                      }
-                                                      onChange={(event) =>
-                                                        updateDraft(
-                                                          key,
-                                                          "reps_done",
-                                                          event.target.value
-                                                        )
-                                                      }
-                                                    />
-
-                                                    <Input
-                                                      type="number"
-                                                      placeholder="RPE"
-                                                      value={draft.rpe || ""}
-                                                      onChange={(event) =>
-                                                        updateDraft(
-                                                          key,
-                                                          "rpe",
-                                                          event.target.value
-                                                        )
-                                                      }
-                                                    />
-
-                                                    <Input
-                                                      type="number"
-                                                      placeholder="RIR"
-                                                      value={draft.rir || ""}
-                                                      onChange={(event) =>
-                                                        updateDraft(
-                                                          key,
-                                                          "rir",
-                                                          event.target.value
-                                                        )
-                                                      }
-                                                    />
-
-                                                    <Button
-                                                      onClick={() =>
-                                                        saveSetLog(
-                                                          plan,
-                                                          day,
-                                                          exercise,
-                                                          set
-                                                        )
-                                                      }
-                                                      className="bg-[#07111f] text-white"
-                                                    >
-                                                      Salva
-                                                    </Button>
-                                                  </div>
-
-                                                  <Input
-                                                    className="mt-2"
-                                                    placeholder="Note serie"
-                                                    value={draft.notes || ""}
-                                                    onChange={(event) =>
-                                                      updateDraft(
-                                                        key,
-                                                        "notes",
-                                                        event.target.value
-                                                      )
-                                                    }
-                                                  />
-
-                                                  <div className="mt-3">
-                                                    <RestTimer
-                                                      seconds={
-                                                        set.rest_seconds ||
-                                                        exercise.recovery_seconds ||
-                                                        90
-                                                      }
-                                                    />
-                                                  </div>
-                                                </div>
-                                              );
-                                            }
-                                          )}
-                                        </div>
                                       </div>
-                                    ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 space-y-3">
+                                    {exercise.workout_exercise_sets?.map(
+                                      (set) => {
+                                        const key = `${exercise.id}-${set.id}`;
+                                        const draft = drafts[key] || {};
+
+                                        return (
+                                          <div
+                                            key={set.id}
+                                            className="rounded-2xl bg-slate-50 p-3"
+                                          >
+                                            <div className="mb-2 flex items-center justify-between gap-3">
+                                              <p className="font-black">
+                                                Serie {set.set_number}
+                                              </p>
+
+                                              <Pill className="bg-white text-slate-700">
+                                                Target {targetReps || "—"}
+                                              </Pill>
+                                            </div>
+
+                                            <div className="grid gap-2 md:grid-cols-5">
+                                              <Input
+                                                type="number"
+                                                placeholder="Kg"
+                                                value={draft.load_kg || ""}
+                                                onChange={(event) =>
+                                                  updateDraft(
+                                                    key,
+                                                    "load_kg",
+                                                    event.target.value
+                                                  )
+                                                }
+                                              />
+
+                                              <Input
+                                                type="number"
+                                                placeholder="Reps"
+                                                value={draft.reps_done || ""}
+                                                onChange={(event) =>
+                                                  updateDraft(
+                                                    key,
+                                                    "reps_done",
+                                                    event.target.value
+                                                  )
+                                                }
+                                              />
+
+                                              <Input
+                                                type="number"
+                                                placeholder="RPE"
+                                                value={draft.rpe || ""}
+                                                onChange={(event) =>
+                                                  updateDraft(
+                                                    key,
+                                                    "rpe",
+                                                    event.target.value
+                                                  )
+                                                }
+                                              />
+
+                                              <Input
+                                                type="number"
+                                                placeholder="RIR"
+                                                value={draft.rir || ""}
+                                                onChange={(event) =>
+                                                  updateDraft(
+                                                    key,
+                                                    "rir",
+                                                    event.target.value
+                                                  )
+                                                }
+                                              />
+
+                                              <Button
+                                                onClick={() =>
+                                                  saveSetLog(
+                                                    plan,
+                                                    day,
+                                                    exercise,
+                                                    set
+                                                  )
+                                                }
+                                                className="bg-[#07111f] text-white"
+                                              >
+                                                Salva
+                                              </Button>
+                                            </div>
+
+                                            <Input
+                                              className="mt-2"
+                                              placeholder="Note serie"
+                                              value={draft.notes || ""}
+                                              onChange={(event) =>
+                                                updateDraft(
+                                                  key,
+                                                  "notes",
+                                                  event.target.value
+                                                )
+                                              }
+                                            />
+
+                                            <div className="mt-3">
+                                              <RestTimer
+                                                seconds={targetRecovery}
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                    )}
                                   </div>
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
+                              );
+                            })
+                          )}
+                        </div>
+                      </details>
+                    ))
+                  )}
                 </div>
               </Card>
             ))}
