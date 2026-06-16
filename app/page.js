@@ -616,7 +616,8 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     left_thigh_cm: "",
     notes: ""
   });
-
+const [privateNoteText, setPrivateNoteText] = useState("");
+const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   const [postForm, setPostForm] = useState({
     title: "",
     body: "",
@@ -1864,7 +1865,59 @@ try {
 
     await loadClientBundle(selectedClient.id);
   }
+async function savePrivateNote(event) {
+  event.preventDefault();
 
+  if (!selectedClient) {
+    alert("Seleziona un cliente.");
+    return;
+  }
+
+  if (!privateNoteText.trim()) {
+    alert("Scrivi una nota.");
+    return;
+  }
+
+  setSavingPrivateNote(true);
+
+  try {
+    const { error } = await supabase.from("client_private_notes").insert({
+      client_id: Number(selectedClient.id),
+      professional_id: session.user.id,
+      note: privateNoteText.trim()
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setPrivateNoteText("");
+    await loadClientBundle(selectedClient.id);
+  } finally {
+    setSavingPrivateNote(false);
+  }
+}
+  async function deletePrivateNote(note) {
+  if (!note) return;
+
+  const confirmed = window.confirm("Vuoi eliminare questa nota privata?");
+  if (!confirmed) return;
+
+  const { error } = await supabase
+    .from("client_private_notes")
+    .delete()
+    .eq("id", note.id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  if (selectedClient) {
+    await loadClientBundle(selectedClient.id);
+  }
+}
   async function savePost(event) {
     event.preventDefault();
 
@@ -2202,6 +2255,72 @@ try {
                   </div>
                 </div>
               </Card>
+                    <Card className="p-5 lg:col-span-2">
+  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-xl font-black">Note private coach</h2>
+      <p className="text-sm font-semibold text-slate-500">
+        Visibili solo al professionista. Il cliente non le vede.
+      </p>
+    </div>
+
+    <Pill className="bg-slate-100 text-slate-700">
+      {privateNotes.length} note
+    </Pill>
+  </div>
+
+  <form onSubmit={savePrivateNote} className="mt-4 space-y-3">
+    <Textarea
+      placeholder="Esempio: preferenze allenamento, fastidi, feedback visita, note anamnestiche..."
+      value={privateNoteText}
+      onChange={(event) => setPrivateNoteText(event.target.value)}
+    />
+
+    <Button
+      type="submit"
+      disabled={savingPrivateNote}
+      className="bg-[#07111f] text-white"
+    >
+      <Save size={17} className="mr-2" />
+      {savingPrivateNote ? "Salvataggio..." : "Salva nota privata"}
+    </Button>
+  </form>
+
+  <div className="mt-5 space-y-3">
+    {privateNotes.map((note) => (
+      <div
+        key={note.id}
+        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold leading-6 text-slate-700">
+              {note.note}
+            </p>
+
+            <p className="mt-2 text-xs font-bold text-slate-400">
+              {new Date(note.created_at).toLocaleString("it-IT")}
+            </p>
+          </div>
+
+          <Button
+            onClick={() => deletePrivateNote(note)}
+            className="border border-red-200 bg-red-50 px-3 py-2 text-red-700"
+          >
+            <Trash2 size={15} />
+          </Button>
+        </div>
+      </div>
+    ))}
+
+    {privateNotes.length === 0 && (
+      <Empty
+        title="Nessuna nota privata"
+        text="Aggiungi appunti interni sul cliente."
+      />
+    )}
+  </div>
+</Card>
             </div>
           )}
 
