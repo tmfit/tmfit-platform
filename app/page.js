@@ -562,6 +562,7 @@ function ProfessionalDashboard({ session, onLogout }) {
   const [checkins, setCheckins] = useState([]);
   const [measurements, setMeasurements] = useState([]);
   const [photos, setPhotos] = useState([]);
+  const [loadHistory, setLoadHistory] = useState([]);
   const [privateNotes, setPrivateNotes] = useState([]);
   const [posts, setPosts] = useState([]);
   const [exerciseMedia, setExerciseMedia] = useState([]);
@@ -795,6 +796,20 @@ async function loadTemplates() {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
+    const { data: historyData, error: historyError } = await supabase
+  .from("workout_set_logs")
+  .select(
+    "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
+  )
+  .eq("workout_sessions.client_id", numericClientId)
+  .order("created_at", { ascending: false })
+  .limit(300);
+
+if (historyError) {
+  console.warn(historyError.message);
+} else {
+  setLoadHistory(historyData || []);
+}
 
     const { data: noteData } = await supabase
       .from("client_private_notes")
@@ -3569,7 +3584,87 @@ function PlansList({
     </Card>
   );
 }
+function ExerciseHistoryBox({ history = [] }) {
+  const validHistory = history.filter((item) => item.load_kg || item.reps_done);
 
+  if (validHistory.length === 0) {
+    return (
+      <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3">
+        <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+          Storico carichi
+        </p>
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          Nessuna prestazione registrata per questo esercizio.
+        </p>
+      </div>
+    );
+  }
+
+  const last = validHistory[0];
+
+  const best = [...validHistory].sort((a, b) => {
+    const loadDiff = (Number(b.load_kg) || 0) - (Number(a.load_kg) || 0);
+
+    if (loadDiff !== 0) return loadDiff;
+
+    return (Number(b.reps_done) || 0) - (Number(a.reps_done) || 0);
+  })[0];
+
+  const recent = validHistory.slice(0, 5);
+
+  return (
+    <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+        Storico carichi
+      </p>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <div className="rounded-2xl bg-white p-3">
+          <p className="text-xs font-black text-slate-400">Ultima volta</p>
+          <p className="mt-1 font-black text-slate-900">
+            {last.load_kg || "—"} kg x {last.reps_done || "—"}
+          </p>
+          <p className="text-xs font-bold text-slate-500">
+            RPE {last.rpe || "—"} · RIR {last.rir || "—"} ·{" "}
+            {last.workout_sessions?.session_date || "—"}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-white p-3">
+          <p className="text-xs font-black text-slate-400">Miglior serie</p>
+          <p className="mt-1 font-black text-slate-900">
+            {best.load_kg || "—"} kg x {best.reps_done || "—"}
+          </p>
+          <p className="text-xs font-bold text-slate-500">
+            RPE {best.rpe || "—"} · RIR {best.rir || "—"} ·{" "}
+            {best.workout_sessions?.session_date || "—"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {recent.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-sm"
+          >
+            <span className="font-bold text-slate-500">
+              {item.workout_sessions?.session_date || "—"}
+            </span>
+
+            <span className="font-black text-slate-900">
+              {item.load_kg || "—"} kg x {item.reps_done || "—"}
+            </span>
+
+            <span className="text-xs font-bold text-slate-400">
+              RPE {item.rpe || "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function ClientDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
   const [client, setClient] = useState(null);
@@ -3716,7 +3811,30 @@ function ClientDashboard({ session, onLogout }) {
       ) || null
     );
   }
+function normalizeExerciseTitle(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
 
+function getExerciseHistory(exercise) {
+  const currentId = String(exercise.id || "");
+  const currentName = normalizeExerciseTitle(exercise.exercise_name);
+
+  return loadHistory
+    .filter((log) => {
+      const logExerciseId = String(log.workout_exercise_id || "");
+      const logExerciseName = normalizeExerciseTitle(
+        log.workout_exercises?.exercise_name
+      );
+
+      return logExerciseId === currentId || logExerciseName === currentName;
+    })
+    .filter((log) => log.load_kg || log.reps_done)
+    .slice(0, 12);
+}
   function updateDraft(key, field, value) {
     setDrafts((prev) => ({
       ...prev,
@@ -4045,7 +4163,7 @@ function ClientDashboard({ session, onLogout }) {
                                 progression?.recovery_seconds ||
                                 exercise.recovery_seconds ||
                                 90;
-
+const exerciseHistory = getExerciseHistory(exercise);
                               return (
                                 <div
                                   key={exercise.id}
@@ -4118,6 +4236,7 @@ function ClientDashboard({ session, onLogout }) {
                                           </a>
                                         )}
                                       </div>
+                                          <ExerciseHistoryBox history={exerciseHistory} />
                                     </div>
                                   </div>
 
