@@ -218,20 +218,33 @@ function Pill({ children, className = "" }) {
     </span>
   );
 }
-function BrandLogo({ className = "", white = true, compact = false }) {
+function BrandLogo({
+  className = "",
+  white = true,
+  compact = false,
+  size = "default"
+}) {
+  let sizeClass = "h-14 md:h-16";
+
+  if (compact) {
+    sizeClass = "h-9 md:h-10";
+  }
+
+  if (size === "login") {
+    sizeClass = "h-28 md:h-36";
+  }
+
   return (
-    <div className={`flex items-center ${className}`}>
-      <img
-        src="/tmfit-logo.png"
-        alt="TM FIT"
-        className={`w-auto object-contain ${
-          compact ? "h-10 md:h-12" : "h-16 md:h-20"
-        } ${white ? "brightness-0 invert" : ""}`}
-        onError={(event) => {
-          event.currentTarget.style.display = "none";
-        }}
-      />
-    </div>
+    <img
+      src="/tmfit-logo.png"
+      alt="TM FIT"
+      className={`${sizeClass} w-auto object-contain ${
+        white ? "brightness-0 invert" : ""
+      } ${className}`}
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
   );
 }
 function AppFooter({ role = "coach" }) {
@@ -768,14 +781,22 @@ function LoginScreen() {
           className="w-full rounded-[2rem] border border-white/10 bg-white/[.06] p-6 shadow-2xl backdrop-blur-xl"
         >
           <div className="mb-8 text-center">
-            <div className="flex justify-center">
-<BrandLogo className="justify-center" white />
-            </div>
-            <div className="mt-2 text-xs font-black uppercase tracking-[0.35em] text-teal-300">
-              Webapp Coaching
-            </div>
-          </div>
+  <div className="flex justify-center">
+    <BrandLogo size="login" className="drop-shadow-2xl" white />
+  </div>
 
+  <p className="mt-4 text-lg font-black tracking-tight text-white">
+    Dott. Matteo Trobbiani
+  </p>
+
+  <p className="mt-1 text-sm font-bold text-slate-300">
+    Allenamento & Nutrizione
+  </p>
+
+  <div className="mt-4 inline-flex rounded-full border border-teal-300/30 bg-teal-300/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+    Webapp Coaching
+  </div>
+</div>
           {error && (
             <div className="mb-4 rounded-2xl border border-red-300 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
               {error}
@@ -2700,6 +2721,35 @@ async function savePrivateNote(event) {
       </Card>
     );
   }
+function SelectedClientCompactBar() {
+  if (!selectedClient) return null;
+
+  return (
+    <Card className="p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+            Cliente selezionato
+          </p>
+
+          <h2 className="truncate text-lg font-black text-slate-950">
+            {fullName(selectedClient)}
+          </h2>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Pill className="bg-teal-100 text-teal-700">
+            {selectedClient.status || "active"}
+          </Pill>
+
+          <Pill className="bg-slate-100 text-slate-700">
+            {selectedClient.goal || "Obiettivo non impostato"}
+          </Pill>
+        </div>
+      </div>
+    </Card>
+  );
+}
 const builderStats = getBuilderStats();
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
@@ -2745,36 +2795,48 @@ const builderStats = getBuilderStats();
   onLogout={onLogout}
   userProfile={userProfile}
 />
-      <main className="mx-auto grid max-w-7xl gap-5 p-4 pb-28 md:p-6 xl:grid-cols-[360px_1fr]">
-        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-          <Card className="p-4">
-            <div className="mb-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <main
+  className={`mx-auto grid gap-4 p-3 pb-28 md:p-5 ${
+    activeTab === "programs"
+      ? "max-w-[1700px] xl:grid-cols-[220px_minmax(0,1fr)]"
+      : "max-w-7xl xl:grid-cols-[260px_minmax(0,1fr)]"
+  }`}
+>
+        <aside className="min-w-0 space-y-3 xl:sticky xl:top-24 xl:self-start">
+          <Card className="p-3">
+            <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2">
               <Search size={17} className="text-slate-400" />
 
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Cerca cliente"
+                placeholder="Cerca"
                 className="w-full bg-transparent text-sm font-bold outline-none"
               />
             </div>
 
-            <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            <div
+  className={`space-y-1.5 overflow-y-auto pr-1 ${
+    activeTab === "programs" ? "max-h-[300px]" : "max-h-[420px]"
+  }`}
+>
               {filteredClients.map((client) => (
                 <button
                   key={client.id}
                   onClick={() => setSelectedClientId(String(client.id))}
-                  className={`w-full rounded-2xl border p-3 text-left ${
+                  className={`w-full rounded-xl border p-2.5 text-left transition ${
                     String(selectedClientId) === String(client.id)
                       ? "border-teal-300 bg-teal-50"
                       : "border-slate-200 bg-white"
                   }`}
                 >
-                  <p className="font-black">{fullName(client)}</p>
+                  <p className="truncate text-sm font-black">{fullName(client)}</p>
 
-                  <p className="mt-1 truncate text-xs font-bold text-slate-500">
-                    {client.email || "—"}
-                  </p>
+                  {activeTab !== "programs" && (
+  <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">
+    {client.email || "—"}
+  </p>
+)}
                 </button>
               ))}
 
@@ -2785,8 +2847,12 @@ const builderStats = getBuilderStats();
           </Card>
         </aside>
 
-        <section className="space-y-5">
-          <SelectedClientHero />
+        <section className="min-w-0 space-y-5">
+          {activeTab === "programs" ? (
+  <SelectedClientCompactBar />
+) : (
+  <SelectedClientHero />
+)}
 
           {activeTab === "clients" && (
             <div className="grid gap-5 lg:grid-cols-2">
