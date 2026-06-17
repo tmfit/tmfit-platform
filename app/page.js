@@ -189,25 +189,47 @@ function Pill({ children, className = "" }) {
 
 function TopTabs({ tabs, active, onChange }) {
   return (
-    <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur-xl md:px-6">
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => onChange(tab.id)}
-            className={`flex shrink-0 items-center gap-2 rounded-2xl px-4 py-3 text-sm font-black ${
-              active === tab.id
-                ? "bg-[#07111f] text-white"
-                : "border border-slate-200 bg-white text-slate-700"
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
+    <>
+      <div className="sticky top-0 z-20 hidden border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur-xl md:block md:px-6">
+        <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto pb-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onChange(tab.id)}
+              className={`flex shrink-0 items-center gap-2 rounded-2xl px-4 py-3 text-sm font-black ${
+                active === tab.id
+                  ? "bg-[#07111f] text-white shadow-lg"
+                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
+
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-3 pt-2 shadow-2xl backdrop-blur-xl md:hidden">
+        <div className="grid grid-cols-6 gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onChange(tab.id)}
+              className={`flex min-w-0 flex-col items-center justify-center rounded-2xl px-1 py-2 text-[10px] font-black ${
+                active === tab.id
+                  ? "bg-[#07111f] text-white"
+                  : "text-slate-500"
+              }`}
+            >
+              <span className="mb-1">{tab.icon}</span>
+              <span className="max-w-full truncate">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -2034,7 +2056,7 @@ const builderStats = getBuilderStats();
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="bg-[#07111f] px-4 py-5 text-white md:px-6">
+      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black">TM FIT</h1>
@@ -2055,7 +2077,7 @@ const builderStats = getBuilderStats();
 
       <TopTabs tabs={professionalTabs} active={activeTab} onChange={setActiveTab} />
 
-      <main className="mx-auto grid max-w-7xl gap-5 p-4 md:p-6 xl:grid-cols-[360px_1fr]">
+      <main className="mx-auto grid max-w-7xl gap-5 p-4 pb-28 md:p-6 xl:grid-cols-[360px_1fr]">
         <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
           <Card className="p-4">
             <div className="mb-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -4455,7 +4477,7 @@ function getExerciseHistory(exercise) {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="bg-[#07111f] px-4 py-5 text-white md:px-6">
+      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black">TM FIT</h1>
@@ -4474,7 +4496,7 @@ function getExerciseHistory(exercise) {
 
       <TopTabs tabs={clientTabs} active={activeTab} onChange={setActiveTab} />
 
-      <main className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
+      <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
         <Card className="overflow-hidden">
           <div className="bg-[#07111f] p-5 text-white md:p-6">
             <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
