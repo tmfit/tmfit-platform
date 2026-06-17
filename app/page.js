@@ -186,7 +186,17 @@ function Pill({ children, className = "" }) {
     </span>
   );
 }
-
+function BrandLogo({ className = "", white = true }) {
+  return (
+    <img
+      src="/tmfit-logo.png"
+      alt="TM FIT"
+      className={`h-10 w-auto object-contain ${
+        white ? "brightness-0 invert" : ""
+      } ${className}`}
+    />
+  );
+}
 function TopTabs({ tabs, active, onChange }) {
   return (
     <>
@@ -334,7 +344,9 @@ function LoginScreen() {
           className="w-full rounded-[2rem] border border-white/10 bg-white/[.06] p-6 shadow-2xl backdrop-blur-xl"
         >
           <div className="mb-8 text-center">
-            <div className="text-4xl font-black tracking-tight">TM FIT</div>
+            <div className="flex justify-center">
+  <BrandLogo className="h-16" white />
+</div>
             <div className="mt-2 text-xs font-black uppercase tracking-[0.35em] text-teal-300">
               Webapp Coaching
             </div>
@@ -2059,7 +2071,7 @@ const builderStats = getBuilderStats();
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-black">TM FIT</h1>
+            <BrandLogo className="h-11" white />
             <p className="text-sm font-bold text-slate-300">
               Area professionista · Smart Builder V3
             </p>
@@ -4480,7 +4492,7 @@ function getExerciseHistory(exercise) {
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-black">TM FIT</h1>
+            <BrandLogo className="h-11" white />
             <p className="text-sm font-bold text-slate-300">Area cliente</p>
           </div>
 
