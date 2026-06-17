@@ -30,7 +30,7 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
-
+const LEGAL_VERSION = "tmfit-v1.0";
 const today = () => new Date().toISOString().slice(0, 10);
 
 function uid() {
@@ -535,7 +535,176 @@ function LoginScreen() {
     </div>
   );
 }
+function LegalAcceptanceScreen({ session, onAccepted, onLogout }) {
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [coachingConsentAccepted, setCoachingConsentAccepted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
+  const canContinue =
+    termsAccepted && privacyAccepted && coachingConsentAccepted;
+
+  async function acceptLegal(event) {
+    event.preventDefault();
+
+    if (!canContinue) {
+      setError("Devi accettare Termini, Privacy e consenso trattamento dati.");
+      return;
+    }
+
+    setError("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/accept-legal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          terms_accepted: termsAccepted,
+          privacy_accepted: privacyAccepted,
+          coaching_consent_accepted: coachingConsentAccepted
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError(result.error || "Errore durante accettazione consensi.");
+        return;
+      }
+
+      onAccepted(result.profile);
+    } catch (error) {
+      setError(error.message || "Errore imprevisto.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#07111f] px-5 py-8 text-white">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-2xl items-center">
+        <form
+          onSubmit={acceptLegal}
+          className="w-full rounded-[2rem] border border-white/10 bg-white/[.06] p-6 shadow-2xl backdrop-blur-xl md:p-8"
+        >
+          <div className="mb-6 text-center">
+            <p className="text-xs font-black uppercase tracking-[0.35em] text-teal-300">
+              TM FIT
+            </p>
+
+            <h1 className="mt-3 text-3xl font-black">
+              Prima di continuare
+            </h1>
+
+            <p className="mt-3 text-sm font-semibold leading-6 text-slate-300">
+              Per usare la piattaforma devi accettare Termini, Privacy e
+              consenso al trattamento dei dati necessari alla gestione del
+              percorso di coaching.
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-4 rounded-2xl border border-red-300 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <label className="flex gap-3 rounded-2xl border border-white/10 bg-white/10 p-4">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                className="mt-1"
+              />
+
+              <span>
+                <span className="block font-black">
+                  Accetto Termini e condizioni
+                </span>
+
+                <span className="mt-1 block text-sm font-semibold leading-6 text-slate-300">
+                  Confermo di aver letto e accettato le condizioni di utilizzo
+                  della piattaforma TM FIT.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex gap-3 rounded-2xl border border-white/10 bg-white/10 p-4">
+              <input
+                type="checkbox"
+                checked={privacyAccepted}
+                onChange={(event) => setPrivacyAccepted(event.target.checked)}
+                className="mt-1"
+              />
+
+              <span>
+                <span className="block font-black">
+                  Accetto la Privacy policy
+                </span>
+
+                <span className="mt-1 block text-sm font-semibold leading-6 text-slate-300">
+                  Confermo di aver letto l’informativa privacy relativa al
+                  trattamento dei dati personali.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex gap-3 rounded-2xl border border-white/10 bg-white/10 p-4">
+              <input
+                type="checkbox"
+                checked={coachingConsentAccepted}
+                onChange={(event) =>
+                  setCoachingConsentAccepted(event.target.checked)
+                }
+                className="mt-1"
+              />
+
+              <span>
+                <span className="block font-black">
+                  Acconsento al trattamento dati per il percorso coaching
+                </span>
+
+                <span className="mt-1 block text-sm font-semibold leading-6 text-slate-300">
+                  Acconsento al trattamento dei dati necessari alla gestione di
+                  allenamento, dieta, check-in, misurazioni e progressi.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 md:flex-row">
+            <Button
+              type="submit"
+              disabled={!canContinue || loading}
+              className="flex-1 bg-teal-300 text-slate-950 hover:bg-teal-200"
+            >
+              {loading ? "Salvataggio..." : "Accetta e continua"}
+            </Button>
+
+            <Button
+              onClick={onLogout}
+              className="border border-white/10 bg-white/10 text-white"
+            >
+              Esci
+            </Button>
+          </div>
+
+          <p className="mt-5 text-xs font-semibold leading-5 text-slate-400">
+            Versione documenti: {LEGAL_VERSION}. I testi legali definitivi
+            dovranno essere caricati e validati prima dell’utilizzo reale con
+            clienti.
+          </p>
+        </form>
+      </div>
+    </div>
+  );
+}
 function defaultProgressions() {
   return [1, 2, 3, 4].map((week) => ({
     temp_id: uid(),
@@ -717,11 +886,29 @@ export default function Home() {
     );
   }
 
-  if (profile.role === "professional") {
-    return <ProfessionalDashboard session={session} onLogout={handleLogout} />;
-  }
+  const legalAccepted =
+  profile.terms_version === LEGAL_VERSION &&
+  profile.privacy_version === LEGAL_VERSION &&
+  profile.coaching_consent_version === LEGAL_VERSION &&
+  profile.terms_accepted_at &&
+  profile.privacy_accepted_at &&
+  profile.coaching_consent_accepted_at;
 
-  return <ClientDashboard session={session} onLogout={handleLogout} />;
+if (!legalAccepted) {
+  return (
+    <LegalAcceptanceScreen
+      session={session}
+      onAccepted={(updatedProfile) => setProfile(updatedProfile)}
+      onLogout={handleLogout}
+    />
+  );
+}
+
+if (profile.role === "professional") {
+  return <ProfessionalDashboard session={session} onLogout={handleLogout} />;
+}
+
+return <ClientDashboard session={session} onLogout={handleLogout} />;
 }
 function ProfessionalDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_pro_tab", "clients");
