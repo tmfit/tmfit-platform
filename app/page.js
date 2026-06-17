@@ -31,6 +31,38 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
+const LEGAL_DOCUMENTS = {
+  terms: {
+    title: "Termini e condizioni",
+    label: "Termini",
+    eyebrow: "Utilizzo piattaforma",
+    text: [
+      "La piattaforma TM FIT è uno strumento digitale riservato alla gestione del percorso di coaching, allenamento, alimentazione e monitoraggio dei progressi.",
+      "L’utente si impegna a utilizzare la piattaforma in modo corretto, a non condividere le proprie credenziali e a comunicare dati veritieri e aggiornati.",
+      "La piattaforma non sostituisce il parere medico, una diagnosi clinica o una prescrizione sanitaria. In presenza di patologie, sintomi o condizioni particolari è necessario rivolgersi al proprio medico."
+    ]
+  },
+  privacy: {
+    title: "Privacy policy",
+    label: "Privacy",
+    eyebrow: "Dati personali",
+    text: [
+      "I dati personali inseriti nella piattaforma vengono trattati per consentire la gestione del percorso di coaching, la comunicazione tra professionista e cliente e il monitoraggio dei risultati.",
+      "I dati possono includere informazioni anagrafiche, contatti, check-in, misurazioni, fotografie di progresso, dati relativi ad allenamento e alimentazione.",
+      "I dati sono utilizzati esclusivamente per le finalità connesse al servizio TM FIT e non vengono ceduti a terzi per finalità commerciali."
+    ]
+  },
+  consent: {
+    title: "Consenso trattamento dati coaching",
+    label: "Consenso coaching",
+    eyebrow: "Allenamento · dieta · progressi",
+    text: [
+      "L’utente autorizza il trattamento dei dati necessari alla gestione del proprio percorso personalizzato.",
+      "Il consenso riguarda dati utili alla valutazione dei progressi, alla programmazione dell’allenamento, alla gestione dell’alimentazione, dei check-in e delle comunicazioni interne.",
+      "Il consenso può essere revocato secondo le modalità previste dall’informativa privacy, fermo restando che alcuni dati potrebbero essere necessari per erogare correttamente il servizio."
+    ]
+  }
+};
 const today = () => new Date().toISOString().slice(0, 10);
 
 function uid() {
@@ -246,24 +278,29 @@ function AppFooter({ role = "coach" }) {
       </div>
     </footer>
   );
-}
-function LegalDrawerStatus({ userProfile }) {
+}function LegalDrawerSection({ userProfile }) {
+  const [expanded, setExpanded] = useState(false);
+  const [openLegal, setOpenLegal] = useState(null);
+
   const legalItems = [
     {
-      label: "Termini e condizioni",
+      key: "terms",
+      label: "Termini",
       accepted:
         userProfile?.terms_version === LEGAL_VERSION &&
         Boolean(userProfile?.terms_accepted_at),
       date: userProfile?.terms_accepted_at
     },
     {
-      label: "Privacy policy",
+      key: "privacy",
+      label: "Privacy",
       accepted:
         userProfile?.privacy_version === LEGAL_VERSION &&
         Boolean(userProfile?.privacy_accepted_at),
       date: userProfile?.privacy_accepted_at
     },
     {
+      key: "consent",
       label: "Consenso coaching",
       accepted:
         userProfile?.coaching_consent_version === LEGAL_VERSION &&
@@ -289,63 +326,95 @@ function LegalDrawerStatus({ userProfile }) {
   }
 
   return (
-    <div className="mb-3 rounded-3xl border border-white/10 bg-white/5 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
-            Documenti legali
-          </p>
-
-          <p className="mt-1 text-xs font-bold text-slate-400">
-            Selezioni accettate per accedere all’app
-          </p>
-        </div>
-
-        <span
-          className={`rounded-full px-2.5 py-1 text-[11px] font-black ${
-            acceptedCount === 3
-              ? "bg-teal-300 text-slate-950"
-              : "bg-red-400 text-white"
-          }`}
+    <>
+      <div className="mb-3 overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
         >
-          {acceptedCount}/3
-        </span>
-      </div>
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+              Documenti legali
+            </p>
 
-      <div className="space-y-2">
-        {legalItems.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center justify-between gap-3 rounded-2xl bg-white/5 px-3 py-3"
-          >
-            <label className="flex min-w-0 items-center gap-3">
-              <input
-                type="checkbox"
-                checked={item.accepted}
-                readOnly
-                className="h-4 w-4 accent-teal-300"
-              />
-
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-black text-white">
-                  {item.label}
-                </span>
-
-                <span
-                  className={`mt-0.5 block text-[11px] font-bold ${
-                    item.accepted ? "text-teal-300" : "text-red-300"
-                  }`}
-                >
-                  {item.accepted
-                    ? `Accettato ${formatDate(item.date)}`
-                    : "Non accettato"}
-                </span>
-              </span>
-            </label>
+            <p className="mt-1 text-xs font-bold text-slate-400">
+              Termini, Privacy e consenso coaching
+            </p>
           </div>
-        ))}
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-black ${
+                acceptedCount === 3
+                  ? "bg-teal-300 text-slate-950"
+                  : "bg-white/10 text-white"
+              }`}
+            >
+              {acceptedCount}/3
+            </span>
+
+            <span className="text-lg font-black text-white">
+              {expanded ? "−" : "+"}
+            </span>
+          </div>
+        </button>
+
+        {expanded && (
+          <div className="border-t border-white/10 px-4 pb-4 pt-3">
+            <div className="space-y-2">
+              {legalItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-white/5 px-3 py-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${
+                        item.accepted
+                          ? "bg-teal-300 text-slate-950"
+                          : "bg-white/10 text-white"
+                      }`}
+                    >
+                      {item.accepted ? "✓" : "!"}
+                    </span>
+
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-black text-white">
+                        {item.label}
+                      </p>
+
+                      <p
+                        className={`mt-0.5 text-[11px] font-bold ${
+                          item.accepted ? "text-teal-300" : "text-slate-400"
+                        }`}
+                      >
+                        {item.accepted
+                          ? `Accettato ${formatDate(item.date)}`
+                          : "Non accettato"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setOpenLegal(item.key)}
+                    className="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-[11px] font-black text-teal-300 transition hover:bg-white/15"
+                  >
+                    Leggi
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+
+      <LegalDocumentModal
+        documentKey={openLegal}
+        onClose={() => setOpenLegal(null)}
+      />
+    </>
   );
 }
 function SideDrawer({
@@ -422,23 +491,8 @@ function SideDrawer({
           </nav>
 
           <div className="border-t border-white/10 p-4">
-            <LegalDrawerStatus userProfile={userProfile} />
-            <div className="mb-3 grid gap-2">
-              <button
-                type="button"
-                className="rounded-2xl bg-white/5 px-4 py-3 text-left text-xs font-bold text-slate-300"
-              >
-                Termini e condizioni
-              </button>
-
-              <button
-                type="button"
-                className="rounded-2xl bg-white/5 px-4 py-3 text-left text-xs font-bold text-slate-300"
-              >
-                Privacy policy
-              </button>
-            </div>
-
+            <LegalDrawerSection userProfile={userProfile} />
+              
             <Button
               onClick={onLogout}
               className="w-full bg-white text-slate-950"
@@ -563,81 +617,72 @@ function RestTimer({ seconds = 90 }) {
     </div>
   );
 }
+function LegalDocumentModal({ documentKey, onClose }) {
+  const selectedDocument = documentKey ? LEGAL_DOCUMENTS[documentKey] : null;
+
+  if (!selectedDocument) return null;
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center px-4 py-8">
+      <button
+        type="button"
+        aria-label="Chiudi documento legale"
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+      />
+
+      <div className="relative z-[121] max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#07111f] p-6 text-white shadow-2xl md:p-8">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+              {selectedDocument.eyebrow}
+            </p>
+
+            <h2 className="mt-2 text-2xl font-black">
+              {selectedDocument.title}
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl bg-white/10 p-3"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {selectedDocument.text.map((paragraph, index) => (
+            <p
+              key={index}
+              className="text-sm font-semibold leading-7 text-slate-300"
+            >
+              {paragraph}
+            </p>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-white/10 p-4">
+          <p className="text-xs font-semibold leading-5 text-slate-400">
+            Versione documenti: {LEGAL_VERSION}. I testi sono una base
+            operativa e andranno validati prima dell’utilizzo reale con clienti.
+          </p>
+        </div>
+
+        <Button
+          onClick={onClose}
+          className="mt-5 w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+        >
+          Ho letto
+        </Button>
+      </div>
+    </div>
+  );
+}
 function LegalLinksPanel() {
   const [expanded, setExpanded] = useState(false);
   const [openLegal, setOpenLegal] = useState(null);
-  const [deviceLegalStatus, setDeviceLegalStatus] = useState({
-    termsAccepted: false,
-    privacyAccepted: false,
-    coachingConsentAccepted: false,
-    version: null,
-    updatedAt: null
-  });
-
-  useEffect(() => {
-    try {
-      const savedStatus = window.localStorage.getItem("tmfit_legal_status");
-
-      if (!savedStatus) return;
-
-      const parsedStatus = JSON.parse(savedStatus);
-
-      setDeviceLegalStatus({
-        termsAccepted: parsedStatus.termsAccepted === true,
-        privacyAccepted: parsedStatus.privacyAccepted === true,
-        coachingConsentAccepted:
-          parsedStatus.coachingConsentAccepted === true,
-        version: parsedStatus.version || null,
-        updatedAt: parsedStatus.updatedAt || null
-      });
-    } catch (error) {
-      console.warn("Impossibile leggere stato documenti legali", error);
-    }
-  }, []);
-
-  const legalDocuments = {
-    terms: {
-      title: "Termini e condizioni",
-      label: "Termini",
-      eyebrow: "Utilizzo piattaforma",
-      statusKey: "termsAccepted",
-      text: [
-        "La piattaforma TM FIT è uno strumento digitale riservato alla gestione del percorso di coaching, allenamento, alimentazione e monitoraggio dei progressi.",
-        "L’utente si impegna a utilizzare la piattaforma in modo corretto, a non condividere le proprie credenziali e a comunicare dati veritieri e aggiornati.",
-        "La piattaforma non sostituisce il parere medico, una diagnosi clinica o una prescrizione sanitaria. In presenza di patologie, sintomi o condizioni particolari è necessario rivolgersi al proprio medico."
-      ]
-    },
-    privacy: {
-      title: "Privacy policy",
-      label: "Privacy",
-      eyebrow: "Dati personali",
-      statusKey: "privacyAccepted",
-      text: [
-        "I dati personali inseriti nella piattaforma vengono trattati per consentire la gestione del percorso di coaching, la comunicazione tra professionista e cliente e il monitoraggio dei risultati.",
-        "I dati possono includere informazioni anagrafiche, contatti, check-in, misurazioni, fotografie di progresso, dati relativi ad allenamento e alimentazione.",
-        "I dati sono utilizzati esclusivamente per le finalità connesse al servizio TM FIT e non vengono ceduti a terzi per finalità commerciali."
-      ]
-    },
-    consent: {
-      title: "Consenso trattamento dati coaching",
-      label: "Consenso coaching",
-      eyebrow: "Allenamento · dieta · progressi",
-      statusKey: "coachingConsentAccepted",
-      text: [
-        "L’utente autorizza il trattamento dei dati necessari alla gestione del proprio percorso personalizzato.",
-        "Il consenso riguarda dati utili alla valutazione dei progressi, alla programmazione dell’allenamento, alla gestione dell’alimentazione, dei check-in e delle comunicazioni interne.",
-        "Il consenso può essere revocato secondo le modalità previste dall’informativa privacy, fermo restando che alcuni dati potrebbero essere necessari per erogare correttamente il servizio."
-      ]
-    }
-  };
-
-  const selectedDocument = openLegal ? legalDocuments[openLegal] : null;
-
-  const acceptedCount = [
-    deviceLegalStatus.termsAccepted,
-    deviceLegalStatus.privacyAccepted,
-    deviceLegalStatus.coachingConsentAccepted
-  ].filter(Boolean).length;
 
   return (
     <>
@@ -653,142 +698,38 @@ function LegalLinksPanel() {
             </p>
 
             <p className="mt-1 text-xs font-semibold text-slate-300">
-              {acceptedCount === 3
-                ? "Documenti già accettati su questo dispositivo"
-                : "Termini, Privacy e consenso coaching"}
+              Termini, Privacy e consenso coaching
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-black ${
-                acceptedCount === 3
-                  ? "bg-teal-300 text-slate-950"
-                  : "bg-white/10 text-white"
-              }`}
-            >
-              {acceptedCount}/3
-            </span>
-
-            <span className="text-lg font-black text-white">
-              {expanded ? "−" : "+"}
-            </span>
-          </div>
+          <span className="text-lg font-black text-white">
+            {expanded ? "−" : "+"}
+          </span>
         </button>
 
         {expanded && (
           <div className="border-t border-white/10 px-4 pb-4 pt-3">
-            <div className="space-y-2">
-              {Object.entries(legalDocuments).map(([key, item]) => {
-                const isAccepted = deviceLegalStatus[item.statusKey] === true;
-
-                return (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between gap-3 rounded-xl bg-white/10 px-3 py-3"
-                  >
-                    <label className="flex min-w-0 flex-1 items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={isAccepted}
-                        readOnly
-                        className="h-4 w-4 accent-teal-300"
-                      />
-
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs font-black text-white">
-                          {item.label}
-                        </span>
-
-                        <span
-                          className={`mt-0.5 block text-[11px] font-bold ${
-                            isAccepted ? "text-teal-300" : "text-slate-400"
-                          }`}
-                        >
-                          {isAccepted ? "Accettato" : "Da accettare dopo login"}
-                        </span>
-                      </span>
-                    </label>
-
-                    <button
-                      type="button"
-                      onClick={() => setOpenLegal(key)}
-                      className="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-[11px] font-black text-teal-300"
-                    >
-                      Leggi
-                    </button>
-                  </div>
-                );
-              })}
+            <div className="grid gap-2">
+              {Object.entries(LEGAL_DOCUMENTS).map(([key, item]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setOpenLegal(key)}
+                  className="flex w-full items-center justify-between rounded-xl bg-white/10 px-3 py-3 text-left text-xs font-black text-white transition hover:bg-white/15"
+                >
+                  <span>{item.label}</span>
+                  <span className="text-teal-300">Leggi</span>
+                </button>
+              ))}
             </div>
-
-            {deviceLegalStatus.updatedAt && (
-              <p className="mt-3 text-[11px] font-semibold leading-5 text-slate-400">
-                Ultima accettazione registrata su questo dispositivo.
-              </p>
-            )}
           </div>
         )}
       </div>
 
-      {selectedDocument && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-8">
-          <button
-            type="button"
-            aria-label="Chiudi documento legale"
-            onClick={() => setOpenLegal(null)}
-            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
-          />
-
-          <div className="relative z-[101] max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#07111f] p-6 text-white shadow-2xl md:p-8">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
-                  {selectedDocument.eyebrow}
-                </p>
-
-                <h2 className="mt-2 text-2xl font-black">
-                  {selectedDocument.title}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setOpenLegal(null)}
-                className="rounded-2xl bg-white/10 p-3"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {selectedDocument.text.map((paragraph, index) => (
-                <p
-                  key={index}
-                  className="text-sm font-semibold leading-7 text-slate-300"
-                >
-                  {paragraph}
-                </p>
-              ))}
-            </div>
-
-            <div className="mt-6 rounded-2xl bg-white/10 p-4">
-              <p className="text-xs font-semibold leading-5 text-slate-400">
-                Versione documenti: {LEGAL_VERSION}. Questi testi sono una base
-                operativa interna e andrebbero validati prima dell’utilizzo
-                reale con clienti.
-              </p>
-            </div>
-
-            <Button
-              onClick={() => setOpenLegal(null)}
-              className="mt-5 w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
-            >
-              Ho letto
-            </Button>
-          </div>
-        </div>
-      )}
+      <LegalDocumentModal
+        documentKey={openLegal}
+        onClose={() => setOpenLegal(null)}
+      />
     </>
   );
 }
