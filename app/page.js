@@ -166,7 +166,14 @@ function Input({ className = "", ...props }) {
     />
   );
 }
-
+function BuilderCellInput({ className = "", ...props }) {
+  return (
+    <input
+      {...props}
+      className={`h-10 w-full min-w-[72px] rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-black text-slate-950 outline-none transition focus:border-teal-300 focus:ring-2 focus:ring-teal-100 ${className}`}
+    />
+  );
+}
 function Textarea({ className = "", ...props }) {
   return (
     <textarea
@@ -782,10 +789,10 @@ function LoginScreen() {
         >
           <div className="mb-8 text-center">
   <div className="flex justify-center">
-    <BrandLogo size="login" className="drop-shadow-2xl" white />
+    <BrandLogo size="login" className="-mb-5 drop-shadow-2xl md:-mb-7" white />
   </div>
 
-  <p className="mt-4 text-lg font-black tracking-tight text-white">
+  <p className="mt-0 text-lg font-black tracking-tight text-white">
     Dott. Matteo Trobbiani
   </p>
 
@@ -3304,7 +3311,7 @@ const builderStats = getBuilderStats();
                         </div>
 
                         <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
-                          <table className="w-[1320px] text-left text-sm">
+                          <table className="w-[1180px] text-left text-sm">
                             <thead className="bg-[#07111f] text-xs font-black uppercase tracking-wider text-white">
                               <tr>
                                 <th className="p-3">Img</th>
@@ -3373,38 +3380,39 @@ const builderStats = getBuilderStats();
           </select>
         </td>
 
-        <td className="w-24 p-3">
-          <Input
-            type="text"
-            inputMode="text"
-            value={exercise.sets}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "sets",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+       <td className="w-20 p-2">
+  <BuilderCellInput
+    type="text"
+    inputMode="text"
+    placeholder="3"
+    value={exercise.sets || ""}
+    onChange={(event) =>
+      updateExerciseField(
+        dayIndex,
+        exerciseIndex,
+        "sets",
+        event.target.value
+      )
+    }
+  />
+</td>
 
-        <td className="w-28 p-3">
-          <Input
-            type="text"
-            inputMode="text"
-            value={exercise.reps}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "reps",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
-
+     <td className="w-24 p-2">
+  <BuilderCellInput
+    type="text"
+    inputMode="text"
+    placeholder="8-10"
+    value={exercise.reps || ""}
+    onChange={(event) =>
+      updateExerciseField(
+        dayIndex,
+        exerciseIndex,
+        "reps",
+        event.target.value
+      )
+    }
+  />
+</td>
         <td className="w-32 p-3">
           <Input
             type="number"
@@ -3420,37 +3428,39 @@ const builderStats = getBuilderStats();
           />
         </td>
 
-        <td className="w-24 p-3">
-          <Input
-            type="text"
-            inputMode="text"
-            value={exercise.target_rpe}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "target_rpe",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+       <td className="w-20 p-2">
+  <BuilderCellInput
+    type="text"
+    inputMode="decimal"
+    placeholder="8"
+    value={exercise.target_rpe || ""}
+    onChange={(event) =>
+      updateExerciseField(
+        dayIndex,
+        exerciseIndex,
+        "target_rpe",
+        event.target.value
+      )
+    }
+  />
+</td>
 
-        <td className="w-24 p-3">
-          <Input
-            type="text"
-            inputMode="text"
-            value={exercise.target_rir}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "target_rir",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+    <td className="w-20 p-2">
+  <BuilderCellInput
+    type="text"
+    inputMode="decimal"
+    placeholder="2"
+    value={exercise.target_rir || ""}
+    onChange={(event) =>
+      updateExerciseField(
+        dayIndex,
+        exerciseIndex,
+        "target_rir",
+        event.target.value
+      )
+    }
+  />
+</td>
 
         <td className="min-w-[180px] p-3">
           <Input
