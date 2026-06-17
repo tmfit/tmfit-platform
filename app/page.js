@@ -2026,8 +2026,7 @@ async function savePrivateNote(event) {
   }
 
   function SelectedClientHero() {
-    if (!selectedClient) return null;
-const builderStats = getBuilderStats();
+  if (!selectedClient) return null;
     return (
       <Card className="overflow-hidden">
         <div className="bg-[#07111f] p-5 text-white md:p-6">
@@ -2065,7 +2064,7 @@ const builderStats = getBuilderStats();
       </Card>
     );
   }
-
+const builderStats = getBuilderStats();
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
@@ -2408,12 +2407,7 @@ const builderStats = getBuilderStats();
     <Plus size={16} className="mr-2" />
     Allenamento
   </Button>
-  <Button
-  onClick={() => onEditProgram(plan)}
-  className="border border-teal-200 bg-teal-50 text-teal-700"
->
-  Modifica
-</Button>
+  
 </div>
                   </div>
 
@@ -4127,6 +4121,7 @@ function ClientDashboard({ session, onLogout }) {
   const [posts, setPosts] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [photos, setPhotos] = useState([]);
+  const [loadHistory, setLoadHistory] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
 
@@ -4243,6 +4238,20 @@ function ClientDashboard({ session, onLogout }) {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
+    const { data: historyData, error: historyError } = await supabase
+  .from("workout_set_logs")
+  .select(
+    "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
+  )
+  .eq("workout_sessions.client_id", numericClientId)
+  .order("created_at", { ascending: false })
+  .limit(300);
+
+if (historyError) {
+  console.warn(historyError.message);
+} else {
+  setLoadHistory(historyData || []);
+}
   }
 
   function currentWeekNumber(plan) {
