@@ -204,38 +204,142 @@ function BrandLogo({ className = "", white = true, compact = false }) {
 }
 function AppFooter({ role = "coach" }) {
   return (
-    <footer className="mt-8 border-t border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 md:flex-row md:items-center md:justify-between md:px-6">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-[#07111f] px-3 py-2">
-            <BrandLogo compact white />
-          </div>
+    <footer className="mt-8 border-t border-white/10 bg-[#07111f] text-white">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-7 pb-32 md:flex-row md:items-center md:justify-between md:px-6 md:pb-7">
+        <div>
+          <p className="text-sm font-black tracking-wide">
+            TM FIT Coaching Platform
+          </p>
 
-          <div>
-            <p className="text-sm font-black text-slate-950">
-              TM FIT Coaching Platform
-            </p>
-            <p className="text-xs font-bold text-slate-500">
-              Allenamento · nutrizione · progressi · monitoraggio
-            </p>
-          </div>
+          <p className="mt-1 text-xs font-semibold text-slate-400">
+            Allenamento · nutrizione · monitoraggio · progressi
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Pill className="bg-slate-100 text-slate-700">
+          <Pill className="bg-white/10 text-white">
             {role === "coach" ? "Area professionista" : "Area cliente"}
           </Pill>
 
-          <Pill className="bg-teal-100 text-teal-700">
+          <Pill className="bg-teal-300 text-slate-950">
             Webapp privata
           </Pill>
 
-          <Pill className="bg-slate-100 text-slate-700">
-            v3.9
+          <Pill className="bg-white/10 text-white">
+            v4.0
           </Pill>
+        </div>
+
+        <div className="flex flex-wrap gap-4 text-xs font-bold text-slate-400">
+          <button type="button" className="hover:text-white">
+            Termini
+          </button>
+
+          <button type="button" className="hover:text-white">
+            Privacy
+          </button>
+
+          <button type="button" className="hover:text-white">
+            Assistenza
+          </button>
         </div>
       </div>
     </footer>
+  );
+}
+function SideDrawer({ open, onClose, tabs, active, onChange, role = "coach", onLogout }) {
+  return (
+    <>
+      {open && (
+        <button
+          type="button"
+          aria-label="Chiudi menu"
+          onClick={onClose}
+          className="fixed inset-0 z-[70] bg-slate-950/50 backdrop-blur-sm"
+        />
+      )}
+
+      <aside
+        className={`fixed bottom-0 left-0 top-0 z-[80] w-[86%] max-w-sm transform bg-[#07111f] text-white shadow-2xl transition md:w-96 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex h-full flex-col">
+          <div className="border-b border-white/10 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                  Menu
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black">
+                  TM FIT
+                </h2>
+
+                <p className="mt-1 text-sm font-semibold text-slate-400">
+                  {role === "coach" ? "Area professionista" : "Area cliente"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-2xl bg-white/10 p-3"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          <nav className="flex-1 space-y-2 overflow-y-auto p-4">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  onChange(tab.id);
+                  onClose();
+                }}
+                className={`flex w-full items-center gap-3 rounded-3xl px-4 py-4 text-left text-sm font-black ${
+                  active === tab.id
+                    ? "bg-teal-300 text-slate-950"
+                    : "bg-white/5 text-white hover:bg-white/10"
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="border-t border-white/10 p-4">
+            <div className="mb-3 grid gap-2">
+              <button
+                type="button"
+                className="rounded-2xl bg-white/5 px-4 py-3 text-left text-xs font-bold text-slate-300"
+              >
+                Termini e condizioni
+              </button>
+
+              <button
+                type="button"
+                className="rounded-2xl bg-white/5 px-4 py-3 text-left text-xs font-bold text-slate-300"
+              >
+                Privacy policy
+              </button>
+            </div>
+
+            <Button
+              onClick={onLogout}
+              className="w-full bg-white text-slate-950"
+            >
+              <LogOut size={17} className="mr-2" />
+              Esci
+            </Button>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }
 function TopTabs({ tabs, active, onChange }) {
@@ -621,6 +725,7 @@ export default function Home() {
 }
 function ProfessionalDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_pro_tab", "clients");
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = usePersistedState(
     "tmfit_selected_client",
     ""
@@ -2110,12 +2215,24 @@ const builderStats = getBuilderStats();
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-          <div>
-            <BrandLogo compact white />
-            <p className="text-sm font-bold text-slate-300">
-              Area professionista · Smart Builder V3
-            </p>
-          </div>
+         <div className="flex items-center gap-3">
+  <button
+    type="button"
+    onClick={() => setDrawerOpen(true)}
+    className="rounded-2xl bg-white/10 p-3 text-white"
+  >
+    <span className="block h-0.5 w-5 rounded bg-white" />
+    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
+    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
+  </button>
+
+  <div>
+    <h1 className="text-2xl font-black tracking-tight">TM FIT</h1>
+    <p className="text-sm font-bold text-slate-300">
+      Area professionista · Smart Builder V4
+    </p>
+  </div>
+</div>
 
           <Button
             onClick={onLogout}
@@ -2128,7 +2245,15 @@ const builderStats = getBuilderStats();
       </header>
 
       <TopTabs tabs={professionalTabs} active={activeTab} onChange={setActiveTab} />
-
+<SideDrawer
+  open={drawerOpen}
+  onClose={() => setDrawerOpen(false)}
+  tabs={professionalTabs}
+  active={activeTab}
+  onChange={setActiveTab}
+  role="coach"
+  onLogout={onLogout}
+/>
       <main className="mx-auto grid max-w-7xl gap-5 p-4 pb-28 md:p-6 xl:grid-cols-[360px_1fr]">
         <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
           <Card className="p-4">
@@ -4158,6 +4283,7 @@ function ExerciseHistoryBox({ history = [] }) {
 }
 function ClientDashboard({ session, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [client, setClient] = useState(null);
   const [plans, setPlans] = useState([]);
   const [diets, setDiets] = useState([]);
@@ -4543,10 +4669,22 @@ function getExerciseHistory(exercise) {
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <div>
-            <BrandLogo compact white />
-            <p className="text-sm font-bold text-slate-300">Area cliente</p>
-          </div>
+         <div className="flex items-center gap-3">
+  <button
+    type="button"
+    onClick={() => setDrawerOpen(true)}
+    className="rounded-2xl bg-white/10 p-3 text-white"
+  >
+    <span className="block h-0.5 w-5 rounded bg-white" />
+    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
+    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
+  </button>
+
+  <div>
+    <h1 className="text-2xl font-black tracking-tight">TM FIT</h1>
+    <p className="text-sm font-bold text-slate-300">Area cliente</p>
+  </div>
+</div>
 
           <Button
             onClick={onLogout}
@@ -4559,7 +4697,15 @@ function getExerciseHistory(exercise) {
       </header>
 
       <TopTabs tabs={clientTabs} active={activeTab} onChange={setActiveTab} />
-
+<SideDrawer
+  open={drawerOpen}
+  onClose={() => setDrawerOpen(false)}
+  tabs={clientTabs}
+  active={activeTab}
+  onChange={setActiveTab}
+  role="client"
+  onLogout={onLogout}
+/>
       <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
         <Card className="overflow-hidden">
           <div className="bg-[#07111f] p-5 text-white md:p-6">
