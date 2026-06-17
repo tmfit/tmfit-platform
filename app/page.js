@@ -247,8 +247,117 @@ function AppFooter({ role = "coach" }) {
     </footer>
   );
 }
-function SideDrawer({ open, onClose, tabs, active, onChange, role = "coach", onLogout }) {
+function LegalDrawerStatus({ userProfile }) {
+  const legalItems = [
+    {
+      label: "Termini e condizioni",
+      accepted:
+        userProfile?.terms_version === LEGAL_VERSION &&
+        Boolean(userProfile?.terms_accepted_at),
+      date: userProfile?.terms_accepted_at
+    },
+    {
+      label: "Privacy policy",
+      accepted:
+        userProfile?.privacy_version === LEGAL_VERSION &&
+        Boolean(userProfile?.privacy_accepted_at),
+      date: userProfile?.privacy_accepted_at
+    },
+    {
+      label: "Consenso coaching",
+      accepted:
+        userProfile?.coaching_consent_version === LEGAL_VERSION &&
+        Boolean(userProfile?.coaching_consent_accepted_at),
+      date: userProfile?.coaching_consent_accepted_at
+    }
+  ];
+
+  const acceptedCount = legalItems.filter((item) => item.accepted).length;
+
+  function formatDate(value) {
+    if (!value) return "";
+
+    try {
+      return new Intl.DateTimeFormat("it-IT", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      }).format(new Date(value));
+    } catch {
+      return "";
+    }
+  }
+
   return (
+    <div className="mb-3 rounded-3xl border border-white/10 bg-white/5 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+            Documenti legali
+          </p>
+
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            Selezioni accettate per accedere all’app
+          </p>
+        </div>
+
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-black ${
+            acceptedCount === 3
+              ? "bg-teal-300 text-slate-950"
+              : "bg-red-400 text-white"
+          }`}
+        >
+          {acceptedCount}/3
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {legalItems.map((item) => (
+          <div
+            key={item.label}
+            className="flex items-center justify-between gap-3 rounded-2xl bg-white/5 px-3 py-3"
+          >
+            <label className="flex min-w-0 items-center gap-3">
+              <input
+                type="checkbox"
+                checked={item.accepted}
+                readOnly
+                className="h-4 w-4 accent-teal-300"
+              />
+
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-black text-white">
+                  {item.label}
+                </span>
+
+                <span
+                  className={`mt-0.5 block text-[11px] font-bold ${
+                    item.accepted ? "text-teal-300" : "text-red-300"
+                  }`}
+                >
+                  {item.accepted
+                    ? `Accettato ${formatDate(item.date)}`
+                    : "Non accettato"}
+                </span>
+              </span>
+            </label>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function SideDrawer({
+  open,
+  onClose,
+  tabs,
+  active,
+  onChange,
+  role = "coach",
+  onLogout,
+  userProfile
+}) {  return (
     <>
       {open && (
         <button
@@ -313,6 +422,7 @@ function SideDrawer({ open, onClose, tabs, active, onChange, role = "coach", onL
           </nav>
 
           <div className="border-t border-white/10 p-4">
+            <LegalDrawerStatus userProfile={userProfile} />
             <div className="mb-3 grid gap-2">
               <button
                 type="button"
@@ -751,12 +861,12 @@ function LoginScreen() {
             />
 
             <Button
-              type="submit"
-              disabled={loading}
-              className="h-13 w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
-            >
-              {loading ? "Accesso..." : "Accedi"}
-            </Button>
+  type="submit"
+  disabled={loading}
+  className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+>
+  {loading ? "Accesso..." : "Accedi"}
+</Button>
               <LegalLinksPanel />
           </div>
         </form>
@@ -1145,12 +1255,24 @@ if (!legalAccepted) {
 }
 
 if (profile.role === "professional") {
-  return <ProfessionalDashboard session={session} onLogout={handleLogout} />;
+  return (
+    <ProfessionalDashboard
+      session={session}
+      userProfile={profile}
+      onLogout={handleLogout}
+    />
+  );
 }
 
-return <ClientDashboard session={session} onLogout={handleLogout} />;
+return (
+  <ClientDashboard
+    session={session}
+    userProfile={profile}
+    onLogout={handleLogout}
+  />
+);
 }
-function ProfessionalDashboard({ session, onLogout }) {
+function ProfessionalDashboard({ session, userProfile, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_pro_tab", "clients");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = usePersistedState(
@@ -2680,6 +2802,7 @@ const builderStats = getBuilderStats();
   onChange={setActiveTab}
   role="coach"
   onLogout={onLogout}
+  userProfile={userProfile}
 />
       <main className="mx-auto grid max-w-7xl gap-5 p-4 pb-28 md:p-6 xl:grid-cols-[360px_1fr]">
         <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
@@ -4708,7 +4831,7 @@ function ExerciseHistoryBox({ history = [] }) {
     </div>
   );
 }
-function ClientDashboard({ session, onLogout }) {
+function ClientDashboard({ session, userProfile, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [client, setClient] = useState(null);
@@ -5132,6 +5255,7 @@ function getExerciseHistory(exercise) {
   onChange={setActiveTab}
   role="client"
   onLogout={onLogout}
+  userProfile={userProfile}
 />
       <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
         <Card className="overflow-hidden">
