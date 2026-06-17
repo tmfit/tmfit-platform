@@ -186,15 +186,56 @@ function Pill({ children, className = "" }) {
     </span>
   );
 }
-function BrandLogo({ className = "", white = true }) {
+function BrandLogo({ className = "", white = true, compact = false }) {
   return (
-    <img
-      src="/tmfit-logo.png"
-      alt="TM FIT"
-      className={`h-10 w-auto object-contain ${
-        white ? "brightness-0 invert" : ""
-      } ${className}`}
-    />
+    <div className={`flex items-center ${className}`}>
+      <img
+        src="/tmfit-logo.png"
+        alt="TM FIT"
+        className={`w-auto object-contain ${
+          compact ? "h-10 md:h-12" : "h-16 md:h-20"
+        } ${white ? "brightness-0 invert" : ""}`}
+        onError={(event) => {
+          event.currentTarget.style.display = "none";
+        }}
+      />
+    </div>
+  );
+}
+function AppFooter({ role = "coach" }) {
+  return (
+    <footer className="mt-8 border-t border-slate-200 bg-white">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 md:flex-row md:items-center md:justify-between md:px-6">
+        <div className="flex items-center gap-3">
+          <div className="rounded-2xl bg-[#07111f] px-3 py-2">
+            <BrandLogo compact white />
+          </div>
+
+          <div>
+            <p className="text-sm font-black text-slate-950">
+              TM FIT Coaching Platform
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              Allenamento · nutrizione · progressi · monitoraggio
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Pill className="bg-slate-100 text-slate-700">
+            {role === "coach" ? "Area professionista" : "Area cliente"}
+          </Pill>
+
+          <Pill className="bg-teal-100 text-teal-700">
+            Webapp privata
+          </Pill>
+
+          <Pill className="bg-slate-100 text-slate-700">
+            v3.9
+          </Pill>
+        </div>
+      </div>
+    </footer>
   );
 }
 function TopTabs({ tabs, active, onChange }) {
@@ -221,13 +262,13 @@ function TopTabs({ tabs, active, onChange }) {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-3 pt-2 shadow-2xl backdrop-blur-xl md:hidden">
-        <div className="grid grid-cols-6 gap-1">
+        <div className="grid grid-cols-6 gap-1 rounded-[1.7rem] bg-slate-100 p-1">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center rounded-2xl px-1 py-2 text-[10px] font-black ${
+              className={`flex min-w-0 flex-col items-center justify-center rounded-[1.3rem] px-1 py-2 text-[10px] font-black transition active:scale-[.96] ${
                 active === tab.id
                   ? "bg-[#07111f] text-white"
                   : "text-slate-500"
@@ -345,8 +386,8 @@ function LoginScreen() {
         >
           <div className="mb-8 text-center">
             <div className="flex justify-center">
-  <BrandLogo className="h-16" white />
-</div>
+<BrandLogo className="justify-center" white />
+            </div>
             <div className="mt-2 text-xs font-black uppercase tracking-[0.35em] text-teal-300">
               Webapp Coaching
             </div>
@@ -2070,7 +2111,7 @@ const builderStats = getBuilderStats();
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
-            <BrandLogo className="h-11" white />
+            <BrandLogo compact white />
             <p className="text-sm font-bold text-slate-300">
               Area professionista · Smart Builder V3
             </p>
@@ -3452,7 +3493,9 @@ const builderStats = getBuilderStats();
             </div>
           )}
         </section>
-      </main>
+            </main>
+
+      <AppFooter role="coach" />
     </div>
   );
 }
@@ -4501,7 +4544,7 @@ function getExerciseHistory(exercise) {
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div>
-            <BrandLogo className="h-11" white />
+            <BrandLogo compact white />
             <p className="text-sm font-bold text-slate-300">Area cliente</p>
           </div>
 
@@ -5121,7 +5164,9 @@ const exerciseHistory = getExerciseHistory(exercise);
             </div>
           </Card>
         )}
-      </main>
+            </main>
+
+      <AppFooter role="client" />
     </div>
   );
 }
