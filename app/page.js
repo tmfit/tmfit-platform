@@ -454,13 +454,43 @@ function RestTimer({ seconds = 90 }) {
   );
 }
 function LegalLinksPanel() {
+  const [expanded, setExpanded] = useState(false);
   const [openLegal, setOpenLegal] = useState(null);
+  const [deviceLegalStatus, setDeviceLegalStatus] = useState({
+    termsAccepted: false,
+    privacyAccepted: false,
+    coachingConsentAccepted: false,
+    version: null,
+    updatedAt: null
+  });
+
+  useEffect(() => {
+    try {
+      const savedStatus = window.localStorage.getItem("tmfit_legal_status");
+
+      if (!savedStatus) return;
+
+      const parsedStatus = JSON.parse(savedStatus);
+
+      setDeviceLegalStatus({
+        termsAccepted: parsedStatus.termsAccepted === true,
+        privacyAccepted: parsedStatus.privacyAccepted === true,
+        coachingConsentAccepted:
+          parsedStatus.coachingConsentAccepted === true,
+        version: parsedStatus.version || null,
+        updatedAt: parsedStatus.updatedAt || null
+      });
+    } catch (error) {
+      console.warn("Impossibile leggere stato documenti legali", error);
+    }
+  }, []);
 
   const legalDocuments = {
     terms: {
       title: "Termini e condizioni",
       label: "Termini",
       eyebrow: "Utilizzo piattaforma",
+      statusKey: "termsAccepted",
       text: [
         "La piattaforma TM FIT è uno strumento digitale riservato alla gestione del percorso di coaching, allenamento, alimentazione e monitoraggio dei progressi.",
         "L’utente si impegna a utilizzare la piattaforma in modo corretto, a non condividere le proprie credenziali e a comunicare dati veritieri e aggiornati.",
@@ -471,6 +501,7 @@ function LegalLinksPanel() {
       title: "Privacy policy",
       label: "Privacy",
       eyebrow: "Dati personali",
+      statusKey: "privacyAccepted",
       text: [
         "I dati personali inseriti nella piattaforma vengono trattati per consentire la gestione del percorso di coaching, la comunicazione tra professionista e cliente e il monitoraggio dei risultati.",
         "I dati possono includere informazioni anagrafiche, contatti, check-in, misurazioni, fotografie di progresso, dati relativi ad allenamento e alimentazione.",
@@ -481,6 +512,7 @@ function LegalLinksPanel() {
       title: "Consenso trattamento dati coaching",
       label: "Consenso coaching",
       eyebrow: "Allenamento · dieta · progressi",
+      statusKey: "coachingConsentAccepted",
       text: [
         "L’utente autorizza il trattamento dei dati necessari alla gestione del proprio percorso personalizzato.",
         "Il consenso riguarda dati utili alla valutazione dei progressi, alla programmazione dell’allenamento, alla gestione dell’alimentazione, dei check-in e delle comunicazioni interne.",
@@ -491,31 +523,102 @@ function LegalLinksPanel() {
 
   const selectedDocument = openLegal ? legalDocuments[openLegal] : null;
 
+  const acceptedCount = [
+    deviceLegalStatus.termsAccepted,
+    deviceLegalStatus.privacyAccepted,
+    deviceLegalStatus.coachingConsentAccepted
+  ].filter(Boolean).length;
+
   return (
     <>
-      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[.06] p-4 text-left">
-        <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
-          Documenti legali
-        </p>
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[.06] text-left">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+        >
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+              Documenti legali
+            </p>
 
-        <p className="mt-2 text-xs font-semibold leading-5 text-slate-300">
-          Accedendo alla piattaforma, all’utente verrà richiesto di accettare le
-          opzioni previste da TM FIT.
-        </p>
+            <p className="mt-1 text-xs font-semibold text-slate-300">
+              {acceptedCount === 3
+                ? "Documenti già accettati su questo dispositivo"
+                : "Termini, Privacy e consenso coaching"}
+            </p>
+          </div>
 
-        <div className="mt-3 grid gap-2">
-          {Object.entries(legalDocuments).map(([key, item]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setOpenLegal(key)}
-              className="flex items-center justify-between rounded-xl bg-white/10 px-3 py-2 text-left text-xs font-black text-white transition hover:bg-white/15"
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-black ${
+                acceptedCount === 3
+                  ? "bg-teal-300 text-slate-950"
+                  : "bg-white/10 text-white"
+              }`}
             >
-              <span>{item.label}</span>
-              <span className="text-teal-300">Leggi</span>
-            </button>
-          ))}
-        </div>
+              {acceptedCount}/3
+            </span>
+
+            <span className="text-lg font-black text-white">
+              {expanded ? "−" : "+"}
+            </span>
+          </div>
+        </button>
+
+        {expanded && (
+          <div className="border-t border-white/10 px-4 pb-4 pt-3">
+            <div className="space-y-2">
+              {Object.entries(legalDocuments).map(([key, item]) => {
+                const isAccepted = deviceLegalStatus[item.statusKey] === true;
+
+                return (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-white/10 px-3 py-3"
+                  >
+                    <label className="flex min-w-0 flex-1 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={isAccepted}
+                        readOnly
+                        className="h-4 w-4 accent-teal-300"
+                      />
+
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-black text-white">
+                          {item.label}
+                        </span>
+
+                        <span
+                          className={`mt-0.5 block text-[11px] font-bold ${
+                            isAccepted ? "text-teal-300" : "text-slate-400"
+                          }`}
+                        >
+                          {isAccepted ? "Accettato" : "Da accettare dopo login"}
+                        </span>
+                      </span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setOpenLegal(key)}
+                      className="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-[11px] font-black text-teal-300"
+                    >
+                      Leggi
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {deviceLegalStatus.updatedAt && (
+              <p className="mt-3 text-[11px] font-semibold leading-5 text-slate-400">
+                Ultima accettazione registrata su questo dispositivo.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {selectedDocument && (
@@ -702,7 +805,18 @@ function LegalAcceptanceScreen({ session, onAccepted, onLogout }) {
         setError(result.error || "Errore durante accettazione consensi.");
         return;
       }
-
+if (typeof window !== "undefined") {
+  window.localStorage.setItem(
+    "tmfit_legal_status",
+    JSON.stringify({
+      termsAccepted: true,
+      privacyAccepted: true,
+      coachingConsentAccepted: true,
+      version: LEGAL_VERSION,
+      updatedAt: new Date().toISOString()
+    })
+  );
+}
       onAccepted(result.profile);
     } catch (error) {
       setError(error.message || "Errore imprevisto.");
