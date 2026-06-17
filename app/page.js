@@ -453,7 +453,132 @@ function RestTimer({ seconds = 90 }) {
     </div>
   );
 }
+function LegalLinksPanel() {
+  const [openLegal, setOpenLegal] = useState(null);
 
+  const legalDocuments = {
+    terms: {
+      title: "Termini e condizioni",
+      label: "Termini",
+      eyebrow: "Utilizzo piattaforma",
+      text: [
+        "La piattaforma TM FIT è uno strumento digitale riservato alla gestione del percorso di coaching, allenamento, alimentazione e monitoraggio dei progressi.",
+        "L’utente si impegna a utilizzare la piattaforma in modo corretto, a non condividere le proprie credenziali e a comunicare dati veritieri e aggiornati.",
+        "La piattaforma non sostituisce il parere medico, una diagnosi clinica o una prescrizione sanitaria. In presenza di patologie, sintomi o condizioni particolari è necessario rivolgersi al proprio medico."
+      ]
+    },
+    privacy: {
+      title: "Privacy policy",
+      label: "Privacy",
+      eyebrow: "Dati personali",
+      text: [
+        "I dati personali inseriti nella piattaforma vengono trattati per consentire la gestione del percorso di coaching, la comunicazione tra professionista e cliente e il monitoraggio dei risultati.",
+        "I dati possono includere informazioni anagrafiche, contatti, check-in, misurazioni, fotografie di progresso, dati relativi ad allenamento e alimentazione.",
+        "I dati sono utilizzati esclusivamente per le finalità connesse al servizio TM FIT e non vengono ceduti a terzi per finalità commerciali."
+      ]
+    },
+    consent: {
+      title: "Consenso trattamento dati coaching",
+      label: "Consenso coaching",
+      eyebrow: "Allenamento · dieta · progressi",
+      text: [
+        "L’utente autorizza il trattamento dei dati necessari alla gestione del proprio percorso personalizzato.",
+        "Il consenso riguarda dati utili alla valutazione dei progressi, alla programmazione dell’allenamento, alla gestione dell’alimentazione, dei check-in e delle comunicazioni interne.",
+        "Il consenso può essere revocato secondo le modalità previste dall’informativa privacy, fermo restando che alcuni dati potrebbero essere necessari per erogare correttamente il servizio."
+      ]
+    }
+  };
+
+  const selectedDocument = openLegal ? legalDocuments[openLegal] : null;
+
+  return (
+    <>
+      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[.06] p-4 text-left">
+        <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+          Documenti legali
+        </p>
+
+        <p className="mt-2 text-xs font-semibold leading-5 text-slate-300">
+          Accedendo alla piattaforma, all’utente verrà richiesto di accettare le
+          opzioni previste da TM FIT.
+        </p>
+
+        <div className="mt-3 grid gap-2">
+          {Object.entries(legalDocuments).map(([key, item]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setOpenLegal(key)}
+              className="flex items-center justify-between rounded-xl bg-white/10 px-3 py-2 text-left text-xs font-black text-white transition hover:bg-white/15"
+            >
+              <span>{item.label}</span>
+              <span className="text-teal-300">Leggi</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {selectedDocument && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-8">
+          <button
+            type="button"
+            aria-label="Chiudi documento legale"
+            onClick={() => setOpenLegal(null)}
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+          />
+
+          <div className="relative z-[101] max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#07111f] p-6 text-white shadow-2xl md:p-8">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                  {selectedDocument.eyebrow}
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black">
+                  {selectedDocument.title}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setOpenLegal(null)}
+                className="rounded-2xl bg-white/10 p-3"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {selectedDocument.text.map((paragraph, index) => (
+                <p
+                  key={index}
+                  className="text-sm font-semibold leading-7 text-slate-300"
+                >
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-white/10 p-4">
+              <p className="text-xs font-semibold leading-5 text-slate-400">
+                Versione documenti: {LEGAL_VERSION}. Questi testi sono una base
+                operativa interna e andrebbero validati prima dell’utilizzo
+                reale con clienti.
+              </p>
+            </div>
+
+            <Button
+              onClick={() => setOpenLegal(null)}
+              className="mt-5 w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+            >
+              Ho letto
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -529,6 +654,7 @@ function LoginScreen() {
             >
               {loading ? "Accesso..." : "Accedi"}
             </Button>
+              <LegalLinksPanel />
           </div>
         </form>
       </div>
