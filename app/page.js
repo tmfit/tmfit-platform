@@ -31,6 +31,8 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
+const APP_VERSION = "v4.7";
+const APP_VERSION_LABEL = "TMFIT Pro v4.7";
 const LEGAL_DOCUMENTS = {
   terms: {
     title: "Termini e condizioni",
@@ -278,8 +280,8 @@ function AppFooter({ role = "coach" }) {
           </Pill>
 
           <Pill className="bg-white/10 text-white">
-            v4.0
-          </Pill>
+  {APP_VERSION}
+</Pill>
         </div>
 
         <div className="flex flex-wrap gap-4 text-xs font-bold text-slate-400">
@@ -572,15 +574,15 @@ function TopTabs({ tabs, active, onChange }) {
   );
 }
 
-function RestTimer({ seconds = 90 }) {
+function RestTimer({ seconds = 90, autoStart = false }) {
   const initialSeconds = Number(seconds) || 90;
   const [remaining, setRemaining] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
 
-  useEffect(() => {
-    setRemaining(initialSeconds);
-    setRunning(false);
-  }, [initialSeconds]);
+ useEffect(() => {
+  setRemaining(initialSeconds);
+  setRunning(autoStart);
+}, [initialSeconds, autoStart]);
 
   useEffect(() => {
     if (!running) return;
@@ -5467,6 +5469,346 @@ function ExerciseHistoryBox({ history = [] }) {
     </div>
   );
 }
+function WorkoutPlayerModal({
+  player,
+  onClose,
+  drafts,
+  updateDraft,
+  saveSetLog,
+  getExerciseHistory
+}) {
+  const [exerciseIndex, setExerciseIndex] = useState(0);
+  const [setIndex, setSetIndex] = useState(0);
+  const [resting, setResting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [finished, setFinished] = useState(false);
+
+  const open = player?.open;
+  const plan = player?.plan;
+  const day = player?.day;
+
+  useEffect(() => {
+    if (open) {
+      setExerciseIndex(0);
+      setSetIndex(0);
+      setResting(false);
+      setSaving(false);
+      setFinished(false);
+    }
+  }, [open, plan?.id, day?.id]);
+
+  if (!open || !plan || !day) return null;
+
+  const exercises = (day.workout_blocks || [])
+    .flatMap((block) => block.workout_exercises || [])
+    .filter(Boolean);
+
+  const exercise = exercises[exerciseIndex];
+
+  function plannedSetsForExercise(item) {
+    const realSets = sortByOrder(item?.workout_exercise_sets || [], "set_number");
+
+    if (realSets.length > 0) return realSets;
+
+    const count = Number(item?.sets) || 1;
+
+    return Array.from({ length: count }).map((_, index) => ({
+      id: null,
+      temp_id: `virtual-${item.id}-${index + 1}`,
+      set_number: index + 1,
+      target_reps: item.reps || "",
+      target_rpe: item.target_rpe || "",
+      target_rir: item.target_rir || "",
+      recovery_seconds: item.recovery_seconds || 90
+    }));
+  }
+
+  const plannedSets = exercise ? plannedSetsForExercise(exercise) : [];
+  const currentSet = plannedSets[setIndex];
+
+  const setToken =
+    currentSet?.id || currentSet?.temp_id || `virtual-${currentSet?.set_number}`;
+  const draftKey = exercise && currentSet ? `${exercise.id}-${setToken}` : "";
+  const draft = drafts[draftKey] || {};
+
+  const recoverySeconds =
+    currentSet?.recovery_seconds ||
+    exercise?.recovery_seconds ||
+    exercise?.rest_seconds ||
+    90;
+
+  const history = exercise ? getExerciseHistory(exercise) : [];
+
+  const progressText = exercise
+    ? `Esercizio ${exerciseIndex + 1}/${exercises.length} · Serie ${
+        setIndex + 1
+      }/${plannedSets.length}`
+    : "";
+
+  function goNext() {
+    setResting(false);
+
+    if (setIndex < plannedSets.length - 1) {
+      setSetIndex((current) => current + 1);
+      return;
+    }
+
+    if (exerciseIndex < exercises.length - 1) {
+      setExerciseIndex((current) => current + 1);
+      setSetIndex(0);
+      return;
+    }
+
+    setFinished(true);
+  }
+
+  async function saveCurrentSet() {
+    if (!exercise || !currentSet) return;
+
+    setSaving(true);
+
+    const ok = await saveSetLog(plan, day, exercise, currentSet);
+
+    setSaving(false);
+
+    if (ok) {
+      setResting(true);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[130] bg-slate-950/80 px-3 py-4 backdrop-blur-sm md:px-6">
+      <div className="mx-auto flex h-full max-w-4xl flex-col overflow-hidden rounded-[2rem] bg-[#f5f7fb] shadow-2xl">
+        <div className="bg-[#07111f] p-5 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                Modalità Allenati
+              </p>
+
+              <h2 className="mt-2 text-2xl font-black">
+                {day.title || "Allenamento"}
+              </h2>
+
+              <p className="mt-1 text-sm font-semibold text-slate-300">
+                {plan.title} · {progressText}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-2xl bg-white/10 p-3"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+          {finished ? (
+            <Card className="p-6 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
+                <Check size={28} />
+              </div>
+
+              <h3 className="mt-4 text-2xl font-black">
+                Allenamento completato
+              </h3>
+
+              <p className="mt-2 text-sm font-semibold text-slate-500">
+                Hai salvato le serie. Il coach potrà vedere carichi, reps, RPE e
+                RIR.
+              </p>
+
+              <Button
+                type="button"
+                onClick={onClose}
+                className="mt-5 w-full bg-[#07111f] text-white"
+              >
+                Chiudi allenamento
+              </Button>
+            </Card>
+          ) : !exercise ? (
+            <Empty
+              title="Nessun esercizio"
+              text="Questo allenamento non contiene esercizi."
+            />
+          ) : (
+            <div className="space-y-4">
+              <Card className="overflow-hidden">
+                <div className="bg-white p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+                        Esercizio attuale
+                      </p>
+
+                      <h3 className="mt-2 text-3xl font-black text-slate-950">
+                        {exercise.exercise_name}
+                      </h3>
+
+                      <p className="mt-2 text-sm font-semibold text-slate-500">
+                        Target: {exercise.sets || plannedSets.length} serie ·{" "}
+                        {exercise.reps || currentSet?.target_reps || "reps —"} ·
+                        RPE {exercise.target_rpe || currentSet?.target_rpe || "—"} ·
+                        RIR {exercise.target_rir || currentSet?.target_rir || "—"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl bg-slate-50 p-4 text-center">
+                      <p className="text-4xl font-black text-slate-950">
+                        {setIndex + 1}
+                      </p>
+                      <p className="text-xs font-black uppercase text-slate-400">
+                        Serie
+                      </p>
+                    </div>
+                  </div>
+
+                  {exercise.notes && (
+                    <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">
+                      {exercise.notes}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="p-5">
+                <h4 className="text-xl font-black">Registra serie</h4>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
+                  <Label title="Kg">
+                    <Input
+                      inputMode="decimal"
+                      value={draft.load_kg || ""}
+                      onChange={(event) =>
+                        updateDraft(draftKey, "load_kg", event.target.value)
+                      }
+                      placeholder="es. 80"
+                    />
+                  </Label>
+
+                  <Label title="Reps fatte">
+                    <Input
+                      inputMode="numeric"
+                      value={draft.reps_done || ""}
+                      onChange={(event) =>
+                        updateDraft(draftKey, "reps_done", event.target.value)
+                      }
+                      placeholder="es. 10"
+                    />
+                  </Label>
+
+                  <Label title="RPE">
+                    <Input
+                      inputMode="decimal"
+                      value={draft.rpe || ""}
+                      onChange={(event) =>
+                        updateDraft(draftKey, "rpe", event.target.value)
+                      }
+                      placeholder="es. 8"
+                    />
+                  </Label>
+
+                  <Label title="RIR">
+                    <Input
+                      inputMode="decimal"
+                      value={draft.rir || ""}
+                      onChange={(event) =>
+                        updateDraft(draftKey, "rir", event.target.value)
+                      }
+                      placeholder="es. 2"
+                    />
+                  </Label>
+                </div>
+
+                <div className="mt-3">
+                  <Label title="Note serie">
+                    <Input
+                      value={draft.notes || ""}
+                      onChange={(event) =>
+                        updateDraft(draftKey, "notes", event.target.value)
+                      }
+                      placeholder="Facoltativo"
+                    />
+                  </Label>
+                </div>
+              </Card>
+
+              {history.length > 0 && (
+                <Card className="p-5">
+                  <h4 className="text-xl font-black">Storico recente</h4>
+
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {history.slice(0, 4).map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-2xl bg-slate-50 p-3 text-sm"
+                      >
+                        <p className="font-black">
+                          {item.load_kg || "—"} kg x {item.reps_done || "—"}
+                        </p>
+
+                        <p className="text-xs font-bold text-slate-500">
+                          RPE {item.rpe || "—"} ·{" "}
+                          {item.workout_sessions?.session_date || "—"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {resting && (
+                <Card className="border-teal-200 bg-teal-50 p-5">
+                  <h4 className="mb-3 text-xl font-black">
+                    Recupero in corso
+                  </h4>
+
+                  <RestTimer seconds={recoverySeconds} autoStart />
+                </Card>
+              )}
+            </div>
+          )}
+        </div>
+
+        {!finished && exercise && (
+          <div className="border-t border-slate-200 bg-white p-4">
+            <div className="flex flex-col gap-2 md:flex-row">
+              {!resting ? (
+                <Button
+                  type="button"
+                  onClick={saveCurrentSet}
+                  disabled={saving}
+                  className="flex-1 bg-[#07111f] text-white"
+                >
+                  {saving ? "Salvataggio..." : "Salva serie e avvia recupero"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={goNext}
+                  className="flex-1 bg-teal-300 text-slate-950"
+                >
+                  Successivo
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                onClick={goNext}
+                className="border border-slate-200 bg-white text-slate-700"
+              >
+                Salta
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 function ClientDashboard({ session, userProfile, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -5479,6 +5821,11 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [loadHistory, setLoadHistory] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
+  const [workoutPlayer, setWorkoutPlayer] = useState({
+  open: false,
+  plan: null,
+  day: null
+});
 
   const [checkinForm, setCheckinForm] = useState({
     checkin_date: today(),
@@ -5714,37 +6061,38 @@ function getExerciseHistory(exercise) {
   }
 
   async function saveSetLog(plan, day, exercise, set) {
-    const key = `${exercise.id}-${set.id}`;
-    const draft = drafts[key] || {};
-    const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
+  const setToken = set.id || set.temp_id || `virtual-${set.set_number}`;
+  const key = `${exercise.id}-${setToken}`;
+  const draft = drafts[key] || {};
+  const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
 
-    if (!sessionId) return;
+  if (!sessionId) return false;
 
-    const { error } = await supabase.from("workout_set_logs").insert({
-      session_id: sessionId,
-      workout_exercise_id: exercise.id,
-      planned_set_id: set.id,
-      set_number: set.set_number,
-      load_kg: numberOrNull(draft.load_kg),
-      reps_done: numberOrNull(draft.reps_done),
-      rpe: numberOrNull(draft.rpe),
-      rir: numberOrNull(draft.rir),
-      notes: draft.notes || null,
-      completed: true
-    });
+  const { error } = await supabase.from("workout_set_logs").insert({
+    session_id: sessionId,
+    workout_exercise_id: exercise.id,
+    planned_set_id: set.id || null,
+    set_number: set.set_number,
+    load_kg: numberOrNull(draft.load_kg),
+    reps_done: numberOrNull(draft.reps_done),
+    rpe: numberOrNull(draft.rpe),
+    rir: numberOrNull(draft.rir),
+    notes: draft.notes || null,
+    completed: true
+  });
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    setDrafts((prev) => ({
-      ...prev,
-      [key]: {}
-    }));
-
-    alert("Serie salvata.");
+  if (error) {
+    alert(error.message);
+    return false;
   }
+
+  setDrafts((prev) => ({
+    ...prev,
+    [key]: {}
+  }));
+
+  return true;
+}
 
   async function saveCheckin(event) {
     event.preventDefault();
@@ -5979,6 +6327,26 @@ function getExerciseHistory(exercise) {
                         <summary className="cursor-pointer text-lg font-black">
                           {day.title}
                         </summary>
+<div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+  <p className="text-sm font-semibold text-slate-500">
+    Avvia questo allenamento in modalità guidata.
+  </p>
+
+  <Button
+    type="button"
+    onClick={() =>
+      setWorkoutPlayer({
+        open: true,
+        plan,
+        day
+      })
+    }
+    className="bg-[#07111f] text-white"
+  >
+    <Dumbbell size={17} className="mr-2" />
+    Allenati
+  </Button>
+</div>
 
                         {day.notes && (
                           <p className="mt-2 text-sm font-semibold text-slate-500">
@@ -6497,6 +6865,20 @@ const exerciseHistory = getExerciseHistory(exercise);
             </div>
           </Card>
         )}
+<WorkoutPlayerModal
+  player={workoutPlayer}
+  onClose={() =>
+    setWorkoutPlayer({
+      open: false,
+      plan: null,
+      day: null
+    })
+  }
+  drafts={drafts}
+  updateDraft={updateDraft}
+  saveSetLog={saveSetLog}
+  getExerciseHistory={getExerciseHistory}
+/>
             </main>
 
       <AppFooter role="client" />
