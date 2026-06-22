@@ -2998,18 +2998,7 @@ const builderStats = getBuilderStats();
 ) : (
   <SelectedClientHero />
 )}
-           {activeTab === "clients" && (
-  <CoachControlCenter
-    clients={clients}
-    coachData={coachControlData}
-    loading={coachControlLoading}
-    onRefresh={() => loadCoachControlCenter(clients)}
-    onOpenClient={(clientId, tab) => {
-      setSelectedClientId(String(clientId));
-      setActiveTab(tab);
-    }}
-  />
-)}
+          
 
           {activeTab === "clients" && (
             <div className="grid gap-5 lg:grid-cols-2">
