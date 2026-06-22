@@ -1722,6 +1722,49 @@ function getBuilderStats() {
       }
     });
   }
+  function duplicateWorkoutDay(dayIndex) {
+  updateBuilder((next) => {
+    const sourceDay = next.days[dayIndex];
+    const copy = clone(sourceDay);
+
+    copy.temp_id = uid();
+    copy.title = `${sourceDay.title || `Allenamento ${dayIndex + 1}`} copia`;
+
+    copy.exercises = copy.exercises.map((exercise) => ({
+      ...exercise,
+      temp_id: uid(),
+      progressions: (exercise.progressions || []).map((progression) => ({
+        ...progression,
+        temp_id: uid()
+      }))
+    }));
+
+    next.days.splice(dayIndex + 1, 0, copy);
+  });
+}
+
+function moveWorkoutDay(dayIndex, direction) {
+  updateBuilder((next) => {
+    const targetIndex = dayIndex + direction;
+
+    if (targetIndex < 0 || targetIndex >= next.days.length) return;
+
+    const [removedDay] = next.days.splice(dayIndex, 1);
+    next.days.splice(targetIndex, 0, removedDay);
+  });
+}
+
+function moveExerciseRow(dayIndex, exerciseIndex, direction) {
+  updateBuilder((next) => {
+    const exercises = next.days[dayIndex].exercises;
+    const targetIndex = exerciseIndex + direction;
+
+    if (targetIndex < 0 || targetIndex >= exercises.length) return;
+
+    const [removedExercise] = exercises.splice(exerciseIndex, 1);
+    exercises.splice(targetIndex, 0, removedExercise);
+  });
+}
 
   function addExerciseRow(dayIndex) {
     updateBuilder((next) => {
@@ -3227,16 +3270,18 @@ const builderStats = getBuilderStats();
                     <div className="flex flex-wrap gap-2">
   {editingProgramId && (
     <Button
-      onClick={cancelProgramEditing}
-      className="border border-slate-200 bg-white text-slate-700"
-    >
-      <X size={16} className="mr-2" />
-      Annulla modifica
-    </Button>
+  type="button"
+  onClick={cancelProgramEditing}
+  className="border border-slate-200 bg-white text-slate-700"
+>
+  <X size={16} className="mr-2" />
+  Annulla modifica
+</Button>
   )}
 
   <Button
-    onClick={addWorkoutDay}
+  type="button"
+  onClick={addWorkoutDay}
     className="border border-slate-200 bg-white text-slate-900"
   >
     <Plus size={16} className="mr-2" />
@@ -3257,6 +3302,54 @@ const builderStats = getBuilderStats();
   onSaveTemplate={saveBuilderAsTemplate}
   onCancelEditing={cancelProgramEditing}
 />
+    <div className="sticky top-20 z-30 rounded-[1.5rem] border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-xl">
+  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-w-0">
+      <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+        Builder attivo
+      </p>
+
+      <p className="truncate text-sm font-bold text-slate-500">
+        {builder.title || "Nuovo programma"} · {builderStats.totalDays} giorni ·{" "}
+        {builderStats.totalExercises} esercizi ·{" "}
+        {builderStats.estimatedMinutes || 0} min stimati
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-2">
+      {editingProgramId && (
+        <Button
+          type="button"
+          onClick={cancelProgramEditing}
+          className="border border-slate-200 bg-white text-slate-700"
+        >
+          Annulla
+        </Button>
+      )}
+
+      <Button
+        type="button"
+        onClick={saveBuilderAsTemplate}
+        disabled={savingTemplate}
+        className="border border-teal-200 bg-teal-50 text-teal-700"
+      >
+        {savingTemplate ? "Salvataggio..." : "Salva template"}
+      </Button>
+
+      <Button
+        type="submit"
+        disabled={savingPlan}
+        className="bg-[#07111f] text-white"
+      >
+        {savingPlan
+          ? "Salvataggio..."
+          : editingProgramId
+          ? "Aggiorna programma"
+          : "Salva programma"}
+      </Button>
+    </div>
+  </div>
+</div>
                     <div className="grid gap-3 md:grid-cols-3">
                       <Label title="Titolo programma">
                         <Input
@@ -3397,22 +3490,50 @@ const builderStats = getBuilderStats();
                             </Label>
                           </div>
 
-                          <div className="flex gap-2">
-                            <Button
-                              onClick={() => addExerciseRow(dayIndex)}
-                              className="border border-slate-200 bg-white text-slate-900"
-                            >
-                              <Plus size={16} className="mr-2" />
-                              Esercizio
-                            </Button>
+                          <div className="flex flex-wrap gap-2">
+  <Button
+    type="button"
+    onClick={() => moveWorkoutDay(dayIndex, -1)}
+    disabled={dayIndex === 0}
+    className="border border-slate-200 bg-white px-3 text-slate-700"
+  >
+    ↑
+  </Button>
 
-                            <Button
-                              onClick={() => removeWorkoutDay(dayIndex)}
-                              className="border border-red-200 bg-white text-red-600"
-                            >
-                              <X size={16} />
-                            </Button>
-                          </div>
+  <Button
+    type="button"
+    onClick={() => moveWorkoutDay(dayIndex, 1)}
+    disabled={dayIndex === builder.days.length - 1}
+    className="border border-slate-200 bg-white px-3 text-slate-700"
+  >
+    ↓
+  </Button>
+
+  <Button
+    type="button"
+    onClick={() => duplicateWorkoutDay(dayIndex)}
+    className="border border-teal-200 bg-teal-50 text-teal-700"
+  >
+    Duplica giorno
+  </Button>
+
+  <Button
+    type="button"
+    onClick={() => addExerciseRow(dayIndex)}
+    className="border border-slate-200 bg-white text-slate-900"
+  >
+    <Plus size={16} className="mr-2" />
+    Esercizio
+  </Button>
+
+  <Button
+    type="button"
+    onClick={() => removeWorkoutDay(dayIndex)}
+    className="border border-red-200 bg-white text-red-600"
+  >
+    <X size={16} />
+  </Button>
+</div>
                         </div>
 
                         <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -3629,23 +3750,43 @@ const builderStats = getBuilderStats();
           </label>
         </td>
 
-        <td className="w-44 p-3">
-          <div className="flex gap-2">
-            <Button
-              onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
-              className="border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900"
-            >
-              Duplica
-            </Button>
+        <td className="w-56 p-2">
+  <div className="flex flex-wrap gap-1.5">
+    <Button
+      type="button"
+      onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
+      disabled={exerciseIndex === 0}
+      className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
+    >
+      ↑
+    </Button>
 
-            <Button
-              onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
-              className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
-            >
-              <X size={14} />
-            </Button>
-          </div>
-        </td>
+    <Button
+      type="button"
+      onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
+      disabled={exerciseIndex === day.exercises.length - 1}
+      className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
+    >
+      ↓
+    </Button>
+
+    <Button
+      type="button"
+      onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
+      className="border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700"
+    >
+      Duplica
+    </Button>
+
+    <Button
+      type="button"
+      onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
+      className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+    >
+      <X size={14} />
+    </Button>
+  </div>
+</td>
       </tr>
     );
   })}
@@ -3848,20 +3989,7 @@ const builderStats = getBuilderStats();
                       </div>
                     ))}
 
-                    <Button
-                      type="submit"
-                      disabled={savingPlan}
-                      className="sticky bottom-4 z-10 w-full bg-[#07111f] text-white shadow-2xl"
-                    >
-                      <Save size={17} className="mr-2" />
-                     {savingPlan
-  ? editingProgramId
-    ? "Aggiornamento..."
-    : "Salvataggio..."
-  : editingProgramId
-    ? "Aggiorna programma"
-    : "Salva programma smart"}
-                    </Button>
+                    
                   </form>
                 </Card>
               )}
