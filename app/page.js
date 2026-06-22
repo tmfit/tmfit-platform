@@ -1250,6 +1250,14 @@ function ProfessionalDashboard({ session, userProfile, onLogout }) {
     "tmfit_selected_client",
     ""
   );
+  const [clientPanel, setClientPanel] = usePersistedState(
+    "tmfit_clients_panel",
+    "overview"
+  );
+  const [programPanel, setProgramPanel] = usePersistedState(
+    "tmfit_programs_panel",
+    "builder"
+  );
 
   const [clients, setClients] = useState([]);
   const [query, setQuery] = useState("");
@@ -2143,6 +2151,7 @@ function duplicateProgramToBuilder(program) {
   });
 
   setActiveTab("programs");
+  setProgramPanel("builder");
 
   setTimeout(() => {
     window.scrollTo({
@@ -2209,6 +2218,7 @@ function duplicateProgramToBuilder(program) {
   setEditingProgramId(program.id);
   setEditingProgramTitle(program.title || "Programma");
   setActiveTab("programs");
+  setProgramPanel("builder");
 
   setTimeout(() => {
     window.scrollTo({
@@ -2389,6 +2399,7 @@ function useTemplateInBuilder(template) {
   setBuilder(hydrateBuilderFromTemplate(template.template_data));
 
   setActiveTab("programs");
+  setProgramPanel("builder");
 
   setTimeout(() => {
     window.scrollTo({
@@ -2998,251 +3009,330 @@ const builderStats = getBuilderStats();
 ) : (
   <SelectedClientHero />
 )}
-          
-
           {activeTab === "clients" && (
-            <div className="grid gap-5 lg:grid-cols-2">
-           <CoachClientSnapshot
-  selectedClient={selectedClient}
-  plans={plans}
-  checkins={checkins}
-  measurements={measurements}
-  sessions={sessions}
-  diets={diets}
-  photos={photos}
-  logs={logs}
-  privateNotes={privateNotes}
-/>   
-           <Card className="p-5">
-                <div className="mb-4 flex items-center gap-2">
-                  <UserPlus className="text-teal-600" />
-                  <h2 className="text-xl font-black">Nuovo cliente</h2>
+            <div className="space-y-5">
+              <Card className="p-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                      Area clienti
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      Gestione pulita: panoramica, creazione e note interne separate.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
+                    {[
+                      { id: "overview", label: "Panoramica" },
+                      { id: "new", label: "Nuovo" },
+                      { id: "notes", label: "Note" }
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setClientPanel(item.id)}
+                        className={`rounded-xl px-3 py-2 text-xs font-black transition ${
+                          clientPanel === item.id
+                            ? "bg-[#07111f] text-white shadow-sm"
+                            : "text-slate-500 hover:bg-white"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-
-                {clientError && (
-                  <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
-                    {clientError}
-                  </div>
-                )}
-
-                {credentials && (
-                  <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4">
-                    <p className="text-sm font-black text-teal-800">
-                      Credenziali create
-                    </p>
-
-                    <p className="mt-2 text-sm font-bold">
-                      Email: {credentials.email}
-                    </p>
-
-                    <p className="text-sm font-bold">
-                      Password: {credentials.password}
-                    </p>
-                  </div>
-                )}
-
-                <form onSubmit={createClient} className="space-y-3">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Input
-                      required
-                      placeholder="Nome"
-                      value={newClient.first_name}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          first_name: event.target.value
-                        })
-                      }
-                    />
-
-                    <Input
-                      required
-                      placeholder="Cognome"
-                      value={newClient.last_name}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          last_name: event.target.value
-                        })
-                      }
-                    />
-                  </div>
-
-                  <Input
-                    type="email"
-                    placeholder="Email cliente opzionale"
-                    value={newClient.email}
-                    onChange={(event) =>
-                      setNewClient({
-                        ...newClient,
-                        email: event.target.value
-                      })
-                    }
-                  />
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Input
-                      placeholder="Telefono"
-                      value={newClient.phone}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          phone: event.target.value
-                        })
-                      }
-                    />
-
-                    <Select
-                      value={newClient.gender}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          gender: event.target.value
-                        })
-                      }
-                    >
-                      <option value="uomo">Uomo</option>
-                      <option value="donna">Donna</option>
-                      <option value="altro">Altro</option>
-                    </Select>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Input
-                      type="date"
-                      value={newClient.birth_date}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          birth_date: event.target.value
-                        })
-                      }
-                    />
-
-                    <Input
-                      type="number"
-                      placeholder="Altezza cm"
-                      value={newClient.height_cm}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          height_cm: event.target.value
-                        })
-                      }
-                    />
-                  </div>
-
-                  <Input
-                    placeholder="Obiettivo"
-                    value={newClient.goal}
-                    onChange={(event) =>
-                      setNewClient({
-                        ...newClient,
-                        goal: event.target.value
-                      })
-                    }
-                  />
-
-                  <Textarea
-                    placeholder="Note interne"
-                    value={newClient.notes}
-                    onChange={(event) =>
-                      setNewClient({
-                        ...newClient,
-                        notes: event.target.value
-                      })
-                    }
-                  />
-
-                  <Button
-                    type="submit"
-                    disabled={creatingClient}
-                    className="w-full bg-[#07111f] text-white"
-                  >
-                    {creatingClient ? "Creazione..." : "Crea cliente e login"}
-                  </Button>
-                </form>
               </Card>
 
-                                  <Card className="p-5 lg:col-span-2">
-  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-xl font-black">Note private coach</h2>
-      <p className="text-sm font-semibold text-slate-500">
-        Visibili solo al professionista. Il cliente non le vede.
-      </p>
-    </div>
+              {clientPanel === "overview" && (
+                <CoachClientSnapshot
+                  selectedClient={selectedClient}
+                  plans={plans}
+                  checkins={checkins}
+                  measurements={measurements}
+                  sessions={sessions}
+                  diets={diets}
+                  photos={photos}
+                  logs={logs}
+                  privateNotes={privateNotes}
+                />
+              )}
 
-    <Pill className="bg-slate-100 text-slate-700">
-      {privateNotes.length} note
-    </Pill>
-  </div>
+              {clientPanel === "new" && (
+                <Card className="p-5">
+                  <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-2">
+                      <UserPlus className="text-teal-600" />
+                      <h2 className="text-xl font-black">Nuovo cliente</h2>
+                    </div>
 
-  <form onSubmit={savePrivateNote} className="mt-4 space-y-3">
-    <Textarea
-      placeholder="Esempio: preferenze allenamento, fastidi, feedback visita, note anamnestiche..."
-      value={privateNoteText}
-      onChange={(event) => setPrivateNoteText(event.target.value)}
-    />
+                    <Pill className="bg-slate-100 text-slate-700">
+                      Login automatico cliente
+                    </Pill>
+                  </div>
 
-    <Button
-      type="submit"
-      disabled={savingPrivateNote}
-      className="bg-[#07111f] text-white"
-    >
-      <Save size={17} className="mr-2" />
-      {savingPrivateNote ? "Salvataggio..." : "Salva nota privata"}
-    </Button>
-  </form>
+                  {clientError && (
+                    <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                      {clientError}
+                    </div>
+                  )}
 
-  <div className="mt-5 space-y-3">
-    {privateNotes.map((note) => (
-      <div
-        key={note.id}
-        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold leading-6 text-slate-700">
-              {note.note}
-            </p>
+                  {credentials && (
+                    <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4">
+                      <p className="text-sm font-black text-teal-800">
+                        Credenziali create
+                      </p>
 
-            <p className="mt-2 text-xs font-bold text-slate-400">
-              {new Date(note.created_at).toLocaleString("it-IT")}
-            </p>
-          </div>
+                      <p className="mt-2 text-sm font-bold">
+                        Email: {credentials.email}
+                      </p>
 
-          <Button
-            onClick={() => deletePrivateNote(note)}
-            className="border border-red-200 bg-red-50 px-3 py-2 text-red-700"
-          >
-            <Trash2 size={15} />
-          </Button>
-        </div>
-      </div>
-    ))}
+                      <p className="text-sm font-bold">
+                        Password: {credentials.password}
+                      </p>
+                    </div>
+                  )}
 
-    {privateNotes.length === 0 && (
-      <Empty
-        title="Nessuna nota privata"
-        text="Aggiungi appunti interni sul cliente."
-      />
-    )}
-  </div>
-</Card>
+                  <form onSubmit={createClient} className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        required
+                        placeholder="Nome"
+                        value={newClient.first_name}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            first_name: event.target.value
+                          })
+                        }
+                      />
+
+                      <Input
+                        required
+                        placeholder="Cognome"
+                        value={newClient.last_name}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            last_name: event.target.value
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        type="email"
+                        placeholder="Email cliente opzionale"
+                        value={newClient.email}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            email: event.target.value
+                          })
+                        }
+                      />
+
+                      <Input
+                        placeholder="Telefono"
+                        value={newClient.phone}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            phone: event.target.value
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Select
+                        value={newClient.gender}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            gender: event.target.value
+                          })
+                        }
+                      >
+                        <option value="uomo">Uomo</option>
+                        <option value="donna">Donna</option>
+                        <option value="altro">Altro</option>
+                      </Select>
+
+                      <Input
+                        type="date"
+                        value={newClient.birth_date}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            birth_date: event.target.value
+                          })
+                        }
+                      />
+
+                      <Input
+                        type="number"
+                        placeholder="Altezza cm"
+                        value={newClient.height_cm}
+                        onChange={(event) =>
+                          setNewClient({
+                            ...newClient,
+                            height_cm: event.target.value
+                          })
+                        }
+                      />
+                    </div>
+
+                    <Input
+                      placeholder="Obiettivo"
+                      value={newClient.goal}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          goal: event.target.value
+                        })
+                      }
+                    />
+
+                    <Textarea
+                      placeholder="Note interne"
+                      value={newClient.notes}
+                      onChange={(event) =>
+                        setNewClient({
+                          ...newClient,
+                          notes: event.target.value
+                        })
+                      }
+                    />
+
+                    <Button
+                      type="submit"
+                      disabled={creatingClient}
+                      className="w-full bg-[#07111f] text-white"
+                    >
+                      {creatingClient ? "Creazione..." : "Crea cliente e login"}
+                    </Button>
+                  </form>
+                </Card>
+              )}
+
+              {clientPanel === "notes" && (
+                <Card className="p-5">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h2 className="text-xl font-black">Note private coach</h2>
+                      <p className="text-sm font-semibold text-slate-500">
+                        Visibili solo al professionista. Il cliente non le vede.
+                      </p>
+                    </div>
+
+                    <Pill className="bg-slate-100 text-slate-700">
+                      {privateNotes.length} note
+                    </Pill>
+                  </div>
+
+                  <form onSubmit={savePrivateNote} className="mt-4 space-y-3">
+                    <Textarea
+                      placeholder="Esempio: preferenze allenamento, fastidi, feedback visita, note anamnestiche..."
+                      value={privateNoteText}
+                      onChange={(event) => setPrivateNoteText(event.target.value)}
+                    />
+
+                    <Button
+                      type="submit"
+                      disabled={savingPrivateNote}
+                      className="bg-[#07111f] text-white"
+                    >
+                      <Save size={17} className="mr-2" />
+                      {savingPrivateNote ? "Salvataggio..." : "Salva nota privata"}
+                    </Button>
+                  </form>
+
+                  <div className="mt-5 space-y-3">
+                    {privateNotes.map((note) => (
+                      <div
+                        key={note.id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold leading-6 text-slate-700">
+                              {note.note}
+                            </p>
+
+                            <p className="mt-2 text-xs font-bold text-slate-400">
+                              {new Date(note.created_at).toLocaleString("it-IT")}
+                            </p>
+                          </div>
+
+                          <Button
+                            onClick={() => deletePrivateNote(note)}
+                            className="border border-red-200 bg-red-50 px-3 py-2 text-red-700"
+                          >
+                            <Trash2 size={15} />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {privateNotes.length === 0 && (
+                      <Empty
+                        title="Nessuna nota privata"
+                        text="Aggiungi appunti interni sul cliente."
+                      />
+                    )}
+                  </div>
+                </Card>
+              )}
             </div>
           )}
 
           {activeTab === "programs" && (
             <div className="space-y-5">
-              {!selectedClient && (
+              <Card className="p-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                      Area programmi
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      Lavora a step: builder, programmi salvati e template separati.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
+                    {[
+                      { id: "builder", label: "Builder" },
+                      { id: "saved", label: `Salvati ${plans.length}` },
+                      { id: "templates", label: `Template ${templates.length}` }
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setProgramPanel(item.id)}
+                        className={`rounded-xl px-3 py-2 text-xs font-black transition ${
+                          programPanel === item.id
+                            ? "bg-[#07111f] text-white shadow-sm"
+                            : "text-slate-500 hover:bg-white"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+
+              {!selectedClient && programPanel === "builder" && (
                 <Empty
                   title="Seleziona un cliente"
                   text="Poi crea il programma smart."
                 />
               )}
 
-              {selectedClient && (
+              {selectedClient && programPanel === "builder" && (
                 <Card className="p-5">
                   <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
@@ -3985,23 +4075,28 @@ const builderStats = getBuilderStats();
                 </Card>
               )}
 
+              {programPanel === "templates" && (
                 <TemplatesPanel
-  templates={templates}
-  savingTemplate={savingTemplate}
-  deletingTemplateId={deletingTemplateId}
-  onSaveTemplate={saveBuilderAsTemplate}
-  onUseTemplate={useTemplateInBuilder}
-  onDeleteTemplate={deleteTemplate}
-/>
-             <PlansList
-  plans={plans}
-  onDeleteProgram={deleteProgram}
-  deletingProgramId={deletingProgramId}
-  onUpdateProgramStatus={updateProgramStatus}
-  updatingProgramId={updatingProgramId}
-  onDuplicateProgram={duplicateProgramToBuilder}
-  onEditProgram={editProgramInBuilder}
-/>
+                  templates={templates}
+                  savingTemplate={savingTemplate}
+                  deletingTemplateId={deletingTemplateId}
+                  onSaveTemplate={saveBuilderAsTemplate}
+                  onUseTemplate={useTemplateInBuilder}
+                  onDeleteTemplate={deleteTemplate}
+                />
+              )}
+
+              {programPanel === "saved" && (
+                <PlansList
+                  plans={plans}
+                  onDeleteProgram={deleteProgram}
+                  deletingProgramId={deletingProgramId}
+                  onUpdateProgramStatus={updateProgramStatus}
+                  updatingProgramId={updatingProgramId}
+                  onDuplicateProgram={duplicateProgramToBuilder}
+                  onEditProgram={editProgramInBuilder}
+                />
+              )}
             </div>
           )}
           {activeTab === "monitor" && (
@@ -4439,7 +4534,7 @@ function CoachControlCenter({
       const left = getDateValue(a, dateKeys);
       const right = getDateValue(b, dateKeys);
 
-      return new Date(right || 0) - new Date(left || 0);
+      return new Date(right || 0).getTime() - new Date(left || 0).getTime();
     })[0];
   }
 
@@ -5262,10 +5357,17 @@ function PlansList({
 
                 <div className="flex flex-wrap gap-2">
                   <Button
+                    onClick={() => onEditProgram(plan)}
+                    className="bg-[#07111f] text-white"
+                  >
+                    Modifica
+                  </Button>
+
+                  <Button
                     onClick={() => onDuplicateProgram(plan)}
                     className="border border-slate-200 bg-white text-slate-900"
                   >
-                    Duplica nel builder
+                    Duplica
                   </Button>
 
                   {isActive ? (
@@ -5950,7 +6052,7 @@ if (historyError) {
 
     const start = new Date(plan.start_date);
     const now = new Date();
-    const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     const week = Math.floor(diffDays / 7) + 1;
 
     return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
