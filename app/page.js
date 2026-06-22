@@ -1252,7 +1252,14 @@ function ProfessionalDashboard({ session, userProfile, onLogout }) {
   const [clients, setClients] = useState([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-
+const [coachControlLoading, setCoachControlLoading] = useState(false);
+const [coachControlData, setCoachControlData] = useState({
+  plans: [],
+  diets: [],
+  checkins: [],
+  photos: [],
+  sessions: []
+});
   const [plans, setPlans] = useState([]);
   const [logs, setLogs] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -1378,13 +1385,88 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
     const rows = data || [];
     setClients(rows);
 
-    if (rows.length && !selectedClientId) {
-      setSelectedClientId(String(rows[0].id));
-    }
+   if (rows.length && !selectedClientId) {
+  setSelectedClientId(String(rows[0].id));
+}
 
-    setLoading(false);
+await loadCoachControlCenter(rows);
+
+setLoading(false);
+  }
+async function loadCoachControlCenter(rows = clients) {
+  const clientIds = rows
+    .map((client) => Number(client.id))
+    .filter((id) => !Number.isNaN(id));
+
+  if (clientIds.length === 0) {
+    setCoachControlData({
+      plans: [],
+      diets: [],
+      checkins: [],
+      photos: [],
+      sessions: []
+    });
+    return;
   }
 
+  setCoachControlLoading(true);
+
+  try {
+    const [
+      plansResult,
+      dietsResult,
+      checkinsResult,
+      photosResult,
+      sessionsResult
+    ] = await Promise.all([
+      supabase
+        .from("workout_plans")
+        .select("*")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("diets")
+        .select("*")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("client_checkins")
+        .select("*")
+        .in("client_id", clientIds)
+        .order("checkin_date", { ascending: false }),
+
+      supabase
+        .from("progress_photos")
+        .select("*")
+        .in("client_id", clientIds)
+        .order("photo_date", { ascending: false }),
+
+      supabase
+        .from("workout_sessions")
+        .select("*")
+        .in("client_id", clientIds)
+        .order("session_date", { ascending: false })
+    ]);
+
+    if (plansResult.error) console.warn(plansResult.error.message);
+    if (dietsResult.error) console.warn(dietsResult.error.message);
+    if (checkinsResult.error) console.warn(checkinsResult.error.message);
+    if (photosResult.error) console.warn(photosResult.error.message);
+    if (sessionsResult.error) console.warn(sessionsResult.error.message);
+
+    setCoachControlData({
+      plans: plansResult.data || [],
+      diets: dietsResult.data || [],
+      checkins: checkinsResult.data || [],
+      photos: photosResult.data || [],
+      sessions: sessionsResult.data || []
+    });
+  } finally {
+    setCoachControlLoading(false);
+  }
+}
   async function loadExerciseMedia() {
     const { data, error } = await supabase
       .from("exercise_media_library")
@@ -2871,6 +2953,18 @@ const builderStats = getBuilderStats();
 ) : (
   <SelectedClientHero />
 )}
+           {activeTab === "clients" && (
+  <CoachControlCenter
+    clients={clients}
+    coachData={coachControlData}
+    loading={coachControlLoading}
+    onRefresh={() => loadCoachControlCenter(clients)}
+    onOpenClient={(clientId, tab) => {
+      setSelectedClientId(String(clientId));
+      setActiveTab(tab);
+    }}
+  />
+)}
 
           {activeTab === "clients" && (
             <div className="grid gap-5 lg:grid-cols-2">
@@ -4200,6 +4294,392 @@ const builderStats = getBuilderStats();
 
       <AppFooter role="coach" />
     </div>
+  );
+}
+function CoachControlCenter({
+  clients,
+  coachData,
+  loading,
+  onOpenClient,
+  onRefresh
+}) {
+  const plans = coachData?.plans || [];
+  const diets = coachData?.diets || [];
+  const checkins = coachData?.checkins || [];
+  const photos = coachData?.photos || [];
+  const sessions = coachData?.sessions || [];
+
+  function sameClient(row, client) {
+    return String(row.client_id) === String(client.id);
+  }
+
+  function latestForClient(rows, client, dateKeys = ["created_at"]) {
+    const filtered = rows.filter((row) => sameClient(row, client));
+
+    return filtered.sort((a, b) => {
+      const left = getDateValue(a, dateKeys);
+      const right = getDateValue(b, dateKeys);
+
+      return new Date(right || 0) - new Date(left || 0);
+    })[0];
+  }
+
+  function getDateValue(row, keys) {
+    for (const key of keys) {
+      if (row?.[key]) return row[key];
+    }
+
+    return null;
+  }
+
+  function daysSince(value) {
+    if (!value) return null;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const diff = Date.now() - date.getTime();
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  }
+
+  function isActivePlan(plan) {
+    const status = String(plan?.status || "active").toLowerCase();
+    return !["archived", "inactive", "deleted"].includes(status);
+  }
+
+  const activePlanClientIds = new Set(
+    plans.filter(isActivePlan).map((plan) => String(plan.client_id))
+  );
+
+  const dietClientIds = new Set(diets.map((diet) => String(diet.client_id)));
+
+  const clientsWithoutPlan = clients.filter(
+    (client) => !activePlanClientIds.has(String(client.id))
+  );
+
+  const clientsWithoutDiet = clients.filter(
+    (client) => !dietClientIds.has(String(client.id))
+  );
+
+  const staleCheckinClients = clients.filter((client) => {
+    const latest = latestForClient(checkins, client, [
+      "checkin_date",
+      "created_at"
+    ]);
+    const days = daysSince(getDateValue(latest, ["checkin_date", "created_at"]));
+
+    return days === null || days >= 7;
+  });
+
+  const stalePhotoClients = clients.filter((client) => {
+    const latest = latestForClient(photos, client, ["photo_date", "created_at"]);
+    const days = daysSince(getDateValue(latest, ["photo_date", "created_at"]));
+
+    return days === null || days >= 30;
+  });
+
+  const inactiveWorkoutClients = clients.filter((client) => {
+    const latest = latestForClient(sessions, client, [
+      "session_date",
+      "created_at"
+    ]);
+    const days = daysSince(getDateValue(latest, ["session_date", "created_at"]));
+
+    return days === null || days >= 7;
+  });
+
+  const priorityItems = clients
+    .flatMap((client) => {
+      const items = [];
+
+      const latestCheckin = latestForClient(checkins, client, [
+        "checkin_date",
+        "created_at"
+      ]);
+      const latestPhoto = latestForClient(photos, client, [
+        "photo_date",
+        "created_at"
+      ]);
+      const latestSession = latestForClient(sessions, client, [
+        "session_date",
+        "created_at"
+      ]);
+
+      const checkinDays = daysSince(
+        getDateValue(latestCheckin, ["checkin_date", "created_at"])
+      );
+      const photoDays = daysSince(
+        getDateValue(latestPhoto, ["photo_date", "created_at"])
+      );
+      const sessionDays = daysSince(
+        getDateValue(latestSession, ["session_date", "created_at"])
+      );
+
+      if (!activePlanClientIds.has(String(client.id))) {
+        items.push({
+          client,
+          level: "Alta",
+          title: "Manca programma attivo",
+          text: "Crea o assegna una scheda allenamento.",
+          tab: "programs",
+          score: 100
+        });
+      }
+
+      if (!dietClientIds.has(String(client.id))) {
+        items.push({
+          client,
+          level: "Media",
+          title: "Manca dieta",
+          text: "Carica o aggiorna il piano alimentare.",
+          tab: "diets",
+          score: 80
+        });
+      }
+
+      if (checkinDays === null || checkinDays >= 7) {
+        items.push({
+          client,
+          level: "Media",
+          title:
+            checkinDays === null
+              ? "Nessun check-in"
+              : `Check-in fermo da ${checkinDays} giorni`,
+          text: "Da ricontattare o stimolare al check-in.",
+          tab: "monitor",
+          score: 70
+        });
+      }
+
+      if (sessionDays === null || sessionDays >= 7) {
+        items.push({
+          client,
+          level: "Media",
+          title:
+            sessionDays === null
+              ? "Nessun allenamento registrato"
+              : `Nessun allenamento da ${sessionDays} giorni`,
+          text: "Controlla aderenza e completamento scheda.",
+          tab: "programs",
+          score: 60
+        });
+      }
+
+      if (photoDays === null || photoDays >= 30) {
+        items.push({
+          client,
+          level: "Bassa",
+          title:
+            photoDays === null
+              ? "Nessuna foto progressi"
+              : `Foto progressi ferma da ${photoDays} giorni`,
+          text: "Utile per valutare il percorso visivamente.",
+          tab: "monitor",
+          score: 40
+        });
+      }
+
+      return items;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  const kpis = [
+    {
+      label: "Clienti",
+      value: clients.length,
+      icon: <Users size={18} />
+    },
+    {
+      label: "Senza programma",
+      value: clientsWithoutPlan.length,
+      icon: <Dumbbell size={18} />
+    },
+    {
+      label: "Senza dieta",
+      value: clientsWithoutDiet.length,
+      icon: <FileText size={18} />
+    },
+    {
+      label: "Check-in da sollecitare",
+      value: staleCheckinClients.length,
+      icon: <ClipboardCheck size={18} />
+    },
+    {
+      label: "Foto da aggiornare",
+      value: stalePhotoClients.length,
+      icon: <Camera size={18} />
+    },
+    {
+      label: "Allenamenti fermi",
+      value: inactiveWorkoutClients.length,
+      icon: <Activity size={18} />
+    }
+  ];
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="border-b border-slate-100 bg-[#07111f] p-5 text-white">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+              Coach Control Center
+            </p>
+
+            <h2 className="mt-2 text-2xl font-black">
+              Priorità operative
+            </h2>
+
+            <p className="mt-1 text-sm font-semibold text-slate-300">
+              Una panoramica rapida per capire chi seguire, cosa manca e dove
+              intervenire.
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="bg-white text-slate-950"
+          >
+            {loading ? "Aggiornamento..." : "Aggiorna dati"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 p-4 md:grid-cols-3 xl:grid-cols-6">
+        {kpis.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-teal-700 shadow-sm">
+              {item.icon}
+            </div>
+
+            <p className="text-3xl font-black text-slate-950">
+              {item.value}
+            </p>
+
+            <p className="mt-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
+              {item.label}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-[1.2fr_.8fr]">
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-lg font-black">Da fare oggi</h3>
+
+            <Pill className="bg-teal-100 text-teal-700">
+              {priorityItems.length} priorità
+            </Pill>
+          </div>
+
+          <div className="space-y-2">
+            {priorityItems.map((item, index) => (
+              <div
+                key={`${item.client.id}-${item.title}-${index}`}
+                className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate font-black text-slate-950">
+                      {fullName(item.client)}
+                    </p>
+
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${
+                        item.level === "Alta"
+                          ? "bg-red-100 text-red-700"
+                          : item.level === "Media"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {item.level}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-sm font-black text-slate-800">
+                    {item.title}
+                  </p>
+
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {item.text}
+                  </p>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => onOpenClient(item.client.id, item.tab)}
+                  className="shrink-0 bg-[#07111f] text-white"
+                >
+                  Apri
+                </Button>
+              </div>
+            ))}
+
+            {priorityItems.length === 0 && (
+              <Empty
+                title="Tutto sotto controllo"
+                text="Non ci sono priorità operative evidenti sui clienti."
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <h3 className="text-lg font-black">Sistema coaching</h3>
+
+          <div className="mt-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-teal-300 text-xs font-black text-slate-950">
+                1
+              </span>
+
+              <div>
+                <p className="text-sm font-black">Prima crea copertura</p>
+                <p className="text-xs font-bold leading-5 text-slate-500">
+                  Ogni cliente dovrebbe avere programma attivo, dieta o nota
+                  alimentare e check-in periodico.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-teal-300 text-xs font-black text-slate-950">
+                2
+              </span>
+
+              <div>
+                <p className="text-sm font-black">Poi controlla aderenza</p>
+                <p className="text-xs font-bold leading-5 text-slate-500">
+                  Se non ci sono sessioni o check-in recenti, il cliente va
+                  richiamato prima che molli.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-teal-300 text-xs font-black text-slate-950">
+                3
+              </span>
+
+              <div>
+                <p className="text-sm font-black">Infine monitora progressi</p>
+                <p className="text-xs font-bold leading-5 text-slate-500">
+                  Foto, misure, carichi e check-in sono quello che rende il
+                  percorso professionale e dimostrabile.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 function SmartBuilderOverview({
