@@ -2745,14 +2745,21 @@ function SelectedClientCompactBar() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Pill className="bg-teal-100 text-teal-700">
-            {selectedClient.status || "active"}
-          </Pill>
+  <Pill className="bg-teal-100 text-teal-700">
+    {selectedClient.status || "active"}
+  </Pill>
 
-          <Pill className="bg-slate-100 text-slate-700">
-            {selectedClient.goal || "Obiettivo non impostato"}
-          </Pill>
-        </div>
+  <Pill className="bg-slate-100 text-slate-700">
+    {selectedClient.goal || "Obiettivo non impostato"}
+  </Pill>
+
+  <Button
+    onClick={() => setActiveTab("clients")}
+    className="border border-slate-200 bg-white text-slate-700"
+  >
+    Cambia cliente
+  </Button>
+</div>
       </div>
     </Card>
   );
@@ -2802,14 +2809,18 @@ const builderStats = getBuilderStats();
   onLogout={onLogout}
   userProfile={userProfile}
 />
-      <main
+    <main
   className={`mx-auto grid gap-4 p-3 pb-28 md:p-5 ${
     activeTab === "programs"
-      ? "max-w-[1700px] xl:grid-cols-[220px_minmax(0,1fr)]"
+      ? "max-w-[1800px] xl:grid-cols-1"
       : "max-w-7xl xl:grid-cols-[260px_minmax(0,1fr)]"
   }`}
 >
-        <aside className="min-w-0 space-y-3 xl:sticky xl:top-24 xl:self-start">
+        <aside
+  className={`min-w-0 space-y-3 xl:sticky xl:top-24 xl:self-start ${
+    activeTab === "programs" ? "hidden" : ""
+  }`}
+>
           <Card className="p-3">
             <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2">
               <Search size={17} className="text-slate-400" />
@@ -3311,7 +3322,7 @@ const builderStats = getBuilderStats();
                         </div>
 
                         <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
-                          <table className="w-[1180px] text-left text-sm">
+                          <table className="min-w-[1180px] w-full text-left text-sm">
                             <thead className="bg-[#07111f] text-xs font-black uppercase tracking-wider text-white">
                               <tr>
                                 <th className="p-3">Img</th>
