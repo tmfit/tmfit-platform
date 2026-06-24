@@ -447,8 +447,13 @@ function SideDrawer({
   onChange,
   role = "coach",
   onLogout,
-  userProfile
-}) {  return (
+  userProfile,
+  side = "left"
+}) {
+  const drawerSideClass = side === "right" ? "right-0" : "left-0";
+  const drawerClosedClass = side === "right" ? "translate-x-full" : "-translate-x-full";
+
+  return (
     <>
       {open && (
         <button
@@ -460,8 +465,8 @@ function SideDrawer({
       )}
 
       <aside
-        className={`fixed bottom-0 left-0 top-0 z-[80] w-[86%] max-w-sm transform bg-[#07111f] text-white shadow-2xl transition md:w-96 ${
-          open ? "translate-x-0" : "-translate-x-full"
+        className={`fixed bottom-0 top-0 z-[80] w-[86%] max-w-sm transform bg-[#07111f] text-white shadow-2xl transition md:w-96 ${drawerSideClass} ${
+          open ? "translate-x-0" : drawerClosedClass
         }`}
       >
         <div className="flex h-full flex-col">
@@ -8535,32 +8540,40 @@ function getExerciseHistory(exercise) {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
+      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-3 text-white shadow-xl md:relative md:px-6 md:py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-         <div className="flex items-center gap-3">
-  <button
-    type="button"
-    onClick={() => setDrawerOpen(true)}
-    className="rounded-2xl bg-white/10 p-3 text-white"
-  >
-    <span className="block h-0.5 w-5 rounded bg-white" />
-    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
-    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
-  </button>
-
-  <div>
-    <h1 className="text-2xl font-black tracking-tight">TM FIT</h1>
-    <p className="text-sm font-bold text-slate-300">Area cliente</p>
-  </div>
-</div>
-
-          <Button
-            onClick={onLogout}
-            className="border border-white/10 bg-white/10 text-white"
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("home");
+              setDrawerOpen(false);
+              if (typeof window !== "undefined") {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }}
+            className="flex min-w-0 items-center gap-3 rounded-2xl px-1 py-1 text-left transition hover:bg-white/5 active:scale-[.98]"
+            aria-label="Vai alla Home"
           >
-            <LogOut size={17} className="mr-2" />
-            Esci
-          </Button>
+            <BrandLogo compact white className="drop-shadow-xl" />
+
+            <div className="min-w-0">
+              <p className="text-xl font-black leading-none tracking-tight">TMFIT</p>
+              <p className="mt-1 max-w-[190px] truncate text-xs font-bold text-slate-300 md:max-w-none">
+                {client ? fullName(client) : "Area cliente"}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+            aria-label="Apri menu"
+          >
+            <span className="block h-0.5 w-6 rounded bg-white" />
+            <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+            <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+          </button>
         </div>
       </header>
 
@@ -8574,58 +8587,17 @@ function getExerciseHistory(exercise) {
   role="client"
   onLogout={onLogout}
   userProfile={userProfile}
+  side="right"
 />
       <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
-        <Card className="overflow-hidden">
-          <div className="bg-[#07111f] p-5 text-white md:p-6">
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
-              Benvenuto
-            </p>
-
-            <h2 className="mt-2 text-3xl font-black md:text-4xl">
-              {client ? fullName(client) : "Cliente"}
-            </h2>
-
-            <p className="mt-2 text-sm font-semibold text-slate-300">
-              Scheda, timer, carichi, dieta, check-in e progressi.
-            </p>
-          </div>
-        </Card>
-
         {activeTab === "home" && (
           <div className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card className="p-5">
-                <Dumbbell className="text-teal-600" />
-                <p className="mt-3 text-3xl font-black">{plans.length}</p>
-                <p className="text-sm font-bold text-slate-500">
-                  Programmi attivi
-                </p>
-              </Card>
-
-              <Card className="p-5">
-                <ClipboardCheck className="text-teal-600" />
-                <p className="mt-3 text-3xl font-black">{checkins.length}</p>
-                <p className="text-sm font-bold text-slate-500">
-                  Check-in inviati
-                </p>
-              </Card>
-
-              <Card className="p-5">
-                <FileText className="text-teal-600" />
-                <p className="mt-3 text-3xl font-black">{diets.length}</p>
-                <p className="text-sm font-bold text-slate-500">
-                  Diete disponibili
-                </p>
-              </Card>
-            </div>
-
             <Card className="overflow-hidden border-none shadow-lg">
-              <div className="bg-white p-5 md:p-6">
+              <div className="bg-white p-4 md:p-6">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
-                      Promemoria
+                      Home
                     </p>
 
                     <h3 className="mt-2 text-2xl font-black text-slate-950">
@@ -8633,7 +8605,7 @@ function getExerciseHistory(exercise) {
                     </h3>
 
                     <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                      Allenamento, check-in, dieta e progressi in una vista unica.
+                      Qui trovi subito le azioni importanti, senza schermate inutili.
                     </p>
                   </div>
 
