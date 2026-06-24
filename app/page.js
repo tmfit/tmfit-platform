@@ -3446,7 +3446,7 @@ const builderStats = getBuilderStats();
                       Area clienti
                     </p>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Gestione pulita: panoramica, creazione e note interne separate.
+                      Scheda cliente stile CRM: stato percorso, segnali operativi e azioni rapide.
                     </p>
                   </div>
 
@@ -3484,6 +3484,17 @@ const builderStats = getBuilderStats();
                   photos={photos}
                   logs={logs}
                   privateNotes={privateNotes}
+                  deletingClient={deletingClient}
+                  onCreateClient={() => setClientPanel("new")}
+                  onCreateProgram={() => {
+                    setActiveTab("programs");
+                    setProgramPanel("builder");
+                  }}
+                  onOpenDiets={() => setActiveTab("diets")}
+                  onOpenMeasurements={() => setActiveTab("measurements")}
+                  onOpenMonitor={() => setActiveTab("monitor")}
+                  onAddNote={() => setClientPanel("notes")}
+                  onDeleteClient={deleteSelectedClient}
                 />
               )}
 
@@ -5425,187 +5436,440 @@ function CoachClientSnapshot({
   diets,
   photos,
   logs,
-  privateNotes
+  privateNotes,
+  deletingClient = false,
+  onCreateClient,
+  onCreateProgram,
+  onOpenDiets,
+  onOpenMeasurements,
+  onOpenMonitor,
+  onAddNote,
+  onDeleteClient
 }) {
-  const activePlans = plans.filter((plan) => (plan.status || "active") === "active");
+  const activePlans = plans.filter((plan) => {
+    const status = String(plan?.status || "active").toLowerCase();
+    return !["archived", "deleted", "inactive"].includes(status);
+  });
+
+  const activeDiets = diets.filter((diet) => {
+    const status = String(diet?.status || "active").toLowerCase();
+    return !["archived", "deleted", "inactive"].includes(status);
+  });
+
   const latestCheckin = checkins[0];
   const latestMeasurement = measurements[0];
   const latestSession = sessions[0];
   const latestLog = logs[0];
+  const latestPhoto = photos[0];
+  const latestPrivateNote = privateNotes[0];
+  const activePlan = activePlans[0];
+  const activeDiet = activeDiets[0] || diets[0];
+
+  function toDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatDate(value) {
+    const date = toDate(value);
+    if (!date) return "—";
+
+    return date.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    });
+  }
+
+  function daysSince(value) {
+    const date = toDate(value);
+    if (!date) return null;
+
+    const diff = Date.now() - date.getTime();
+    return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+  }
+
+  function recencyText(value, empty = "Mai registrato") {
+    const days = daysSince(value);
+
+    if (days === null) return empty;
+    if (days === 0) return "Oggi";
+    if (days === 1) return "Ieri";
+    return `${days} giorni fa`;
+  }
+
+  const lastWorkoutDate = latestSession?.session_date || latestSession?.created_at;
+  const lastCheckinDate = latestCheckin?.checkin_date || latestCheckin?.created_at;
+  const lastMeasurementDate =
+    latestMeasurement?.measurement_date || latestMeasurement?.created_at;
+  const lastPhotoDate = latestPhoto?.photo_date || latestPhoto?.created_at;
+  const lastWorkoutDays = daysSince(lastWorkoutDate);
+  const lastCheckinDays = daysSince(lastCheckinDate);
+
+  let clientStatus = {
+    label: "In ordine",
+    text: "Programma attivo e percorso sotto controllo.",
+    className: "bg-teal-300 text-slate-950"
+  };
+
+  if (activePlans.length === 0) {
+    clientStatus = {
+      label: "Da configurare",
+      text: "Manca un programma attivo da assegnare.",
+      className: "bg-amber-300 text-slate-950"
+    };
+  } else if (lastWorkoutDays === null) {
+    clientStatus = {
+      label: "Da avviare",
+      text: "Programma presente, ma nessun allenamento registrato.",
+      className: "bg-sky-300 text-slate-950"
+    };
+  } else if (lastWorkoutDays > 10) {
+    clientStatus = {
+      label: "A rischio drop",
+      text: `Nessun allenamento registrato da ${lastWorkoutDays} giorni.`,
+      className: "bg-red-100 text-red-700"
+    };
+  } else if (lastCheckinDays !== null && lastCheckinDays <= 3) {
+    clientStatus = {
+      label: "Da seguire",
+      text: "Check-in recente da valutare e trasformare in feedback.",
+      className: "bg-violet-100 text-violet-700"
+    };
+  }
+
+  const quickStats = [
+    {
+      label: "Programma",
+      value: activePlan?.title || "Nessun programma attivo",
+      helper: activePlan?.duration_weeks
+        ? `${activePlan.duration_weeks} settimane`
+        : "Crea o assegna una scheda"
+    },
+    {
+      label: "Dieta",
+      value: activeDiet?.title || "Nessuna dieta caricata",
+      helper: activeDiet?.created_at
+        ? `Caricata ${formatDate(activeDiet.created_at)}`
+        : "Carica piano o PDF"
+    },
+    {
+      label: "Check-in",
+      value: latestCheckin?.weight_kg ? `${latestCheckin.weight_kg} kg` : "—",
+      helper: recencyText(lastCheckinDate, "Nessun check-in")
+    },
+    {
+      label: "Allenamento",
+      value: latestSession?.session_date ? formatDate(latestSession.session_date) : "—",
+      helper: recencyText(lastWorkoutDate, "Nessuna sessione")
+    }
+  ];
+
+  const timelineItems = [
+    {
+      title: "Ultima misurazione",
+      value: latestMeasurement?.weight_kg
+        ? `${latestMeasurement.weight_kg} kg`
+        : "Nessun dato",
+      helper: recencyText(lastMeasurementDate, "Non registrata"),
+      extra: latestMeasurement
+        ? `Vita ${latestMeasurement.waist_cm || "—"} cm · BF ${
+            latestMeasurement.body_fat_percentage || "—"
+          }%`
+        : ""
+    },
+    {
+      title: "Ultima serie registrata",
+      value: latestLog?.workout_exercises?.exercise_name || "Nessuna serie",
+      helper: latestLog
+        ? `${latestLog.load_kg || "—"} kg x ${latestLog.reps_done || "—"} · RPE ${
+            latestLog.rpe || "—"
+          }`
+        : "In attesa dati cliente",
+      extra: latestLog?.created_at ? formatDate(latestLog.created_at) : ""
+    },
+    {
+      title: "Foto progressi",
+      value: photos.length ? `${photos.length} foto caricate` : "Nessuna foto",
+      helper: recencyText(lastPhotoDate, "Non caricata"),
+      extra: latestPhoto?.label || latestPhoto?.notes || ""
+    },
+    {
+      title: "Note private",
+      value: privateNotes.length ? `${privateNotes.length} note coach` : "Nessuna nota",
+      helper: latestPrivateNote?.created_at
+        ? formatDate(latestPrivateNote.created_at)
+        : "Solo area professionista",
+      extra: latestPrivateNote?.note_text || latestPrivateNote?.content || ""
+    }
+  ];
 
   if (!selectedClient) {
     return (
       <Card className="p-5">
         <Empty
           title="Seleziona un cliente"
-          text="La dashboard cliente comparirà qui."
+          text="La scheda CRM comparirà qui con stato percorso, azioni rapide e segnali operativi."
         />
       </Card>
     );
   }
 
   return (
-    <Card className="overflow-hidden lg:col-span-2">
-      <div className="bg-[#07111f] p-5 text-white">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <div className="space-y-5">
+      <Card className="overflow-hidden">
+        <div className="bg-[#07111f] p-5 text-white md:p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                CRM Cliente
+              </p>
+
+              <h2 className="mt-2 text-3xl font-black md:text-4xl">
+                {fullName(selectedClient)}
+              </h2>
+
+              <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-300">
+                {selectedClient.goal || "Obiettivo non impostato"}
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Pill className={clientStatus.className}>{clientStatus.label}</Pill>
+
+                <Pill className="bg-white/10 text-white">
+                  {selectedClient.email || "Email non inserita"}
+                </Pill>
+
+                <Pill className="bg-white/10 text-white">
+                  {selectedClient.phone || "Telefono non inserito"}
+                </Pill>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-4 lg:w-80">
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-300">
+                Stato operativo
+              </p>
+
+              <p className="mt-2 text-lg font-black">{clientStatus.label}</p>
+
+              <p className="mt-1 text-sm font-semibold leading-6 text-slate-300">
+                {clientStatus.text}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
+          {quickStats.map((item) => (
+            <div key={item.label} className="rounded-3xl bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                {item.label}
+              </p>
+
+              <p className="mt-2 line-clamp-2 text-lg font-black text-slate-950">
+                {item.value}
+              </p>
+
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                {item.helper}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <div className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
+        <Card className="p-5">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-xl font-black">Azioni rapide</h3>
+              <p className="text-sm font-semibold text-slate-500">
+                Le azioni principali del cliente in un solo punto.
+              </p>
+            </div>
+
+            <Pill className="bg-slate-100 text-slate-700">
+              {activePlans.length > 0 ? "Percorso avviato" : "Setup da completare"}
+            </Pill>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <button
+              type="button"
+              onClick={onCreateProgram}
+              className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+            >
+              <Dumbbell size={20} className="text-teal-600" />
+              <p className="mt-3 font-black">Crea programma</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Apri builder scheda.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenDiets}
+              className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+            >
+              <FileText size={20} className="text-teal-600" />
+              <p className="mt-3 font-black">Carica dieta</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Vai ai piani alimentari.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenMeasurements}
+              className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+            >
+              <Scale size={20} className="text-teal-600" />
+              <p className="mt-3 font-black">Registra misure</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Peso, circonferenze e foto.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenMonitor}
+              className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+            >
+              <ClipboardCheck size={20} className="text-teal-600" />
+              <p className="mt-3 font-black">Apri check-in</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Controlla feedback cliente.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={onAddNote}
+              className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+            >
+              <Plus size={20} className="text-teal-600" />
+              <p className="mt-3 font-black">Aggiungi nota</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Promemoria privato coach.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={onCreateClient}
+              className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+            >
+              <UserPlus size={20} className="text-teal-600" />
+              <p className="mt-3 font-black">Nuovo cliente</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Crea un altro profilo.
+              </p>
+            </button>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-xl font-black">Profilo</h3>
+              <p className="text-sm font-semibold text-slate-500">
+                Dati rapidi e gestione account.
+              </p>
+            </div>
+
+            <Button
+              disabled={deletingClient}
+              onClick={onDeleteClient}
+              className="border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+            >
+              <Trash2 size={17} className="mr-2" />
+              {deletingClient ? "Eliminazione..." : "Elimina"}
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                Email
+              </p>
+              <p className="mt-1 break-all text-sm font-black">
+                {selectedClient.email || "Non inserita"}
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Telefono
+                </p>
+                <p className="mt-1 text-sm font-black">
+                  {selectedClient.phone || "—"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Altezza
+                </p>
+                <p className="mt-1 text-sm font-black">
+                  {selectedClient.height_cm ? `${selectedClient.height_cm} cm` : "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                Creato il
+              </p>
+              <p className="mt-1 text-sm font-black">
+                {formatDate(selectedClient.created_at)}
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <Card className="p-5">
+        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
-              Dashboard cliente
-            </p>
-
-            <h2 className="mt-2 text-2xl font-black md:text-3xl">
-              {fullName(selectedClient)}
-            </h2>
-
-            <p className="mt-2 text-sm font-semibold text-slate-300">
-              {selectedClient.goal || "Obiettivo non impostato"}
+            <h3 className="text-xl font-black">Timeline operativa</h3>
+            <p className="text-sm font-semibold text-slate-500">
+              Ultimi segnali utili per decidere cosa fare con il cliente.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Pill className="bg-teal-300 text-slate-950">
-              {activePlans.length} programmi attivi
-            </Pill>
-
-            <Pill className="bg-white/10 text-white">
-              {selectedClient.status || "active"}
-            </Pill>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-3xl bg-slate-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-            Ultimo check-in
-          </p>
-
-          <p className="mt-2 text-2xl font-black">
-            {latestCheckin?.weight_kg ? `${latestCheckin.weight_kg} kg` : "—"}
-          </p>
-
-          <p className="mt-1 text-xs font-bold text-slate-500">
-            {latestCheckin?.checkin_date || "Nessun check-in"}
-          </p>
-
-          {latestCheckin && (
-            <p className="mt-2 text-xs font-bold text-slate-500">
-              Energia {latestCheckin.energy_level || "—"}/10 · Sonno{" "}
-              {latestCheckin.sleep_quality || "—"}/10
-            </p>
-          )}
+          <Pill className="bg-teal-100 text-teal-700">
+            {checkins.length + measurements.length + sessions.length + photos.length} eventi
+          </Pill>
         </div>
 
-        <div className="rounded-3xl bg-slate-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-            Ultima misurazione
-          </p>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {timelineItems.map((item) => (
+            <div key={item.title} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                {item.title}
+              </p>
 
-          <p className="mt-2 text-2xl font-black">
-            {latestMeasurement?.weight_kg
-              ? `${latestMeasurement.weight_kg} kg`
-              : "—"}
-          </p>
+              <p className="mt-2 line-clamp-2 font-black text-slate-950">
+                {item.value}
+              </p>
 
-          <p className="mt-1 text-xs font-bold text-slate-500">
-            {latestMeasurement?.measurement_date || "Nessuna misurazione"}
-          </p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                {item.helper}
+              </p>
 
-          {latestMeasurement && (
-            <p className="mt-2 text-xs font-bold text-slate-500">
-              Vita {latestMeasurement.waist_cm || "—"} cm · BF{" "}
-              {latestMeasurement.body_fat_percentage || "—"}%
-            </p>
-          )}
+              {item.extra && (
+                <p className="mt-2 line-clamp-2 text-xs font-bold text-slate-400">
+                  {item.extra}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
-
-        <div className="rounded-3xl bg-slate-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-            Ultimo allenamento
-          </p>
-
-          <p className="mt-2 text-2xl font-black">
-            {latestSession?.session_date || "—"}
-          </p>
-
-          <p className="mt-1 text-xs font-bold text-slate-500">
-            {latestLog?.workout_exercises?.exercise_name ||
-              "Nessuna serie registrata"}
-          </p>
-
-          {latestLog && (
-            <p className="mt-2 text-xs font-bold text-slate-500">
-              {latestLog.load_kg || "—"} kg x {latestLog.reps_done || "—"} · RPE{" "}
-              {latestLog.rpe || "—"}
-            </p>
-          )}
-        </div>
-
-        <div className="rounded-3xl bg-slate-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-            Materiali cliente
-          </p>
-
-          <p className="mt-2 text-2xl font-black">
-            {diets.length + photos.length + privateNotes.length}
-          </p>
-
-          <p className="mt-1 text-xs font-bold text-slate-500">
-            {diets.length} diete · {photos.length} foto · {privateNotes.length} note
-          </p>
-        </div>
-      </div>
-
-      <div className="border-t border-slate-100 p-5">
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-3xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-              Programma attivo
-            </p>
-
-            <p className="mt-2 font-black">
-              {activePlans[0]?.title || "Nessun programma attivo"}
-            </p>
-
-            <p className="mt-1 text-xs font-bold text-slate-500">
-              {activePlans[0]?.duration_weeks
-                ? `${activePlans[0].duration_weeks} settimane`
-                : "—"}
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-              Aderenza
-            </p>
-
-            <p className="mt-2 font-black">
-              Dieta {latestCheckin?.diet_adherence || "—"}/10
-            </p>
-
-            <p className="mt-1 text-xs font-bold text-slate-500">
-              Allenamento {latestCheckin?.training_adherence || "—"}/10
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-              Stato operativo
-            </p>
-
-            <p className="mt-2 font-black">
-              {activePlans.length > 0 ? "Cliente operativo" : "Da programmare"}
-            </p>
-
-            <p className="mt-1 text-xs font-bold text-slate-500">
-              {latestCheckin
-                ? "Check-in ricevuto"
-                : "In attesa del primo check-in"}
-            </p>
-          </div>
-        </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 }
 function TemplatesPanel({
