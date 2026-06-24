@@ -8041,13 +8041,13 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [checkinForm, setCheckinForm] = useState({
     checkin_date: today(),
     weight_kg: "",
-    energy_level: 7,
-    sleep_quality: 7,
-    hunger_level: 5,
-    stress_level: 5,
-    digestion_level: 7,
-    diet_adherence: 8,
-    training_adherence: 8,
+    energy_level: "",
+    sleep_quality: "",
+    hunger_level: "",
+    stress_level: "",
+    digestion_level: "",
+    diet_adherence: "",
+    training_adherence: "",
     water_liters: "",
     steps: "",
     notes: ""
@@ -8335,13 +8335,13 @@ function getExerciseHistory(exercise) {
     setCheckinForm({
       checkin_date: today(),
       weight_kg: "",
-      energy_level: 7,
-      sleep_quality: 7,
-      hunger_level: 5,
-      stress_level: 5,
-      digestion_level: 7,
-      diet_adherence: 8,
-      training_adherence: 8,
+      energy_level: "",
+      sleep_quality: "",
+      hunger_level: "",
+      stress_level: "",
+      digestion_level: "",
+      diet_adherence: "",
+      training_adherence: "",
       water_liters: "",
       steps: "",
       notes: ""
@@ -8509,44 +8509,29 @@ function getExerciseHistory(exercise) {
   function ClientReminderCard({ item }) {
     const toneClass =
       item.tone === "red"
-        ? "bg-red-600 text-white"
+        ? "bg-red-50 text-red-700"
         : item.tone === "amber"
-        ? "bg-amber-500 text-slate-950"
+        ? "bg-amber-50 text-amber-700"
         : item.tone === "teal"
-        ? "bg-teal-400 text-slate-950"
-        : "bg-slate-800 text-white";
-
-    const borderClass =
-      item.tone === "red"
-        ? "border-red-200"
-        : item.tone === "amber"
-        ? "border-amber-200"
-        : item.tone === "teal"
-        ? "border-teal-200"
-        : "border-slate-200";
+        ? "bg-teal-50 text-teal-700"
+        : "bg-slate-100 text-slate-700";
 
     return (
-      <div className={`rounded-[1.75rem] border ${borderClass} bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${toneClass}`}>
+      <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${toneClass}`}>
               {item.priority}
             </span>
-
-            <p className="mt-3 text-base font-black leading-tight text-slate-950">
-              {item.title}
-            </p>
-
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-              {item.text}
-            </p>
+            <p className="font-black text-slate-950">{item.title}</p>
           </div>
+
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+            {item.text}
+          </p>
         </div>
 
-        <Button
-          onClick={item.onAction}
-          className="mt-4 w-full bg-[#07111f] text-white hover:bg-slate-800 md:w-auto"
-        >
+        <Button onClick={item.onAction} className="shrink-0 bg-[#07111f] text-white">
           {item.actionLabel}
         </Button>
       </div>
@@ -8555,7 +8540,7 @@ function getExerciseHistory(exercise) {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 text-slate-950 shadow-sm backdrop-blur-xl md:relative md:px-6 md:py-4">
+      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-3 text-white shadow-xl md:relative md:px-6 md:py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <button
             type="button"
@@ -8566,11 +8551,11 @@ function getExerciseHistory(exercise) {
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }
             }}
-            className="min-w-0 rounded-2xl px-1 py-1 text-left transition active:scale-[.98]"
+            className="min-w-0 rounded-2xl px-1 py-1 text-left transition hover:bg-white/5 active:scale-[.98]"
             aria-label="Vai alla Home"
           >
-            <p className="text-xl font-black leading-none tracking-tight text-slate-950">TMFIT</p>
-            <p className="mt-1 max-w-[220px] truncate text-xs font-bold text-slate-500 md:max-w-none">
+            <p className="text-xl font-black leading-none tracking-tight text-white">TMFIT</p>
+            <p className="mt-1 max-w-[220px] truncate text-xs font-bold text-slate-300 md:max-w-none">
               {client ? `Benvenuto, ${client.first_name || fullName(client)}` : "Area cliente"}
             </p>
           </button>
@@ -8578,7 +8563,7 @@ function getExerciseHistory(exercise) {
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-[#07111f] text-white shadow-lg transition hover:bg-slate-800 active:scale-[.96]"
+            className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
             aria-label="Apri menu"
           >
             <span className="block h-0.5 w-6 rounded bg-white" />
@@ -8617,36 +8602,24 @@ function getExerciseHistory(exercise) {
                   Da qui trovi subito quello che conta: allenamento, check-in, dieta e progressi. Pochi passaggi, tutto ordinato.
                 </p>
 
-                <div className="mt-5 grid gap-3 md:grid-cols-3">
-                  <button
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                  <Button
                     type="button"
                     onClick={() => setActiveTab("training")}
-                    className="rounded-3xl bg-teal-300 p-4 text-left text-slate-950 shadow-lg transition active:scale-[.98]"
+                    className="bg-teal-300 text-slate-950 hover:bg-teal-200"
                   >
-                    <Dumbbell size={20} />
-                    <p className="mt-3 text-sm font-black">Allenati</p>
-                    <p className="mt-1 text-xs font-bold text-slate-700">Apri la scheda</p>
-                  </button>
+                    <Dumbbell size={17} className="mr-2" />
+                    Apri scheda
+                  </Button>
 
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setActiveTab("checkin")}
-                    className="rounded-3xl bg-white/10 p-4 text-left text-white transition hover:bg-white/15 active:scale-[.98]"
+                    className="border border-white/10 bg-white/10 text-white hover:bg-white/15"
                   >
-                    <ClipboardCheck size={20} />
-                    <p className="mt-3 text-sm font-black">Check-in</p>
-                    <p className="mt-1 text-xs font-bold text-slate-300">Aggiorna il coach</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("diet")}
-                    className="rounded-3xl bg-white/10 p-4 text-left text-white transition hover:bg-white/15 active:scale-[.98]"
-                  >
-                    <FileText size={20} />
-                    <p className="mt-3 text-sm font-black">Dieta</p>
-                    <p className="mt-1 text-xs font-bold text-slate-300">Consulta il piano</p>
-                  </button>
+                    <ClipboardCheck size={17} className="mr-2" />
+                    Check-in
+                  </Button>
                 </div>
               </div>
             </Card>
@@ -8989,6 +8962,7 @@ const exerciseHistory = getExerciseHistory(exercise);
                 <Label title="Data">
                   <Input
                     type="date"
+                    className="text-center appearance-none"
                     value={checkinForm.checkin_date}
                     onChange={(event) =>
                       setCheckinForm({
@@ -9114,6 +9088,7 @@ const exerciseHistory = getExerciseHistory(exercise);
               <form onSubmit={uploadProgressPhoto} className="mt-4 space-y-3">
                 <Input
                   type="date"
+                  className="text-center appearance-none"
                   value={photoForm.photo_date}
                   onChange={(event) =>
                     setPhotoForm({
