@@ -3078,6 +3078,55 @@ async function savePrivateNote(event) {
       })
       .slice(0, 5);
 
+    const reminderItems = [
+      ...clientsWithoutActivePlan.map((client) => ({
+        id: `reminder-plan-${client.id}`,
+        priority: "Alta",
+        title: `${fullName(client)} senza programma`,
+        text: "Crea una scheda attiva per avviare o proseguire il percorso.",
+        actionLabel: "Crea programma",
+        tone: "red",
+        onAction: () => openClient(client.id, "programs")
+      })),
+      ...clientsWithoutDiet.map((client) => ({
+        id: `reminder-diet-${client.id}`,
+        priority: "Media",
+        title: `${fullName(client)} senza dieta`,
+        text: "Carica il piano alimentare o aggiorna quello attuale.",
+        actionLabel: "Vai a diete",
+        tone: "amber",
+        onAction: () => openClient(client.id, "diets")
+      })),
+      ...inactiveClients.map((client) => {
+        const lastSession = lastSessionByClient.get(String(client.id));
+
+        return {
+          id: `reminder-inactive-${client.id}`,
+          priority: "Alta",
+          title: `${fullName(client)} poco attivo`,
+          text: lastSession
+            ? `Ultimo allenamento registrato: ${lastSession.toLocaleDateString("it-IT")}.`
+            : "Nessun allenamento ancora registrato.",
+          actionLabel: "Apri cliente",
+          tone: "red",
+          onAction: () => openClient(client.id, "clients", "overview")
+        };
+      }),
+      ...recentCheckins.slice(0, 3).map((checkin) => ({
+        id: `reminder-checkin-${checkin.id}`,
+        priority: "Nuovo",
+        title: `${clientNameFromId(checkin.client_id)} ha inviato un check-in`,
+        text: `Ricevuto ${formatShortDate(checkin.checkin_date || checkin.created_at)}. Valutalo e aggiorna il percorso se serve.`,
+        actionLabel: "Leggi",
+        tone: "teal",
+        onAction: () => openClient(checkin.client_id, "monitor")
+      }))
+    ].slice(0, 8);
+
+    const urgentReminderCount = reminderItems.filter((item) =>
+      ["Alta", "Nuovo"].includes(item.priority)
+    ).length;
+
     function MetricCard({ title, value, text, icon, tone = "slate" }) {
       const toneClass =
         tone === "teal"
@@ -3128,6 +3177,39 @@ async function savePrivateNote(event) {
             className="shrink-0 bg-[#07111f] text-white"
           >
             {actionLabel || "Apri cliente"}
+          </Button>
+        </div>
+      );
+    }
+
+    function ReminderItem({ item }) {
+      const toneClass =
+        item.tone === "red"
+          ? "bg-red-50 text-red-700"
+          : item.tone === "amber"
+          ? "bg-amber-50 text-amber-700"
+          : item.tone === "teal"
+          ? "bg-teal-50 text-teal-700"
+          : "bg-slate-100 text-slate-700";
+
+      return (
+        <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${toneClass}`}>
+                {item.priority}
+              </span>
+
+              <p className="font-black text-slate-950">{item.title}</p>
+            </div>
+
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+              {item.text}
+            </p>
+          </div>
+
+          <Button onClick={item.onAction} className="shrink-0 bg-[#07111f] text-white">
+            {item.actionLabel}
           </Button>
         </div>
       );
@@ -3208,6 +3290,56 @@ async function savePrivateNote(event) {
             icon={<Activity size={20} />}
           />
         </div>
+
+        <Card className="overflow-hidden border-none shadow-lg">
+          <div className="bg-white p-5 md:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
+                  Centro promemoria
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-slate-950">
+                  Cose da fare adesso
+                </h3>
+
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+                  Promemoria interni generati dai dati già presenti: clienti da
+                  programmare, diete mancanti, check-in recenti e aderenza da controllare.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                <div className="rounded-2xl bg-red-50 px-4 py-3 text-center">
+                  <p className="text-2xl font-black text-red-700">{urgentReminderCount}</p>
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-red-500">
+                    urgenti
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-100 px-4 py-3 text-center">
+                  <p className="text-2xl font-black text-slate-950">{reminderItems.length}</p>
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                    totali
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {reminderItems.map((item) => (
+                <ReminderItem key={item.id} item={item} />
+              ))}
+
+              {reminderItems.length === 0 && (
+                <Empty
+                  title="Nessun promemoria operativo"
+                  text="Programmi, dieta, check-in e aderenza risultano sotto controllo."
+                />
+              )}
+            </div>
+          </div>
+        </Card>
 
         <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
           <Card className="p-5">
@@ -7690,6 +7822,134 @@ function getExerciseHistory(exercise) {
     window.open(data.signedUrl, "_blank");
   }
 
+  function clientDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function daysSince(value) {
+    const date = clientDate(value);
+    if (!date) return null;
+    return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  function formatClientDate(value) {
+    const date = clientDate(value);
+    if (!date) return "non disponibile";
+    return date.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    });
+  }
+
+  const activePlan = plans[0] || null;
+  const latestDiet = diets[0] || null;
+  const latestCheckin = checkins[0] || null;
+  const latestPhoto = photos[0] || null;
+  const latestCheckinDays = daysSince(latestCheckin?.checkin_date || latestCheckin?.created_at);
+  const latestPhotoDays = daysSince(latestPhoto?.photo_date || latestPhoto?.created_at);
+
+  const clientReminderItems = [
+    activePlan
+      ? {
+          id: "client-training",
+          priority: "Oggi",
+          title: "Allenamento disponibile",
+          text: "Apri la scheda e avvia la modalità Allenati quando sei pronto.",
+          actionLabel: "Vai alla scheda",
+          tone: "teal",
+          onAction: () => setActiveTab("training")
+        }
+      : {
+          id: "client-no-training",
+          priority: "Setup",
+          title: "Programma non ancora disponibile",
+          text: "Il coach non ha ancora assegnato una scheda attiva.",
+          actionLabel: "Aggiorna",
+          tone: "amber",
+          onAction: loadClientArea
+        },
+    latestCheckinDays === null || latestCheckinDays >= 7
+      ? {
+          id: "client-checkin",
+          priority: "Da fare",
+          title: "Compila il check-in settimanale",
+          text: latestCheckin
+            ? `Ultimo check-in: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}.`
+            : "Non hai ancora inviato un check-in.",
+          actionLabel: "Vai al check-in",
+          tone: "red",
+          onAction: () => setActiveTab("checkin")
+        }
+      : null,
+    latestDiet
+      ? {
+          id: "client-diet",
+          priority: "Piano",
+          title: "Piano alimentare disponibile",
+          text: `Ultima dieta caricata: ${formatClientDate(latestDiet.created_at || latestDiet.start_date)}.`,
+          actionLabel: "Apri dieta",
+          tone: "slate",
+          onAction: () => setActiveTab("diet")
+        }
+      : {
+          id: "client-no-diet",
+          priority: "Setup",
+          title: "Dieta non ancora caricata",
+          text: "Quando il coach caricherà il piano, lo troverai nella sezione Dieta.",
+          actionLabel: "Aggiorna",
+          tone: "amber",
+          onAction: loadClientArea
+        },
+    latestPhotoDays === null || latestPhotoDays >= 14
+      ? {
+          id: "client-photo",
+          priority: "Progressi",
+          title: "Aggiorna le foto progressi",
+          text: latestPhoto
+            ? `Ultima foto: ${formatClientDate(latestPhoto.photo_date || latestPhoto.created_at)}.`
+            : "Non hai ancora caricato foto progressi.",
+          actionLabel: "Vai ai progressi",
+          tone: "amber",
+          onAction: () => setActiveTab("progress")
+        }
+      : null
+  ].filter(Boolean);
+
+  function ClientReminderCard({ item }) {
+    const toneClass =
+      item.tone === "red"
+        ? "bg-red-50 text-red-700"
+        : item.tone === "amber"
+        ? "bg-amber-50 text-amber-700"
+        : item.tone === "teal"
+        ? "bg-teal-50 text-teal-700"
+        : "bg-slate-100 text-slate-700";
+
+    return (
+      <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${toneClass}`}>
+              {item.priority}
+            </span>
+            <p className="font-black text-slate-950">{item.title}</p>
+          </div>
+
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+            {item.text}
+          </p>
+        </div>
+
+        <Button onClick={item.onAction} className="shrink-0 bg-[#07111f] text-white">
+          {item.actionLabel}
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
@@ -7750,29 +8010,61 @@ function getExerciseHistory(exercise) {
         </Card>
 
         {activeTab === "home" && (
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card className="p-5">
-              <Dumbbell className="text-teal-600" />
-              <p className="mt-3 text-3xl font-black">{plans.length}</p>
-              <p className="text-sm font-bold text-slate-500">
-                Programmi attivi
-              </p>
-            </Card>
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card className="p-5">
+                <Dumbbell className="text-teal-600" />
+                <p className="mt-3 text-3xl font-black">{plans.length}</p>
+                <p className="text-sm font-bold text-slate-500">
+                  Programmi attivi
+                </p>
+              </Card>
 
-            <Card className="p-5">
-              <ClipboardCheck className="text-teal-600" />
-              <p className="mt-3 text-3xl font-black">{checkins.length}</p>
-              <p className="text-sm font-bold text-slate-500">
-                Check-in inviati
-              </p>
-            </Card>
+              <Card className="p-5">
+                <ClipboardCheck className="text-teal-600" />
+                <p className="mt-3 text-3xl font-black">{checkins.length}</p>
+                <p className="text-sm font-bold text-slate-500">
+                  Check-in inviati
+                </p>
+              </Card>
 
-            <Card className="p-5">
-              <FileText className="text-teal-600" />
-              <p className="mt-3 text-3xl font-black">{diets.length}</p>
-              <p className="text-sm font-bold text-slate-500">
-                Diete disponibili
-              </p>
+              <Card className="p-5">
+                <FileText className="text-teal-600" />
+                <p className="mt-3 text-3xl font-black">{diets.length}</p>
+                <p className="text-sm font-bold text-slate-500">
+                  Diete disponibili
+                </p>
+              </Card>
+            </div>
+
+            <Card className="overflow-hidden border-none shadow-lg">
+              <div className="bg-white p-5 md:p-6">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
+                      Promemoria
+                    </p>
+
+                    <h3 className="mt-2 text-2xl font-black text-slate-950">
+                      Cose da fare oggi
+                    </h3>
+
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                      Allenamento, check-in, dieta e progressi in una vista unica.
+                    </p>
+                  </div>
+
+                  <Pill className="bg-teal-100 text-teal-700">
+                    {clientReminderItems.length} promemoria
+                  </Pill>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  {clientReminderItems.map((item) => (
+                    <ClientReminderCard key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
             </Card>
           </div>
         )}
