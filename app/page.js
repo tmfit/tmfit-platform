@@ -31,8 +31,8 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v4.7";
-const APP_VERSION_LABEL = "TMFIT Pro v4.7";
+const APP_VERSION = "v4.9";
+const APP_VERSION_LABEL = "TMFIT Pro v4.9";
 const LEGAL_DOCUMENTS = {
   terms: {
     title: "Termini e condizioni",
@@ -583,15 +583,51 @@ function TopTabs({ tabs, active, onChange }) {
   );
 }
 
-function RestTimer({ seconds = 90, autoStart = false }) {
+function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
   const initialSeconds = Number(seconds) || 90;
   const [remaining, setRemaining] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundPlayed, setSoundPlayed] = useState(false);
 
- useEffect(() => {
-  setRemaining(initialSeconds);
-  setRunning(autoStart);
-}, [initialSeconds, autoStart]);
+  useEffect(() => {
+    setRemaining(initialSeconds);
+    setRunning(autoStart);
+    setSoundPlayed(false);
+  }, [initialSeconds, autoStart]);
+
+  function playTimerSound() {
+    if (typeof window === "undefined") return;
+
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      gain.gain.setValueAtTime(0.001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.35, context.currentTime + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.75);
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.8);
+    } catch (error) {
+      console.warn("Timer sound unavailable", error?.message || error);
+    }
+  }
+
+  useEffect(() => {
+    if (remaining === 0 && soundEnabled && !soundPlayed) {
+      setSoundPlayed(true);
+      playTimerSound();
+    }
+  }, [remaining, soundEnabled, soundPlayed]);
 
   useEffect(() => {
     if (!running) return;
@@ -613,22 +649,79 @@ function RestTimer({ seconds = 90, autoStart = false }) {
 
   const minutes = Math.floor(remaining / 60);
   const secs = remaining % 60;
+  const completed = remaining === 0;
 
   return (
-    <div className="rounded-3xl bg-slate-50 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Timer size={18} className="text-teal-600" />
-          <span className="text-lg font-black text-slate-900">
-            {minutes}:{String(secs).padStart(2, "0")}
-          </span>
+    <div
+      className={
+        prominent
+          ? "rounded-[1.8rem] border-2 border-teal-300 bg-[#07111f] p-5 text-white shadow-xl"
+          : "rounded-3xl border border-slate-200 bg-white p-4 text-slate-950"
+      }
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <div
+            className={
+              prominent
+                ? "flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-300 text-slate-950"
+                : "flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"
+            }
+          >
+            <Timer size={24} />
+          </div>
+
+          <div>
+            <p
+              className={
+                prominent
+                  ? "text-[11px] font-black uppercase tracking-[0.25em] text-teal-300"
+                  : "text-[11px] font-black uppercase tracking-[0.25em] text-slate-400"
+              }
+            >
+              Timer recupero
+            </p>
+
+            <p
+              className={
+                prominent
+                  ? "mt-1 text-5xl font-black tracking-tight text-white"
+                  : "mt-1 text-3xl font-black tracking-tight text-slate-950"
+              }
+            >
+              {minutes}:{String(secs).padStart(2, "0")}
+            </p>
+
+            <p
+              className={
+                prominent
+                  ? "mt-1 text-xs font-bold text-slate-300"
+                  : "mt-1 text-xs font-bold text-slate-500"
+              }
+            >
+              {completed
+                ? soundEnabled
+                  ? "Recupero finito: suono inviato."
+                  : "Recupero finito."
+                : running
+                ? "In corso"
+                : "Pronto"}
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           <button
             type="button"
-            onClick={() => setRunning(true)}
-            className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
+            onClick={() => {
+              setRunning(true);
+              setSoundPlayed(false);
+            }}
+            className={
+              prominent
+                ? "rounded-xl bg-teal-300 px-3 py-3 text-xs font-black text-slate-950"
+                : "rounded-xl bg-[#07111f] px-3 py-3 text-xs font-black text-white"
+            }
           >
             Start
           </button>
@@ -638,10 +731,32 @@ function RestTimer({ seconds = 90, autoStart = false }) {
             onClick={() => {
               setRunning(false);
               setRemaining(initialSeconds);
+              setSoundPlayed(false);
             }}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black"
+            className={
+              prominent
+                ? "rounded-xl bg-white/10 px-3 py-3 text-xs font-black text-white"
+                : "rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
+            }
           >
             Reset
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSoundEnabled((current) => !current);
+              setSoundPlayed(false);
+            }}
+            className={
+              soundEnabled
+                ? "rounded-xl bg-amber-300 px-3 py-3 text-xs font-black text-slate-950"
+                : prominent
+                ? "rounded-xl bg-white/10 px-3 py-3 text-xs font-black text-white"
+                : "rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
+            }
+          >
+            {soundEnabled ? "Suono ON" : "Suono OFF"}
           </button>
         </div>
       </div>
@@ -1608,7 +1723,7 @@ async function loadTemplates() {
   )
   .eq("workout_sessions.client_id", numericClientId)
   .order("created_at", { ascending: false })
-  .limit(300);
+  .limit(1000);
 
 if (historyError) {
   console.warn(historyError.message);
@@ -4853,112 +4968,13 @@ const builderQuality = getBuilderQualityReport();
             </div>
           )}
           {activeTab === "monitor" && (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Ultimi check-in</h2>
-
-                <div className="mt-4 space-y-3">
-                  {checkins.map((checkin) => (
-                    <div
-                      key={checkin.id}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-black">{checkin.checkin_date}</p>
-
-                        <Pill className="bg-slate-100 text-slate-700">
-                          Peso {checkin.weight_kg || "—"} kg
-                        </Pill>
-                      </div>
-
-                      <p className="mt-2 text-sm font-semibold text-slate-500">
-                        Energia {checkin.energy_level || "—"}/10 · Sonno{" "}
-                        {checkin.sleep_quality || "—"}/10 · Stress{" "}
-                        {checkin.stress_level || "—"}/10
-                      </p>
-
-                      {checkin.notes && (
-                        <p className="mt-2 text-sm font-semibold text-slate-600">
-                          {checkin.notes}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-
-                  {checkins.length === 0 && (
-                    <Empty
-                      title="Nessun check-in"
-                      text="Il cliente non ha ancora compilato check-in."
-                    />
-                  )}
-                </div>
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Ultimi log allenamento</h2>
-
-                <div className="mt-4 space-y-3">
-                  {logs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    >
-                      <p className="font-black">
-                        {log.workout_exercises?.exercise_name || "Esercizio"}
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        {log.workout_sessions?.session_date || "—"} · set{" "}
-                        {log.set_number || "—"} · {log.load_kg || "—"} kg x{" "}
-                        {log.reps_done || "—"} · RPE {log.rpe || "—"}
-                      </p>
-
-                      {log.notes && (
-                        <p className="mt-2 text-sm font-semibold text-slate-600">
-                          {log.notes}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-
-                  {logs.length === 0 && (
-                    <Empty
-                      title="Nessun log"
-                      text="Il cliente non ha ancora registrato carichi."
-                    />
-                  )}
-                </div>
-              </Card>
-
-              <Card className="p-5 lg:col-span-2">
-                <h2 className="text-xl font-black">Foto progressi</h2>
-
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  {photos.map((photo) => (
-                    <button
-                      key={photo.id}
-                      type="button"
-                      onClick={() =>
-                        openStorageFile("progress-photos", photo.file_path)
-                      }
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left"
-                    >
-                      <Camera size={20} className="text-teal-600" />
-
-                      <p className="mt-2 font-black">{photo.photo_type}</p>
-
-                      <p className="text-sm font-semibold text-slate-500">
-                        {photo.photo_date}
-                      </p>
-                    </button>
-                  ))}
-
-                  {photos.length === 0 && (
-                    <Empty title="Nessuna foto" text="Le foto compariranno qui." />
-                  )}
-                </div>
-              </Card>
-            </div>
+            <CoachMonitorPanel
+              selectedClient={selectedClient}
+              checkins={checkins}
+              logs={logs}
+              photos={photos}
+              openStorageFile={openStorageFile}
+            />
           )}
 
           {activeTab === "measurements" && (
@@ -6791,6 +6807,358 @@ function ExerciseHistoryBox({ history = [] }) {
     </div>
   );
 }
+function CoachMonitorPanel({
+  selectedClient,
+  checkins = [],
+  logs = [],
+  photos = [],
+  openStorageFile
+}) {
+  const latestCheckin = checkins[0] || null;
+  const latestLog = logs[0] || null;
+  const latestWorkoutGroups = groupLogsBySession(logs).slice(0, 5);
+  const latestWorkoutGroup = latestWorkoutGroups[0] || null;
+
+  function formatDate(value) {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+
+    return date.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    });
+  }
+
+  function daysSince(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)));
+  }
+
+  function relativeDate(value) {
+    const days = daysSince(value);
+    if (days === null) return "mai";
+    if (days === 0) return "oggi";
+    if (days === 1) return "ieri";
+    return `${days} giorni fa`;
+  }
+
+  function hasValue(value) {
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  }
+
+  function metricValue(value, suffix = "") {
+    return hasValue(value) ? `${value}${suffix}` : "—";
+  }
+
+  function logLine(log) {
+    const parts = [
+      `set ${log.set_number || "—"}`,
+      `${metricValue(log.load_kg, " kg")} x ${metricValue(log.reps_done)}`
+    ];
+
+    if (hasValue(log.rpe)) parts.push(`RPE ${log.rpe}`);
+    if (hasValue(log.rir)) parts.push(`RIR ${log.rir}`);
+
+    return parts.join(" · ");
+  }
+
+  function groupLogsBySession(items) {
+    const map = new Map();
+
+    items.forEach((log) => {
+      const date = log?.workout_sessions?.session_date || log?.created_at || "senza-data";
+      const key = `${log?.session_id || date}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          date,
+          items: []
+        });
+      }
+
+      map.get(key).items.push(log);
+    });
+
+    return Array.from(map.values())
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort((a, b) => {
+          const nameCompare = String(a.workout_exercises?.exercise_name || "").localeCompare(
+            String(b.workout_exercises?.exercise_name || "")
+          );
+          if (nameCompare !== 0) return nameCompare;
+          return Number(a.set_number || 0) - Number(b.set_number || 0);
+        })
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }
+
+  if (!selectedClient) {
+    return (
+      <Empty
+        title="Seleziona un cliente"
+        text="Il monitor mostra check-in, log allenamenti e foto del cliente selezionato."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card className="overflow-hidden border-2 border-slate-200">
+        <div className="bg-[#07111f] p-5 text-white">
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-300">
+            Monitor cliente
+          </p>
+
+          <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-3xl font-black">
+                {fullName(selectedClient)}
+              </h2>
+              <p className="mt-1 text-sm font-semibold text-slate-300">
+                Check-in, aderenza e log allenamenti in formato compatto.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-2xl bg-white/10 px-3 py-2">
+                <p className="text-xl font-black">{checkins.length}</p>
+                <p className="text-[10px] font-black uppercase text-slate-300">check-in</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 px-3 py-2">
+                <p className="text-xl font-black">{logs.length}</p>
+                <p className="text-[10px] font-black uppercase text-slate-300">serie</p>
+              </div>
+              <div className="rounded-2xl bg-teal-300 px-3 py-2 text-slate-950">
+                <p className="text-xl font-black">{photos.length}</p>
+                <p className="text-[10px] font-black uppercase">foto</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 bg-white p-4 md:grid-cols-3">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+              Ultimo check-in
+            </p>
+            <p className="mt-1 text-lg font-black text-slate-950">
+              {latestCheckin ? relativeDate(latestCheckin.checkin_date || latestCheckin.created_at) : "mai"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {latestCheckin ? formatDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Nessun dato"}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+              Ultimo allenamento
+            </p>
+            <p className="mt-1 text-lg font-black text-slate-950">
+              {latestLog ? relativeDate(latestLog.workout_sessions?.session_date || latestLog.created_at) : "mai"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {latestLog ? formatDate(latestLog.workout_sessions?.session_date || latestLog.created_at) : "Nessun log"}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+              Ultima serie loggata
+            </p>
+            <p className="mt-1 truncate text-lg font-black text-slate-950">
+              {latestLog?.workout_exercises?.exercise_name || "—"}
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {latestLog ? logLine(latestLog) : "Nessun dato"}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-slate-950">Ultimi check-in</h2>
+              <p className="text-sm font-semibold text-slate-500">
+                Vista compatta ma completa dei dati più importanti.
+              </p>
+            </div>
+            <Pill className="bg-slate-100 text-slate-700">
+              {checkins.length}
+            </Pill>
+          </div>
+
+          <div className="space-y-3">
+            {checkins.slice(0, 8).map((checkin) => (
+              <div key={checkin.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-base font-black text-slate-950">
+                      {formatDate(checkin.checkin_date || checkin.created_at)}
+                    </p>
+                    <p className="text-xs font-bold text-slate-500">
+                      {relativeDate(checkin.checkin_date || checkin.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Pill className="bg-slate-100 text-slate-700">
+                      Peso {metricValue(checkin.weight_kg, " kg")}
+                    </Pill>
+                    <Pill className="bg-teal-100 text-teal-800">
+                      Dieta {metricValue(checkin.diet_adherence, "/10")}
+                    </Pill>
+                    <Pill className="bg-teal-100 text-teal-800">
+                      Training {metricValue(checkin.training_adherence, "/10")}
+                    </Pill>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-slate-600 sm:grid-cols-4">
+                  <div className="rounded-xl bg-slate-50 p-2">Energia {metricValue(checkin.energy_level, "/10")}</div>
+                  <div className="rounded-xl bg-slate-50 p-2">Sonno {metricValue(checkin.sleep_quality, "/10")}</div>
+                  <div className="rounded-xl bg-slate-50 p-2">Stress {metricValue(checkin.stress_level, "/10")}</div>
+                  <div className="rounded-xl bg-slate-50 p-2">Fame {metricValue(checkin.hunger_level, "/10")}</div>
+                </div>
+
+                {checkin.notes && (
+                  <p className="mt-3 whitespace-pre-wrap break-words rounded-2xl bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">
+                    {checkin.notes}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {checkins.length === 0 && (
+              <Empty
+                title="Nessun check-in"
+                text="Il cliente non ha ancora compilato check-in."
+              />
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-slate-950">Log allenamento</h2>
+              <p className="text-sm font-semibold text-slate-500">
+                Ultima seduta completa e storico recente per data.
+              </p>
+            </div>
+            <Pill className="bg-[#07111f] text-white">
+              {latestWorkoutGroup ? formatDate(latestWorkoutGroup.date) : "—"}
+            </Pill>
+          </div>
+
+          {latestWorkoutGroup ? (
+            <div className="space-y-4">
+              <div className="rounded-3xl border-2 border-teal-200 bg-teal-50 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-700">
+                      Ultimo allenamento completo
+                    </p>
+                    <p className="text-lg font-black text-teal-950">
+                      {formatDate(latestWorkoutGroup.date)} · {relativeDate(latestWorkoutGroup.date)}
+                    </p>
+                  </div>
+                  <Pill className="bg-teal-300 text-slate-950">
+                    {latestWorkoutGroup.items.length} serie
+                  </Pill>
+                </div>
+
+                <div className="space-y-2">
+                  {latestWorkoutGroup.items.map((log) => (
+                    <div key={log.id} className="rounded-2xl bg-white p-3">
+                      <p className="font-black text-slate-950">
+                        {log.workout_exercises?.exercise_name || "Esercizio"}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-600">
+                        {logLine(log)}
+                      </p>
+                      {log.notes && (
+                        <p className="mt-1 whitespace-pre-wrap break-words text-xs font-bold text-slate-500">
+                          {log.notes}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {latestWorkoutGroups.slice(1).map((group) => (
+                  <div key={group.key} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-black text-slate-950">
+                        {formatDate(group.date)}
+                      </p>
+                      <p className="text-xs font-bold text-slate-500">
+                        {group.items.length} serie
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                      {group.items.slice(0, 5).map((log) => `${log.workout_exercises?.exercise_name || "Esercizio"}: ${logLine(log)}`).join("  |  ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <Empty
+              title="Nessun log"
+              text="Il cliente non ha ancora registrato carichi."
+            />
+          )}
+        </Card>
+      </div>
+
+      <Card className="p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-black text-slate-950">Foto progressi</h2>
+            <p className="text-sm font-semibold text-slate-500">
+              Ultime foto caricate dal cliente o dal professionista.
+            </p>
+          </div>
+          <Camera size={20} className="text-teal-600" />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {photos.slice(0, 9).map((photo) => (
+            <button
+              key={photo.id}
+              type="button"
+              onClick={() => openStorageFile("progress-photos", photo.file_path)}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
+            >
+              <Camera size={20} className="text-teal-600" />
+
+              <p className="mt-2 font-black text-slate-950">{photo.photo_type}</p>
+
+              <p className="text-sm font-semibold text-slate-500">
+                {formatDate(photo.photo_date || photo.created_at)}
+              </p>
+            </button>
+          ))}
+
+          {photos.length === 0 && (
+            <Empty title="Nessuna foto" text="Le foto compariranno qui." />
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function WorkoutPlayerModal({
   player,
   onClose,
@@ -6861,6 +7229,15 @@ function WorkoutPlayerModal({
     return itemScore > bestScore ? item : best;
   }, history[0] || null);
 
+  const showRpe = hasValue(currentSet?.target_rpe) || hasValue(exercise?.target_rpe);
+  const showRir = hasValue(currentSet?.target_rir) || hasValue(exercise?.target_rir);
+  const workoutUsesRpe = exercises.some(
+    (item) => hasValue(item?.target_rpe) || plannedSetsForExercise(item).some((set) => hasValue(set?.target_rpe))
+  );
+  const workoutUsesRir = exercises.some(
+    (item) => hasValue(item?.target_rir) || plannedSetsForExercise(item).some((set) => hasValue(set?.target_rir))
+  );
+
   const progressText = exercise
     ? `Esercizio ${exerciseIndex + 1}/${exercises.length} · Serie ${
         setIndex + 1
@@ -6870,6 +7247,21 @@ function WorkoutPlayerModal({
   const progressPercentage = totalPlannedSets
     ? Math.round((completedSetKeys.length / totalPlannedSets) * 100)
     : 0;
+
+  const targetParts = [
+    `${plannedSets.length} serie`,
+    `${currentSet?.target_reps || exercise?.reps || "reps libere"} reps`,
+    showRpe ? `RPE ${currentSet?.target_rpe || exercise?.target_rpe}` : null,
+    showRir ? `RIR ${currentSet?.target_rir || exercise?.target_rir}` : null,
+    `recupero ${recoverySeconds}s`
+  ].filter(Boolean);
+
+  const historySessions = groupHistoryBySession(history).slice(0, 6);
+  const historyAround90Days = findHistoryAroundDays(history, 90);
+
+  function hasValue(value) {
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  }
 
   function currentWeekForPlan() {
     if (!plan?.start_date) return 1;
@@ -6926,6 +7318,94 @@ function WorkoutPlayerModal({
     }));
   }
 
+  function parseHistoryDate(item) {
+    const value = item?.workout_sessions?.session_date || item?.created_at;
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatDate(value) {
+    if (!value) return "—";
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+
+    return date.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    });
+  }
+
+  function daysAgo(value) {
+    const date = value instanceof Date ? value : parseHistoryDate(value);
+    if (!date) return null;
+    return Math.max(0, Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)));
+  }
+
+  function relativeDateText(value) {
+    const days = daysAgo(value);
+    if (days === null) return "data non disponibile";
+    if (days === 0) return "oggi";
+    if (days === 1) return "ieri";
+    return `${days} giorni fa`;
+  }
+
+  function groupHistoryBySession(items) {
+    const map = new Map();
+
+    items.forEach((item) => {
+      const sessionDate = item?.workout_sessions?.session_date || item?.created_at || "senza-data";
+      const key = `${item?.session_id || sessionDate}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          date: sessionDate,
+          dateObject: parseHistoryDate(item),
+          items: []
+        });
+      }
+
+      map.get(key).items.push(item);
+    });
+
+    return Array.from(map.values())
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort(
+          (a, b) => Number(a.set_number || 0) - Number(b.set_number || 0)
+        )
+      }))
+      .sort((a, b) => {
+        const left = a.dateObject?.getTime() || 0;
+        const right = b.dateObject?.getTime() || 0;
+        return right - left;
+      });
+  }
+
+  function findHistoryAroundDays(items, targetDays) {
+    const candidates = items
+      .map((item) => ({ item, days: daysAgo(item) }))
+      .filter((entry) => entry.days !== null && entry.days >= targetDays - 45)
+      .sort(
+        (a, b) => Math.abs(a.days - targetDays) - Math.abs(b.days - targetDays)
+      );
+
+    return candidates[0] || null;
+  }
+
+  function metricText(item) {
+    const parts = [];
+
+    if (hasValue(item?.load_kg)) parts.push(`${item.load_kg} kg`);
+    if (hasValue(item?.reps_done)) parts.push(`${item.reps_done} reps`);
+    if (hasValue(item?.rpe)) parts.push(`RPE ${item.rpe}`);
+    if (hasValue(item?.rir)) parts.push(`RIR ${item.rir}`);
+
+    return parts.length ? parts.join(" · ") : "dato non compilato";
+  }
+
   function setCurrentExercise(index) {
     setExerciseIndex(index);
     setSetIndex(0);
@@ -6954,8 +7434,8 @@ function WorkoutPlayerModal({
 
     updateDraft(draftKey, "load_kg", lastHistory.load_kg || "");
     updateDraft(draftKey, "reps_done", lastHistory.reps_done || "");
-    updateDraft(draftKey, "rpe", lastHistory.rpe || "");
-    updateDraft(draftKey, "rir", lastHistory.rir || "");
+    if (showRpe) updateDraft(draftKey, "rpe", lastHistory.rpe || "");
+    if (showRir) updateDraft(draftKey, "rir", lastHistory.rir || "");
   }
 
   function applyTargetSet() {
@@ -6967,8 +7447,8 @@ function WorkoutPlayerModal({
       currentSet.target_load_kg || currentSet.target_load_text || draft.load_kg || ""
     );
     updateDraft(draftKey, "reps_done", currentSet.target_reps || draft.reps_done || "");
-    updateDraft(draftKey, "rpe", currentSet.target_rpe || draft.rpe || "");
-    updateDraft(draftKey, "rir", currentSet.target_rir || draft.rir || "");
+    if (showRpe) updateDraft(draftKey, "rpe", currentSet.target_rpe || draft.rpe || "");
+    if (showRir) updateDraft(draftKey, "rir", currentSet.target_rir || draft.rir || "");
   }
 
   async function saveCurrentSet() {
@@ -6994,16 +7474,16 @@ function WorkoutPlayerModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[130] bg-slate-950/85 px-3 py-4 backdrop-blur-sm md:px-6">
-      <div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-[#f5f7fb] shadow-2xl">
-        <div className="bg-[#07111f] p-5 text-white">
+    <div className="fixed inset-0 z-[130] bg-slate-950/90 px-2 py-2 backdrop-blur-sm md:px-6 md:py-4">
+      <div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-[1.5rem] bg-slate-100 shadow-2xl md:rounded-[2rem]">
+        <div className="bg-[#07111f] p-4 text-white md:p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+              <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-300">
                 Modalità Allenati
               </p>
 
-              <h2 className="mt-2 truncate text-2xl font-black">
+              <h2 className="mt-2 truncate text-2xl font-black md:text-3xl">
                 {day.title || "Allenamento"}
               </h2>
 
@@ -7027,7 +7507,7 @@ function WorkoutPlayerModal({
               <span>{progressPercentage}%</span>
             </div>
 
-            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-3 overflow-hidden rounded-full bg-white/10">
               <div
                 className="h-full rounded-full bg-teal-300 transition-all"
                 style={{ width: `${progressPercentage}%` }}
@@ -7036,10 +7516,10 @@ function WorkoutPlayerModal({
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 md:grid-cols-[280px_1fr]">
+        <div className="grid min-h-0 flex-1 md:grid-cols-[300px_1fr]">
           <aside className="hidden border-r border-slate-200 bg-white p-4 md:block md:overflow-y-auto">
             <p className="mb-3 text-xs font-black uppercase tracking-[0.25em] text-slate-400">
-              Esercizi
+              Scheda completa
             </p>
 
             <div className="space-y-2">
@@ -7057,8 +7537,8 @@ function WorkoutPlayerModal({
                     onClick={() => setCurrentExercise(index)}
                     className={`w-full rounded-2xl px-3 py-3 text-left transition ${
                       index === exerciseIndex
-                        ? "bg-[#07111f] text-white"
-                        : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                        ? "bg-[#07111f] text-white shadow-lg"
+                        : "bg-slate-50 text-slate-800 hover:bg-slate-100"
                     }`}
                   >
                     <p className="truncate text-sm font-black">
@@ -7066,10 +7546,10 @@ function WorkoutPlayerModal({
                     </p>
                     <p
                       className={`mt-1 text-xs font-bold ${
-                        index === exerciseIndex ? "text-slate-300" : "text-slate-400"
+                        index === exerciseIndex ? "text-slate-300" : "text-slate-500"
                       }`}
                     >
-                      {itemCompleted}/{itemSets.length} serie completate
+                      {itemCompleted}/{itemSets.length} serie · {item.reps || itemSets[0]?.target_reps || "reps"}
                     </p>
                   </button>
                 );
@@ -7077,9 +7557,9 @@ function WorkoutPlayerModal({
             </div>
           </aside>
 
-          <div className="min-h-0 overflow-y-auto p-4 md:p-6">
+          <div className="min-h-0 overflow-y-auto p-3 md:p-6">
             {finished ? (
-              <Card className="p-6">
+              <Card className="p-5 md:p-6">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
                   <Check size={28} />
                 </div>
@@ -7090,7 +7570,7 @@ function WorkoutPlayerModal({
                   </h3>
 
                   <p className="mt-2 text-sm font-semibold text-slate-500">
-                    Hai completato {completedSetKeys.length}/{totalPlannedSets} serie. Il coach potrà vedere carichi, reps, RPE e RIR.
+                    Hai completato {completedSetKeys.length}/{totalPlannedSets} serie. Il coach potrà vedere carichi e reps{workoutUsesRpe ? ", RPE" : ""}{workoutUsesRir ? ", RIR" : ""}.
                   </p>
                 </div>
 
@@ -7173,10 +7653,6 @@ function WorkoutPlayerModal({
                   </Label>
                 </div>
 
-                <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800">
-                  Nota: il riepilogo finale è già utile per guidare il cliente. Il salvataggio strutturato di difficoltà/sensazioni richiederà una piccola estensione database nella priorità notifiche/check-in.
-                </p>
-
                 <Button
                   type="button"
                   onClick={closeCompletedWorkout}
@@ -7192,38 +7668,88 @@ function WorkoutPlayerModal({
               />
             ) : (
               <div className="space-y-4">
-                <Card className="overflow-hidden">
-                  <div className="bg-white p-5">
+                <Card className="block p-4 md:hidden">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
+                        Scheda completa
+                      </p>
+                      <p className="text-sm font-bold text-slate-500">
+                        Tocca un esercizio per saltare direttamente lì.
+                      </p>
+                    </div>
+                    <Pill className="bg-[#07111f] text-white">
+                      {exercises.length} esercizi
+                    </Pill>
+                  </div>
+
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {exercises.map((item, index) => {
+                      const itemSets = plannedSetsForExercise(item);
+                      const itemCompleted = itemSets.filter((set) => {
+                        const token = set.id || set.temp_id || `virtual-${set.set_number}`;
+                        return completedSetKeys.includes(`${item.id}-${token}`);
+                      }).length;
+
+                      return (
+                        <button
+                          key={item.id || item.temp_id || index}
+                          type="button"
+                          onClick={() => setCurrentExercise(index)}
+                          className={`min-w-[180px] rounded-2xl px-3 py-3 text-left ${
+                            index === exerciseIndex
+                              ? "bg-[#07111f] text-white"
+                              : "bg-slate-100 text-slate-800"
+                          }`}
+                        >
+                          <p className="truncate text-xs font-black">
+                            {index + 1}. {item.exercise_name || "Esercizio"}
+                          </p>
+                          <p className="mt-1 text-[11px] font-bold opacity-80">
+                            {itemCompleted}/{itemSets.length} serie
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Card>
+
+                {resting && (
+                  <RestTimer seconds={recoverySeconds} autoStart prominent />
+                )}
+
+                <Card className="overflow-hidden border-2 border-slate-200">
+                  <div className="bg-white p-4 md:p-5">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
                           Esercizio attuale
                         </p>
 
-                        <h3 className="mt-2 text-3xl font-black text-slate-950">
+                        <h3 className="mt-2 text-3xl font-black leading-tight text-slate-950 md:text-4xl">
                           {exercise.exercise_name}
                         </h3>
 
-                        <p className="mt-2 text-sm font-semibold text-slate-500">
-                          Target: {plannedSets.length} serie · {currentSet?.target_reps || exercise.reps || "reps —"} reps · RPE {currentSet?.target_rpe || exercise.target_rpe || "—"} · RIR {currentSet?.target_rir || exercise.target_rir || "—"} · recupero {recoverySeconds}s
+                        <p className="mt-3 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black leading-6 text-slate-800">
+                          Target: {targetParts.join(" · ")}
                         </p>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 md:min-w-48">
-                        <div className="rounded-3xl bg-slate-50 p-4 text-center">
-                          <p className="text-4xl font-black text-slate-950">
+                        <div className="rounded-3xl bg-[#07111f] p-4 text-center text-white">
+                          <p className="text-4xl font-black">
                             {setIndex + 1}
                           </p>
-                          <p className="text-xs font-black uppercase text-slate-400">
+                          <p className="text-xs font-black uppercase text-slate-300">
                             Serie
                           </p>
                         </div>
 
-                        <div className="rounded-3xl bg-teal-50 p-4 text-center">
-                          <p className="text-4xl font-black text-teal-700">
+                        <div className="rounded-3xl bg-teal-300 p-4 text-center text-slate-950">
+                          <p className="text-4xl font-black">
                             {plannedSets.length}
                           </p>
-                          <p className="text-xs font-black uppercase text-teal-700">
+                          <p className="text-xs font-black uppercase">
                             Totali
                           </p>
                         </div>
@@ -7231,35 +7757,35 @@ function WorkoutPlayerModal({
                     </div>
 
                     {exercise.notes && (
-                      <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">
-                        {exercise.notes}
+                      <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+                        Note coach: {exercise.notes}
                       </div>
                     )}
 
                     {exercise.execution_mode && (
-                      <div className="mt-3 rounded-2xl bg-teal-50 p-4 text-sm font-bold text-teal-800">
+                      <div className="mt-3 rounded-2xl bg-teal-50 p-4 text-sm font-bold text-teal-900">
                         Esecuzione: {exercise.execution_mode}
                       </div>
                     )}
                   </div>
                 </Card>
 
-                <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-                  <Card className="p-5">
+                <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+                  <Card className="border-2 border-slate-200 p-4 md:p-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <h4 className="text-xl font-black">Registra serie</h4>
-                        <p className="mt-1 text-sm font-semibold text-slate-500">
-                          Inserisci i dati reali della serie appena fatta.
+                        <h4 className="text-xl font-black text-slate-950">Registra serie</h4>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">
+                          Inserisci solo i dati richiesti dal coach.
                         </p>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                         <button
                           type="button"
                           onClick={applyLastSet}
                           disabled={!lastHistory}
-                          className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
+                          className="rounded-xl bg-[#07111f] px-3 py-3 text-xs font-black text-white disabled:opacity-40"
                         >
                           Usa ultimo
                         </button>
@@ -7267,14 +7793,22 @@ function WorkoutPlayerModal({
                         <button
                           type="button"
                           onClick={applyTargetSet}
-                          className="rounded-xl bg-teal-100 px-3 py-2 text-xs font-black text-teal-800"
+                          className="rounded-xl bg-teal-300 px-3 py-3 text-xs font-black text-slate-950"
                         >
                           Usa target
                         </button>
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    <div
+                      className={`mt-4 grid gap-3 ${
+                        showRpe && showRir
+                          ? "md:grid-cols-4"
+                          : showRpe || showRir
+                          ? "md:grid-cols-3"
+                          : "md:grid-cols-2"
+                      }`}
+                    >
                       <Label title="Kg">
                         <Input
                           inputMode="decimal"
@@ -7283,6 +7817,7 @@ function WorkoutPlayerModal({
                             updateDraft(draftKey, "load_kg", event.target.value)
                           }
                           placeholder="es. 80"
+                          className="text-base"
                         />
                       </Label>
 
@@ -7294,30 +7829,37 @@ function WorkoutPlayerModal({
                             updateDraft(draftKey, "reps_done", event.target.value)
                           }
                           placeholder="es. 10"
+                          className="text-base"
                         />
                       </Label>
 
-                      <Label title="RPE">
-                        <Input
-                          inputMode="decimal"
-                          value={draft.rpe || ""}
-                          onChange={(event) =>
-                            updateDraft(draftKey, "rpe", event.target.value)
-                          }
-                          placeholder="es. 8"
-                        />
-                      </Label>
+                      {showRpe && (
+                        <Label title="RPE">
+                          <Input
+                            inputMode="decimal"
+                            value={draft.rpe || ""}
+                            onChange={(event) =>
+                              updateDraft(draftKey, "rpe", event.target.value)
+                            }
+                            placeholder="es. 8"
+                            className="text-base"
+                          />
+                        </Label>
+                      )}
 
-                      <Label title="RIR">
-                        <Input
-                          inputMode="decimal"
-                          value={draft.rir || ""}
-                          onChange={(event) =>
-                            updateDraft(draftKey, "rir", event.target.value)
-                          }
-                          placeholder="es. 2"
-                        />
-                      </Label>
+                      {showRir && (
+                        <Label title="RIR">
+                          <Input
+                            inputMode="decimal"
+                            value={draft.rir || ""}
+                            onChange={(event) =>
+                              updateDraft(draftKey, "rir", event.target.value)
+                            }
+                            placeholder="es. 2"
+                            className="text-base"
+                          />
+                        </Label>
+                      )}
                     </div>
 
                     <div className="mt-3">
@@ -7334,33 +7876,57 @@ function WorkoutPlayerModal({
                   </Card>
 
                   <div className="space-y-4">
-                    <Card className="p-5">
-                      <h4 className="text-lg font-black">Storico rapido</h4>
+                    <Card className="border-2 border-slate-200 p-4 md:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-lg font-black text-slate-950">Storico carichi</h4>
+                          <p className="mt-1 text-xs font-bold text-slate-500">
+                            Ultimo, migliore e confronto nel tempo.
+                          </p>
+                        </div>
+                        <Pill className="bg-slate-100 text-slate-700">
+                          {history.length} serie
+                        </Pill>
+                      </div>
 
                       {lastHistory ? (
-                        <div className="mt-3 space-y-3">
-                          <div className="rounded-2xl bg-slate-50 p-3">
-                            <p className="text-xs font-black uppercase text-slate-400">
+                        <div className="mt-4 space-y-3">
+                          <div className="rounded-2xl bg-[#07111f] p-4 text-white">
+                            <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-300">
                               Ultima volta
                             </p>
-                            <p className="mt-1 text-lg font-black text-slate-950">
-                              {lastHistory.load_kg || "—"} kg x {lastHistory.reps_done || "—"}
+                            <p className="mt-1 text-xl font-black">
+                              {metricText(lastHistory)}
                             </p>
-                            <p className="text-xs font-bold text-slate-500">
-                              RPE {lastHistory.rpe || "—"} · RIR {lastHistory.rir || "—"} · {lastHistory.workout_sessions?.session_date || "—"}
+                            <p className="text-xs font-bold text-slate-300">
+                              {formatDate(lastHistory.workout_sessions?.session_date || lastHistory.created_at)} · {relativeDateText(lastHistory)}
                             </p>
                           </div>
 
                           {bestHistory && (
-                            <div className="rounded-2xl bg-teal-50 p-3">
-                              <p className="text-xs font-black uppercase text-teal-700">
+                            <div className="rounded-2xl bg-teal-50 p-4">
+                              <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-700">
                                 Miglior serie
                               </p>
-                              <p className="mt-1 text-lg font-black text-teal-900">
-                                {bestHistory.load_kg || "—"} kg x {bestHistory.reps_done || "—"}
+                              <p className="mt-1 text-lg font-black text-teal-950">
+                                {metricText(bestHistory)}
                               </p>
-                              <p className="text-xs font-bold text-teal-700">
-                                {bestHistory.workout_sessions?.session_date || "—"}
+                              <p className="text-xs font-bold text-teal-800">
+                                {formatDate(bestHistory.workout_sessions?.session_date || bestHistory.created_at)}
+                              </p>
+                            </div>
+                          )}
+
+                          {historyAround90Days && (
+                            <div className="rounded-2xl bg-amber-50 p-4">
+                              <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">
+                                Circa 3 mesi fa
+                              </p>
+                              <p className="mt-1 text-lg font-black text-amber-950">
+                                {metricText(historyAround90Days.item)}
+                              </p>
+                              <p className="text-xs font-bold text-amber-800">
+                                {formatDate(historyAround90Days.item.workout_sessions?.session_date || historyAround90Days.item.created_at)} · {historyAround90Days.days} giorni fa
                               </p>
                             </div>
                           )}
@@ -7372,15 +7938,32 @@ function WorkoutPlayerModal({
                       )}
                     </Card>
 
-                    {resting && (
-                      <Card className="border-teal-200 bg-teal-50 p-5">
-                        <h4 className="mb-3 text-xl font-black">
-                          Recupero in corso
-                        </h4>
+                    <Card className="p-4 md:p-5">
+                      <h4 className="text-lg font-black text-slate-950">Sedute precedenti</h4>
+                      <div className="mt-3 space-y-2">
+                        {historySessions.map((sessionGroup) => (
+                          <div key={sessionGroup.key} className="rounded-2xl bg-slate-50 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-black text-slate-950">
+                                {formatDate(sessionGroup.date)}
+                              </p>
+                              <p className="text-xs font-bold text-slate-500">
+                                {relativeDateText(sessionGroup.dateObject)}
+                              </p>
+                            </div>
+                            <p className="mt-1 text-xs font-bold leading-5 text-slate-600">
+                              {sessionGroup.items.slice(0, 4).map(metricText).join("  |  ")}
+                            </p>
+                          </div>
+                        ))}
 
-                        <RestTimer seconds={recoverySeconds} autoStart />
-                      </Card>
-                    )}
+                        {historySessions.length === 0 && (
+                          <p className="text-sm font-semibold text-slate-500">
+                            Le sedute precedenti compariranno qui.
+                          </p>
+                        )}
+                      </div>
+                    </Card>
                   </div>
                 </div>
               </div>
@@ -7389,14 +7972,14 @@ function WorkoutPlayerModal({
         </div>
 
         {!finished && exercise && (
-          <div className="border-t border-slate-200 bg-white p-4">
-            <div className="flex flex-col gap-2 md:flex-row">
+          <div className="border-t border-slate-200 bg-white p-3 md:p-4">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
               {!resting ? (
                 <Button
                   type="button"
                   onClick={saveCurrentSet}
                   disabled={saving}
-                  className="flex-1 bg-[#07111f] text-white"
+                  className="bg-[#07111f] text-white"
                 >
                   {saving ? "Salvataggio..." : "Salva serie e avvia recupero"}
                 </Button>
@@ -7404,7 +7987,7 @@ function WorkoutPlayerModal({
                 <Button
                   type="button"
                   onClick={goNext}
-                  className="flex-1 bg-teal-300 text-slate-950"
+                  className="bg-teal-300 text-slate-950"
                 >
                   Serie successiva
                 </Button>
@@ -7570,7 +8153,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   )
   .eq("workout_sessions.client_id", numericClientId)
   .order("created_at", { ascending: false })
-  .limit(300);
+  .limit(1000);
 
 if (historyError) {
   console.warn(historyError.message);
