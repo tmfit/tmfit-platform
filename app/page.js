@@ -207,44 +207,6 @@ function Label({ title, children }) {
   );
 }
 
-function CheckinScale({ title, value, onChange }) {
-  return (
-    <div className="md:col-span-2">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-xs font-black uppercase tracking-wider text-slate-500">
-          {title}
-        </p>
-
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
-          {value ? `${value}/10` : "Seleziona"}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-10 gap-1">
-        {Array.from({ length: 10 }).map((_, index) => {
-          const score = String(index + 1);
-          const selected = String(value || "") === score;
-
-          return (
-            <button
-              key={score}
-              type="button"
-              onClick={() => onChange(score)}
-              className={`h-9 rounded-xl text-xs font-black transition active:scale-[.96] ${
-                selected
-                  ? "bg-[#07111f] text-white shadow-md"
-                  : "border border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50"
-              }`}
-            >
-              {score}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function Empty({ title, text }) {
   return (
     <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
@@ -312,6 +274,14 @@ function AppFooter({ role = "coach" }) {
           <Pill className="bg-white/10 text-white">
             {role === "coach" ? "Area professionista" : "Area cliente"}
           </Pill>
+
+          <Pill className="bg-teal-300 text-slate-950">
+            Webapp privata
+          </Pill>
+
+          <Pill className="bg-white/10 text-white">
+  {APP_VERSION}
+</Pill>
         </div>
 
         <div className="flex flex-wrap gap-4 text-xs font-bold text-slate-400">
@@ -477,8 +447,13 @@ function SideDrawer({
   onChange,
   role = "coach",
   onLogout,
-  userProfile
-}) {  return (
+  userProfile,
+  side = "left"
+}) {
+  const drawerSideClass = side === "right" ? "right-0" : "left-0";
+  const drawerClosedClass = side === "right" ? "translate-x-full" : "-translate-x-full";
+
+  return (
     <>
       {open && (
         <button
@@ -490,8 +465,8 @@ function SideDrawer({
       )}
 
       <aside
-        className={`fixed bottom-0 left-0 top-0 z-[80] w-[86%] max-w-sm transform bg-[#07111f] text-white shadow-2xl transition md:w-96 ${
-          open ? "translate-x-0" : "-translate-x-full"
+        className={`fixed bottom-0 top-0 z-[80] w-[86%] max-w-sm transform bg-[#07111f] text-white shadow-2xl transition md:w-96 ${drawerSideClass} ${
+          open ? "translate-x-0" : drawerClosedClass
         }`}
       >
         <div className="flex h-full flex-col">
@@ -8565,32 +8540,36 @@ function getExerciseHistory(exercise) {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
+      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-3 text-white shadow-xl md:relative md:px-6 md:py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-         <div className="flex items-center gap-3">
-  <button
-    type="button"
-    onClick={() => setDrawerOpen(true)}
-    className="rounded-2xl bg-white/10 p-3 text-white"
-  >
-    <span className="block h-0.5 w-5 rounded bg-white" />
-    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
-    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
-  </button>
-
-  <div>
-    <h1 className="text-2xl font-black tracking-tight">TM FIT</h1>
-    <p className="text-sm font-bold text-slate-300">Area cliente</p>
-  </div>
-</div>
-
-          <Button
-            onClick={onLogout}
-            className="border border-white/10 bg-white/10 text-white"
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("home");
+              setDrawerOpen(false);
+              if (typeof window !== "undefined") {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }}
+            className="min-w-0 rounded-2xl px-1 py-1 text-left transition hover:bg-white/5 active:scale-[.98]"
+            aria-label="Vai alla Home"
           >
-            <LogOut size={17} className="mr-2" />
-            Esci
-          </Button>
+            <p className="text-2xl font-black leading-none tracking-tight text-white">TMFIT</p>
+            <p className="mt-1 max-w-[220px] truncate text-sm font-black text-slate-300 md:max-w-none">
+              Area cliente
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+            aria-label="Apri menu"
+          >
+            <span className="block h-0.5 w-6 rounded bg-white" />
+            <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+            <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+          </button>
         </div>
       </header>
 
@@ -8604,54 +8583,29 @@ function getExerciseHistory(exercise) {
   role="client"
   onLogout={onLogout}
   userProfile={userProfile}
+  side="right"
 />
       <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
-        <Card className="overflow-hidden">
-          <div className="bg-[#07111f] p-5 text-white md:p-6">
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
-              Benvenuto
-            </p>
-
-            <h2 className="mt-2 text-3xl font-black md:text-4xl">
-              {client ? fullName(client) : "Cliente"}
-            </h2>
-
-            <p className="mt-2 text-sm font-semibold text-slate-300">
-              Scheda, timer, carichi, dieta, check-in e progressi.
-            </p>
-          </div>
-        </Card>
-
         {activeTab === "home" && (
           <div className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card className="p-5">
-                <Dumbbell className="text-teal-600" />
-                <p className="mt-3 text-3xl font-black">{plans.length}</p>
-                <p className="text-sm font-bold text-slate-500">
-                  Programmi attivi
-                </p>
-              </Card>
+            <Card className="overflow-hidden border-none bg-transparent shadow-none">
+  <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
+    <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
+      BENVENUTO
+    </p>
 
-              <Card className="p-5">
-                <ClipboardCheck className="text-teal-600" />
-                <p className="mt-3 text-3xl font-black">{checkins.length}</p>
-                <p className="text-sm font-bold text-slate-500">
-                  Check-in inviati
-                </p>
-              </Card>
+    <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
+      {client ? fullName(client) : "Cliente"}
+    </h2>
 
-              <Card className="p-5">
-                <FileText className="text-teal-600" />
-                <p className="mt-3 text-3xl font-black">{diets.length}</p>
-                <p className="text-sm font-bold text-slate-500">
-                  Diete disponibili
-                </p>
-              </Card>
-            </div>
+    <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
+      Scheda, timer, carichi, dieta, check-in e progressi.
+    </p>
+  </div>
+</Card>
 
             <Card className="overflow-hidden border-none shadow-lg">
-              <div className="bg-white p-5 md:p-6">
+              <div className="bg-white p-4 md:p-6">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
@@ -8662,14 +8616,15 @@ function getExerciseHistory(exercise) {
                       Cose da fare oggi
                     </h3>
 
+                   
                   </div>
 
                   <Pill className="bg-teal-100 text-teal-700">
-                    {clientReminderItems.length} promemoria
+                    {clientReminderItems.length} attivi
                   </Pill>
                 </div>
 
-                <div className="mt-5 space-y-3">
+                <div className="mt-5 grid gap-3 md:grid-cols-2">
                   {clientReminderItems.map((item) => (
                     <ClientReminderCard key={item.id} item={item} />
                   ))}
@@ -8980,13 +8935,13 @@ const exerciseHistory = getExerciseHistory(exercise);
 
               <form
                 onSubmit={saveCheckin}
-                className="mt-4 grid gap-4 md:grid-cols-2"
+                className="mt-4 grid gap-3 md:grid-cols-2"
               >
                 <Label title="Data">
                   <Input
                     type="date"
+                    className="text-center appearance-none"
                     value={checkinForm.checkin_date}
-                    className="text-center"
                     onChange={(event) =>
                       setCheckinForm({
                         ...checkinForm,
@@ -8999,8 +8954,6 @@ const exerciseHistory = getExerciseHistory(exercise);
                 <Label title="Peso kg">
                   <Input
                     type="number"
-                    inputMode="decimal"
-                    placeholder="Esempio: 78.5"
                     value={checkinForm.weight_kg}
                     onChange={(event) =>
                       setCheckinForm({
@@ -9020,24 +8973,25 @@ const exerciseHistory = getExerciseHistory(exercise);
                   ["diet_adherence", "Aderenza dieta"],
                   ["training_adherence", "Aderenza allenamento"]
                 ].map(([field, label]) => (
-                  <CheckinScale
-                    key={field}
-                    title={label}
-                    value={checkinForm[field]}
-                    onChange={(score) =>
-                      setCheckinForm({
-                        ...checkinForm,
-                        [field]: score
-                      })
-                    }
-                  />
+                  <Label key={field} title={`${label} 1-10`}>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={checkinForm[field]}
+                      onChange={(event) =>
+                        setCheckinForm({
+                          ...checkinForm,
+                          [field]: event.target.value
+                        })
+                      }
+                    />
+                  </Label>
                 ))}
 
                 <Label title="Acqua litri">
                   <Input
                     type="number"
-                    inputMode="decimal"
-                    placeholder="Esempio: 2.5"
                     value={checkinForm.water_liters}
                     onChange={(event) =>
                       setCheckinForm({
@@ -9051,8 +9005,6 @@ const exerciseHistory = getExerciseHistory(exercise);
                 <Label title="Passi">
                   <Input
                     type="number"
-                    inputMode="numeric"
-                    placeholder="Esempio: 8000"
                     value={checkinForm.steps}
                     onChange={(event) =>
                       setCheckinForm({
@@ -9114,6 +9066,7 @@ const exerciseHistory = getExerciseHistory(exercise);
               <form onSubmit={uploadProgressPhoto} className="mt-4 space-y-3">
                 <Input
                   type="date"
+                  className="text-center appearance-none"
                   value={photoForm.photo_date}
                   onChange={(event) =>
                     setPhotoForm({
