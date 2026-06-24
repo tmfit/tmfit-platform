@@ -529,6 +529,15 @@ function SideDrawer({
   );
 }
 function TopTabs({ tabs, active, onChange }) {
+  const mobileGridClass =
+    tabs.length <= 4
+      ? "grid-cols-4"
+      : tabs.length === 5
+      ? "grid-cols-5"
+      : tabs.length === 6
+      ? "grid-cols-6"
+      : "grid-cols-4";
+
   return (
     <>
       <div className="sticky top-0 z-20 hidden border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur-xl md:block md:px-6">
@@ -552,7 +561,7 @@ function TopTabs({ tabs, active, onChange }) {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-3 pt-2 shadow-2xl backdrop-blur-xl md:hidden">
-        <div className="grid grid-cols-6 gap-1 rounded-[1.7rem] bg-slate-100 p-1">
+        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.7rem] bg-slate-100 p-1`}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -1244,7 +1253,7 @@ return (
 );
 }
 function ProfessionalDashboard({ session, userProfile, onLogout }) {
-  const [activeTab, setActiveTab] = usePersistedState("tmfit_pro_tab", "clients");
+  const [activeTab, setActiveTab] = usePersistedState("tmfit_pro_tab", "dashboard");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = usePersistedState(
     "tmfit_selected_client",
@@ -1361,9 +1370,10 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   }, [exerciseMedia]);
 
   const professionalTabs = [
+    { id: "dashboard", label: "Oggi", icon: <Activity size={17} /> },
     { id: "clients", label: "Clienti", icon: <Users size={17} /> },
     { id: "programs", label: "Programmi", icon: <Dumbbell size={17} /> },
-    { id: "monitor", label: "Monitor", icon: <Activity size={17} /> },
+    { id: "monitor", label: "Monitor", icon: <ClipboardCheck size={17} /> },
     { id: "measurements", label: "Misure", icon: <Scale size={17} /> },
     { id: "diets", label: "Diete", icon: <FileText size={17} /> },
     { id: "posts", label: "Bacheca", icon: <Megaphone size={17} /> }
@@ -2827,6 +2837,422 @@ async function savePrivateNote(event) {
     window.open(data.signedUrl, "_blank");
   }
 
+  function CoachTodayDashboard() {
+    const now = Date.now();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    function toDate(value) {
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function formatShortDate(value) {
+      const date = toDate(value);
+      if (!date) return "Data non disponibile";
+      return date.toLocaleDateString("it-IT", {
+        day: "2-digit",
+        month: "2-digit"
+      });
+    }
+
+    function isRecent(value) {
+      const date = toDate(value);
+      if (!date) return false;
+      return now - date.getTime() <= sevenDaysMs;
+    }
+
+    function isActiveRecord(item) {
+      const status = String(item?.status || "active").toLowerCase();
+      return !["archived", "deleted", "inactive"].includes(status);
+    }
+
+    function clientNameFromId(clientId) {
+      const found = clients.find(
+        (client) => String(client.id) === String(clientId)
+      );
+      return found ? fullName(found) : "Cliente";
+    }
+
+    function openClient(clientId, tab = "clients", panel = "overview") {
+      setSelectedClientId(String(clientId));
+      setActiveTab(tab);
+
+      if (tab === "clients") setClientPanel(panel);
+      if (tab === "programs") setProgramPanel("builder");
+    }
+
+    const activePlans = coachControlData.plans.filter(isActiveRecord);
+    const activeDiets = coachControlData.diets.filter(isActiveRecord);
+
+    const activePlanClientIds = new Set(
+      activePlans.map((plan) => String(plan.client_id))
+    );
+
+    const activeDietClientIds = new Set(
+      activeDiets.map((diet) => String(diet.client_id))
+    );
+
+    const recentCheckins = coachControlData.checkins
+      .filter((checkin) => isRecent(checkin.checkin_date || checkin.created_at))
+      .slice(0, 6);
+
+    const recentSessions = coachControlData.sessions
+      .filter((sessionItem) =>
+        isRecent(sessionItem.session_date || sessionItem.created_at)
+      )
+      .slice(0, 6);
+
+    const recentPhotos = coachControlData.photos
+      .filter((photo) => isRecent(photo.photo_date || photo.created_at))
+      .slice(0, 6);
+
+    const lastSessionByClient = new Map();
+
+    coachControlData.sessions.forEach((sessionItem) => {
+      const date = toDate(sessionItem.session_date || sessionItem.created_at);
+      const clientId = String(sessionItem.client_id || "");
+
+      if (!date || !clientId) return;
+
+      const current = lastSessionByClient.get(clientId);
+
+      if (!current || date.getTime() > current.getTime()) {
+        lastSessionByClient.set(clientId, date);
+      }
+    });
+
+    const clientsWithoutActivePlan = clients
+      .filter((client) => !activePlanClientIds.has(String(client.id)))
+      .slice(0, 5);
+
+    const clientsWithoutDiet = clients
+      .filter((client) => !activeDietClientIds.has(String(client.id)))
+      .slice(0, 5);
+
+    const inactiveClients = clients
+      .filter((client) => {
+        const lastSession = lastSessionByClient.get(String(client.id));
+        if (!lastSession) return true;
+        return now - lastSession.getTime() > sevenDaysMs;
+      })
+      .slice(0, 5);
+
+    function MetricCard({ title, value, text, icon, tone = "slate" }) {
+      const toneClass =
+        tone === "teal"
+          ? "bg-teal-50 text-teal-700"
+          : tone === "red"
+          ? "bg-red-50 text-red-700"
+          : tone === "amber"
+          ? "bg-amber-50 text-amber-700"
+          : "bg-slate-100 text-slate-700";
+
+      return (
+        <Card className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+                {title}
+              </p>
+
+              <p className="mt-2 text-3xl font-black text-slate-950">
+                {value}
+              </p>
+
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                {text}
+              </p>
+            </div>
+
+            <div className={`rounded-2xl p-3 ${toneClass}`}>{icon}</div>
+          </div>
+        </Card>
+      );
+    }
+
+    function ActionRow({ clientId, title, text, tag, actionLabel, onAction }) {
+      return (
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="truncate font-black text-slate-950">{title}</p>
+              <Pill className="bg-amber-100 text-amber-700">{tag}</Pill>
+            </div>
+
+            <p className="mt-1 text-sm font-semibold text-slate-500">{text}</p>
+          </div>
+
+          <Button
+            onClick={onAction || (() => openClient(clientId))}
+            className="shrink-0 bg-[#07111f] text-white"
+          >
+            {actionLabel || "Apri cliente"}
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-5">
+        <Card className="overflow-hidden border-none bg-[#07111f] text-white shadow-xl">
+          <div className="p-5 md:p-7">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.35em] text-teal-300">
+                  Dashboard professionista
+                </p>
+
+                <h2 className="mt-3 text-3xl font-black md:text-5xl">
+                  Oggi su TMFIT Pro
+                </h2>
+
+                <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-300 md:text-base">
+                  Vista operativa per capire subito chi seguire, cosa manca e
+                  quali attività sono arrivate negli ultimi 7 giorni.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  onClick={() => {
+                    setActiveTab("clients");
+                    setClientPanel("new");
+                  }}
+                  className="bg-teal-300 text-slate-950 hover:bg-teal-200"
+                >
+                  <UserPlus size={17} className="mr-2" />
+                  Nuovo cliente
+                </Button>
+
+                <Button
+                  onClick={() => loadCoachControlCenter(clients)}
+                  disabled={coachControlLoading}
+                  className="border border-white/10 bg-white/10 text-white"
+                >
+                  {coachControlLoading ? "Aggiorno..." : "Aggiorna dati"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            title="Clienti"
+            value={clients.length}
+            text="totali gestiti"
+            icon={<Users size={20} />}
+            tone="teal"
+          />
+
+          <MetricCard
+            title="Programmi attivi"
+            value={activePlans.length}
+            text={`${clientsWithoutActivePlan.length} da programmare`}
+            icon={<Dumbbell size={20} />}
+          />
+
+          <MetricCard
+            title="Check-in recenti"
+            value={recentCheckins.length}
+            text="ultimi 7 giorni"
+            icon={<ClipboardCheck size={20} />}
+            tone="amber"
+          />
+
+          <MetricCard
+            title="Allenamenti"
+            value={recentSessions.length}
+            text="completati ultimi 7 giorni"
+            icon={<Activity size={20} />}
+          />
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+          <Card className="p-5">
+            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-xl font-black">Richiede attenzione</h3>
+                <p className="text-sm font-semibold text-slate-500">
+                  Le azioni più importanti da fare prima.
+                </p>
+              </div>
+
+              <Pill className="bg-slate-100 text-slate-700">
+                {clientsWithoutActivePlan.length + inactiveClients.length} alert
+              </Pill>
+            </div>
+
+            <div className="space-y-3">
+              {clientsWithoutActivePlan.map((client) => (
+                <ActionRow
+                  key={`no-plan-${client.id}`}
+                  clientId={client.id}
+                  title={fullName(client)}
+                  text="Cliente senza programma attivo: crea o assegna una scheda."
+                  tag="programma mancante"
+                  actionLabel="Crea programma"
+                  onAction={() => openClient(client.id, "programs")}
+                />
+              ))}
+
+              {inactiveClients.map((client) => {
+                const lastSession = lastSessionByClient.get(String(client.id));
+
+                return (
+                  <ActionRow
+                    key={`inactive-${client.id}`}
+                    clientId={client.id}
+                    title={fullName(client)}
+                    text={
+                      lastSession
+                        ? `Ultimo allenamento: ${lastSession.toLocaleDateString("it-IT")}`
+                        : "Nessun allenamento registrato nello storico."
+                    }
+                    tag="aderenza da controllare"
+                    actionLabel="Apri cliente"
+                    onAction={() => openClient(client.id, "clients", "overview")}
+                  />
+                );
+              })}
+
+              {clientsWithoutActivePlan.length === 0 && inactiveClients.length === 0 && (
+                <Empty
+                  title="Tutto sotto controllo"
+                  text="Non ci sono clienti senza programma o inattivi negli ultimi 7 giorni."
+                />
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black">Setup percorso</h3>
+                <p className="text-sm font-semibold text-slate-500">
+                  Clienti con elementi ancora mancanti.
+                </p>
+              </div>
+
+              <Pill className="bg-teal-100 text-teal-700">Focus</Pill>
+            </div>
+
+            <div className="space-y-3">
+              {clientsWithoutDiet.map((client) => (
+                <ActionRow
+                  key={`no-diet-${client.id}`}
+                  clientId={client.id}
+                  title={fullName(client)}
+                  text="Nessuna dieta attiva caricata per questo cliente."
+                  tag="dieta mancante"
+                  actionLabel="Vai a diete"
+                  onAction={() => openClient(client.id, "diets")}
+                />
+              ))}
+
+              {clientsWithoutDiet.length === 0 && (
+                <Empty
+                  title="Percorsi configurati"
+                  text="Tutti i clienti risultano coperti da una dieta attiva."
+                />
+              )}
+            </div>
+          </Card>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-3">
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-black">Ultimi check-in</h3>
+              <ClipboardCheck size={18} className="text-teal-600" />
+            </div>
+
+            <div className="space-y-3">
+              {recentCheckins.map((checkin) => (
+                <button
+                  key={checkin.id}
+                  type="button"
+                  onClick={() => openClient(checkin.client_id, "monitor")}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
+                >
+                  <p className="font-black text-slate-950">
+                    {clientNameFromId(checkin.client_id)}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    {formatShortDate(checkin.checkin_date || checkin.created_at)}
+                  </p>
+                </button>
+              ))}
+
+              {recentCheckins.length === 0 && (
+                <Empty title="Nessun check-in recente" text="Ultimi 7 giorni." />
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-black">Ultimi allenamenti</h3>
+              <Dumbbell size={18} className="text-teal-600" />
+            </div>
+
+            <div className="space-y-3">
+              {recentSessions.map((sessionItem) => (
+                <button
+                  key={sessionItem.id}
+                  type="button"
+                  onClick={() => openClient(sessionItem.client_id, "monitor")}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
+                >
+                  <p className="font-black text-slate-950">
+                    {clientNameFromId(sessionItem.client_id)}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    {formatShortDate(sessionItem.session_date || sessionItem.created_at)}
+                  </p>
+                </button>
+              ))}
+
+              {recentSessions.length === 0 && (
+                <Empty title="Nessun allenamento recente" text="Ultimi 7 giorni." />
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-black">Foto progressi</h3>
+              <Camera size={18} className="text-teal-600" />
+            </div>
+
+            <div className="space-y-3">
+              {recentPhotos.map((photo) => (
+                <button
+                  key={photo.id}
+                  type="button"
+                  onClick={() => openClient(photo.client_id, "measurements")}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
+                >
+                  <p className="font-black text-slate-950">
+                    {clientNameFromId(photo.client_id)}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    {formatShortDate(photo.photo_date || photo.created_at)}
+                  </p>
+                </button>
+              ))}
+
+              {recentPhotos.length === 0 && (
+                <Empty title="Nessuna foto recente" text="Ultimi 7 giorni." />
+              )}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   function SelectedClientHero() {
   if (!selectedClient) return null;
     return (
@@ -2949,14 +3375,14 @@ const builderStats = getBuilderStats();
 />
     <main
   className={`mx-auto grid gap-4 p-3 pb-28 md:p-5 ${
-    activeTab === "programs"
+    activeTab === "programs" || activeTab === "dashboard"
       ? "max-w-[1800px] xl:grid-cols-1"
       : "max-w-7xl xl:grid-cols-[260px_minmax(0,1fr)]"
   }`}
 >
         <aside
   className={`min-w-0 space-y-3 xl:sticky xl:top-24 xl:self-start ${
-    activeTab === "programs" ? "hidden" : ""
+    activeTab === "programs" || activeTab === "dashboard" ? "hidden" : ""
   }`}
 >
           <Card className="p-3">
@@ -3006,9 +3432,11 @@ const builderStats = getBuilderStats();
         <section className="min-w-0 space-y-5">
           {activeTab === "programs" ? (
   <SelectedClientCompactBar />
-) : (
+) : activeTab === "dashboard" ? null : (
   <SelectedClientHero />
 )}
+          {activeTab === "dashboard" && <CoachTodayDashboard />}
+
           {activeTab === "clients" && (
             <div className="space-y-5">
               <Card className="p-3">
