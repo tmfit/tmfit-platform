@@ -1267,6 +1267,10 @@ function ProfessionalDashboard({ session, userProfile, onLogout }) {
     "tmfit_programs_panel",
     "builder"
   );
+  const [builderStep, setBuilderStep] = usePersistedState(
+    "tmfit_builder_step",
+    "setup"
+  );
 
   const [clients, setClients] = useState([]);
   const [query, setQuery] = useState("");
@@ -1680,6 +1684,142 @@ function getBuilderStats() {
     totalExercises,
     totalProgressions,
     estimatedMinutes
+  };
+}
+
+function getBuilderQualityReport() {
+  const warnings = [];
+  const suggestions = [];
+  const days = Array.isArray(builder.days) ? builder.days : [];
+
+  const filledExercises = days.flatMap((day) =>
+    (day.exercises || []).filter((exercise) =>
+      String(exercise.exercise_name || "").trim()
+    )
+  );
+
+  const daysWithoutExercises = days.filter((day) =>
+    !(day.exercises || []).some((exercise) =>
+      String(exercise.exercise_name || "").trim()
+    )
+  );
+
+  const exercisesWithoutBasics = filledExercises.filter(
+    (exercise) => !String(exercise.sets || "").trim() || !String(exercise.reps || "").trim()
+  );
+
+  const exercisesWithoutRecovery = filledExercises.filter(
+    (exercise) => !Number(exercise.recovery_seconds)
+  );
+
+  const exercisesWithoutIntensity = filledExercises.filter(
+    (exercise) => !String(exercise.target_rpe || "").trim() && !String(exercise.target_rir || "").trim()
+  );
+
+  const progressionExercises = filledExercises.filter(
+    (exercise) => exercise.has_weekly_progression
+  );
+
+  const longDays = days.filter((day) => Number(day.estimated_minutes) > 90);
+  const shortDays = days.filter((day) => Number(day.estimated_minutes) && Number(day.estimated_minutes) < 35);
+
+  if (!selectedClient) {
+    warnings.push("Seleziona un cliente prima di salvare il programma.");
+  }
+
+  if (!String(builder.title || "").trim()) {
+    warnings.push("Manca il titolo del programma.");
+  }
+
+  if (filledExercises.length === 0) {
+    warnings.push("Inserisci almeno un esercizio prima di salvare.");
+  }
+
+  if (daysWithoutExercises.length > 0) {
+    warnings.push(
+      `${daysWithoutExercises.length} allenamento/i non hanno ancora esercizi compilati.`
+    );
+  }
+
+  if (exercisesWithoutBasics.length > 0) {
+    warnings.push(
+      `${exercisesWithoutBasics.length} esercizio/i hanno serie o ripetizioni mancanti.`
+    );
+  }
+
+  if (!String(builder.goal || "").trim()) {
+    suggestions.push("Aggiungi un obiettivo chiaro: ipertrofia, forza, ricomposizione, dimagrimento.");
+  }
+
+  if (exercisesWithoutRecovery.length > 0) {
+    suggestions.push("Completa i recuperi: aiutano il cliente nella modalità Allenati.");
+  }
+
+  if (exercisesWithoutIntensity.length > 0) {
+    suggestions.push("Aggiungi RPE o RIR almeno sugli esercizi principali.");
+  }
+
+  if (Number(builder.duration_weeks) >= 4 && progressionExercises.length === 0) {
+    suggestions.push("Valuta una progressione settimanale per i multiarticolari principali.");
+  }
+
+  if (longDays.length > 0) {
+    suggestions.push("Alcuni allenamenti superano 90 minuti: valuta se snellire volume o recuperi.");
+  }
+
+  if (shortDays.length > 0) {
+    suggestions.push("Alcuni allenamenti sono molto brevi: controlla che volume e focus siano sufficienti.");
+  }
+
+  const baseScore = 100;
+  const score = Math.max(
+    0,
+    baseScore - warnings.length * 18 - suggestions.length * 7
+  );
+
+  let statusLabel = "Pronto";
+  let statusText = "La scheda è ordinata e pronta per essere assegnata.";
+  let statusClass = "bg-teal-300 text-slate-950";
+
+  if (warnings.length > 0) {
+    statusLabel = "Da completare";
+    statusText = "Sistema gli elementi obbligatori prima di salvare.";
+    statusClass = "bg-amber-300 text-slate-950";
+  } else if (suggestions.length > 0) {
+    statusLabel = "Buono, da rifinire";
+    statusText = "La scheda può essere salvata, ma ci sono ottimizzazioni consigliate.";
+    statusClass = "bg-sky-100 text-sky-700";
+  }
+
+  return {
+    score,
+    statusLabel,
+    statusText,
+    statusClass,
+    warnings,
+    suggestions,
+    checks: [
+      {
+        label: "Cliente",
+        done: Boolean(selectedClient),
+        helper: selectedClient ? fullName(selectedClient) : "Non selezionato"
+      },
+      {
+        label: "Setup",
+        done: Boolean(String(builder.title || "").trim()),
+        helper: builder.title || "Titolo mancante"
+      },
+      {
+        label: "Esercizi",
+        done: filledExercises.length > 0,
+        helper: `${filledExercises.length} compilati`
+      },
+      {
+        label: "Progressioni",
+        done: progressionExercises.length > 0,
+        helper: `${progressionExercises.length} attive`
+      }
+    ]
   };
 }
   function updateBuilder(mutator) {
@@ -3329,6 +3469,7 @@ function SelectedClientCompactBar() {
   );
 }
 const builderStats = getBuilderStats();
+const builderQuality = getBuilderQualityReport();
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
@@ -3822,6 +3963,20 @@ const builderStats = getBuilderStats();
   onSaveTemplate={saveBuilderAsTemplate}
   onCancelEditing={cancelProgramEditing}
 />
+    <BuilderWorkflowNav
+      activeStep={builderStep}
+      quality={builderQuality}
+      onChange={(step) => {
+        setBuilderStep(step);
+        if (typeof window !== "undefined") {
+          window.setTimeout(() => {
+            document
+              .getElementById(`builder-${step}`)
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 50);
+        }
+      }}
+    />
     <div className="sticky top-20 z-30 rounded-[1.5rem] border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-xl">
   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
     <div className="min-w-0">
@@ -3858,7 +4013,7 @@ const builderStats = getBuilderStats();
 
       <Button
         type="submit"
-        disabled={savingPlan}
+        disabled={savingPlan || builderQuality.warnings.length > 0}
         className="bg-[#07111f] text-white"
       >
         {savingPlan
@@ -3870,7 +4025,7 @@ const builderStats = getBuilderStats();
     </div>
   </div>
 </div>
-                    <div className="grid gap-3 md:grid-cols-3">
+                    <div id="builder-setup" className="grid scroll-mt-32 gap-3 md:grid-cols-3">
                       <Label title="Titolo programma">
                         <Input
                           value={builder.title}
@@ -3964,6 +4119,7 @@ const builderStats = getBuilderStats();
                       />
                     </Label>
 
+                    <div id="builder-workouts" className="scroll-mt-32 space-y-5">
                     {builder.days.map((day, dayIndex) => (
                       <div
                         key={day.temp_id}
@@ -4508,8 +4664,34 @@ const builderStats = getBuilderStats();
                         </div>
                       </div>
                     ))}
+                    </div>
 
-                    
+                    <div id="builder-progressions" className="scroll-mt-32 rounded-[1.6rem] border border-dashed border-teal-200 bg-teal-50/60 p-4">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                            Step progressioni
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-600">
+                            Le progressioni restano dentro ogni esercizio: attiva la spunta “progressione” solo sugli esercizi chiave.
+                          </p>
+                        </div>
+                        <Pill className="bg-teal-300 text-slate-950">
+                          {builderStats.totalProgressions} progressioni attive
+                        </Pill>
+                      </div>
+                    </div>
+
+                    <div id="builder-summary" className="scroll-mt-32">
+                      <BuilderQualityPanel
+                        builder={builder}
+                        quality={builderQuality}
+                        selectedClient={selectedClient}
+                        stats={builderStats}
+                        savingPlan={savingPlan}
+                        editingProgramId={editingProgramId}
+                      />
+                    </div>
                   </form>
                 </Card>
               )}
@@ -5335,6 +5517,231 @@ function CoachControlCenter({
     </Card>
   );
 }
+function BuilderWorkflowNav({ activeStep, onChange, quality }) {
+  const steps = [
+    {
+      id: "setup",
+      label: "Setup",
+      text: "Titolo, obiettivo, durata"
+    },
+    {
+      id: "workouts",
+      label: "Allenamenti",
+      text: "Giorni, esercizi, recuperi"
+    },
+    {
+      id: "progressions",
+      label: "Progressioni",
+      text: "Solo dove serve"
+    },
+    {
+      id: "summary",
+      label: "Riepilogo",
+      text: "Controllo qualità"
+    }
+  ];
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
+            Percorso guidato
+          </p>
+          <h3 className="mt-1 text-xl font-black text-slate-950">
+            Crea la scheda senza effetto Excel
+          </h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            Segui gli step, controlla gli avvisi e salva solo quando la scheda è completa.
+          </p>
+        </div>
+
+        <div className="rounded-3xl bg-slate-50 p-3 text-center">
+          <p className="text-2xl font-black text-slate-950">{quality.score}/100</p>
+          <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+            Qualità scheda
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 md:grid-cols-4">
+        {steps.map((step, index) => (
+          <button
+            key={step.id}
+            type="button"
+            onClick={() => onChange(step.id)}
+            className={`rounded-2xl border p-3 text-left transition ${
+              activeStep === step.id
+                ? "border-teal-300 bg-teal-50 shadow-sm"
+                : "border-slate-200 bg-white hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${
+                  activeStep === step.id
+                    ? "bg-teal-300 text-slate-950"
+                    : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {index + 1}
+              </span>
+              <p className="font-black text-slate-950">{step.label}</p>
+            </div>
+            <p className="mt-2 text-xs font-bold leading-5 text-slate-500">
+              {step.text}
+            </p>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-3 rounded-3xl bg-[#07111f] p-4 text-white md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-black">{quality.statusLabel}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-300">
+            {quality.statusText}
+          </p>
+        </div>
+        <Pill className={quality.statusClass}>{quality.statusLabel}</Pill>
+      </div>
+    </Card>
+  );
+}
+
+function BuilderQualityPanel({
+  builder,
+  quality,
+  selectedClient,
+  stats,
+  savingPlan,
+  editingProgramId
+}) {
+  const hasWarnings = quality.warnings.length > 0;
+  const hasSuggestions = quality.suggestions.length > 0;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="bg-[#07111f] p-5 text-white md:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+              Riepilogo finale
+            </p>
+            <h3 className="mt-2 text-2xl font-black">
+              {builder.title || "Programma allenamento"}
+            </h3>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+              Cliente: {selectedClient ? fullName(selectedClient) : "non selezionato"} · {stats.totalDays} allenamenti · {stats.totalExercises} esercizi · {builder.duration_weeks || 4} settimane
+            </p>
+          </div>
+
+          <div className="rounded-3xl bg-white/10 px-5 py-4 text-center">
+            <p className="text-3xl font-black text-teal-300">{quality.score}</p>
+            <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+              score qualità
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-5 lg:grid-cols-[1fr_1.2fr]">
+        <div className="space-y-3">
+          <h4 className="font-black text-slate-950">Checklist salvataggio</h4>
+          {quality.checks.map((check) => (
+            <div
+              key={check.label}
+              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3"
+            >
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                  check.done ? "bg-teal-300 text-slate-950" : "bg-slate-200 text-slate-500"
+                }`}
+              >
+                {check.done ? <Check size={16} /> : "!"}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-black text-slate-950">{check.label}</p>
+                <p className="truncate text-xs font-bold text-slate-500">
+                  {check.helper}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-3">
+          <div className="rounded-3xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="font-black text-slate-950">Controllo qualità</h4>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  Avvisi obbligatori e consigli prima del salvataggio.
+                </p>
+              </div>
+              <Pill className={quality.statusClass}>{quality.statusLabel}</Pill>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {hasWarnings && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-black text-amber-800">
+                    Da sistemare prima del lancio
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {quality.warnings.map((item) => (
+                      <p key={item} className="text-sm font-bold text-amber-800">
+                        • {item}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {hasSuggestions && (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                  <p className="text-sm font-black text-sky-800">
+                    Ottimizzazioni consigliate
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {quality.suggestions.map((item) => (
+                      <p key={item} className="text-sm font-bold text-sky-800">
+                        • {item}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!hasWarnings && !hasSuggestions && (
+                <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4">
+                  <p className="text-sm font-black text-teal-800">
+                    Scheda completa e ordinata.
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-teal-700">
+                    Puoi salvarla e assegnarla al cliente.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <Button
+            type="submit"
+            disabled={savingPlan || hasWarnings}
+            className="w-full bg-[#07111f] text-white"
+          >
+            {savingPlan
+              ? "Salvataggio..."
+              : editingProgramId
+              ? "Aggiorna programma"
+              : "Salva programma"}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function SmartBuilderOverview({
   builder,
   editingProgramId,
