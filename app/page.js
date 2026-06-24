@@ -8973,20 +8973,38 @@ const exerciseHistory = getExerciseHistory(exercise);
                   ["diet_adherence", "Aderenza dieta"],
                   ["training_adherence", "Aderenza allenamento"]
                 ].map(([field, label]) => (
-                  <Label key={field} title={`${label} 1-10`}>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      value={checkinForm[field]}
-                      onChange={(event) =>
-                        setCheckinForm({
-                          ...checkinForm,
-                          [field]: event.target.value
-                        })
-                      }
-                    />
-                  </Label>
+                  <div key={field} className="md:col-span-2">
+                    <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">
+                      {label} 1-10
+                    </p>
+
+                    <div className="grid grid-cols-10 gap-1">
+                      {Array.from({ length: 10 }, (_, index) => {
+                        const value = String(index + 1);
+                        const selected = String(checkinForm[field]) === value;
+
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() =>
+                              setCheckinForm({
+                                ...checkinForm,
+                                [field]: value
+                              })
+                            }
+                            className={`h-10 rounded-xl text-xs font-black transition active:scale-[.96] ${
+                              selected
+                                ? "bg-[#07111f] text-white shadow-md"
+                                : "border border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
 
                 <Label title="Acqua litri">
