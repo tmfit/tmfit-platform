@@ -8554,9 +8554,9 @@ function getExerciseHistory(exercise) {
             className="min-w-0 rounded-2xl px-1 py-1 text-left transition hover:bg-white/5 active:scale-[.98]"
             aria-label="Vai alla Home"
           >
-            <p className="text-xl font-black leading-none tracking-tight text-white">TMFIT</p>
-            <p className="mt-1 max-w-[220px] truncate text-xs font-bold text-slate-300 md:max-w-none">
-              {client ? `Benvenuto, ${client.first_name || fullName(client)}` : "Area cliente"}
+            <p className="text-2xl font-black leading-none tracking-tight text-white">TMFIT</p>
+            <p className="mt-1 max-w-[220px] truncate text-sm font-black text-slate-300 md:max-w-none">
+              Area cliente
             </p>
           </button>
 
@@ -8588,39 +8588,19 @@ function getExerciseHistory(exercise) {
       <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
         {activeTab === "home" && (
           <div className="space-y-5">
-            <Card className="overflow-hidden border-none bg-[#07111f] text-white shadow-xl">
+            <Card className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[#07111f] text-white shadow-xl">
               <div className="p-5 md:p-7">
                 <p className="text-[11px] font-black uppercase tracking-[0.32em] text-teal-300">
-                  Area cliente
+                  Benvenuto
                 </p>
 
-                <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">
-                  Benvenuto{client?.first_name ? `, ${client.first_name}` : ""}
+                <h2 className="mt-3 text-3xl font-black uppercase tracking-tight md:text-4xl">
+                  {client ? fullName(client) : "Area cliente"}
                 </h2>
 
-                <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-300">
-                  Da qui trovi subito quello che conta: allenamento, check-in, dieta e progressi. Pochi passaggi, tutto ordinato.
+                <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-300 md:text-base">
+                  Scheda, timer, carichi, dieta, check-in e progressi.
                 </p>
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  <Button
-                    type="button"
-                    onClick={() => setActiveTab("training")}
-                    className="bg-teal-300 text-slate-950 hover:bg-teal-200"
-                  >
-                    <Dumbbell size={17} className="mr-2" />
-                    Apri scheda
-                  </Button>
-
-                  <Button
-                    type="button"
-                    onClick={() => setActiveTab("checkin")}
-                    className="border border-white/10 bg-white/10 text-white hover:bg-white/15"
-                  >
-                    <ClipboardCheck size={17} className="mr-2" />
-                    Check-in
-                  </Button>
-                </div>
               </div>
             </Card>
 
