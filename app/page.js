@@ -8588,21 +8588,21 @@ function getExerciseHistory(exercise) {
       <main className="mx-auto max-w-6xl space-y-5 p-4 pb-28 md:p-6">
         {activeTab === "home" && (
           <div className="space-y-5">
-            <Card className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[#07111f] text-white shadow-xl">
-              <div className="p-5 md:p-7">
-                <p className="text-[11px] font-black uppercase tracking-[0.32em] text-teal-300">
-                  Benvenuto
-                </p>
+            <Card className="overflow-hidden border-none bg-transparent shadow-none">
+  <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
+    <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
+      BENVENUTO
+    </p>
 
-                <h2 className="mt-3 text-3xl font-black uppercase tracking-tight md:text-4xl">
-                  {client ? fullName(client) : "Area cliente"}
-                </h2>
+    <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
+      {client ? fullName(client) : "Cliente"}
+    </h2>
 
-                <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-300 md:text-base">
-                  Scheda, timer, carichi, dieta, check-in e progressi.
-                </p>
-              </div>
-            </Card>
+    <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
+      Scheda, timer, carichi, dieta, check-in e progressi.
+    </p>
+  </div>
+</Card>
 
             <Card className="overflow-hidden border-none shadow-lg">
               <div className="bg-white p-4 md:p-6">
