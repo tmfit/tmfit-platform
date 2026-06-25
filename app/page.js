@@ -3751,16 +3751,9 @@ function SelectedClientCompactBar() {
 const builderStats = getBuilderStats();
 const builderQuality = getBuilderQualityReport();
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-<header
-  className="sticky top-0 z-30 bg-[#07111f] text-white shadow-xl md:relative"
-  style={{
-    paddingTop: "72px",
-    paddingLeft: "20px",
-    paddingRight: "20px",
-    paddingBottom: "18px"
-  }}
->        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+  <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
+  <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
+    <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
          <div className="flex items-center gap-3">
   <button
   type="button"
