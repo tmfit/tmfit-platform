@@ -8669,8 +8669,7 @@ function getExerciseHistory(exercise) {
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
-            aria-label="Apri menu"
+            className="tmfit-tap flex shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
           >
             <span className="block h-0.5 w-6 rounded bg-white" />
             <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
