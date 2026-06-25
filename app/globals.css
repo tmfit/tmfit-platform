@@ -31,6 +31,7 @@ body {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  background: #07111f;
 }
 
 body {
@@ -53,29 +54,23 @@ textarea {
   font-size: 16px;
 }
 
-/* FIX WEBAPP / PWA: evita che header finisca sotto ora, notch, batteria */
+/* RESET: niente più padding enorme sopra/sotto */
 .tmfit-safe-header {
-  padding-top: max(54px, calc(env(safe-area-inset-top) + 22px));
-  padding-left: max(18px, env(safe-area-inset-left));
-  padding-right: max(18px, env(safe-area-inset-right));
-  padding-bottom: 18px;
+  padding: 16px !important;
 }
 
-/* Bottoni più cliccabili su telefono */
-.tmfit-tap {
-  min-width: 52px;
-  min-height: 52px;
-}
-
-/* Barra sotto lontana dalla gesture bar */
 .tmfit-safe-bottom {
-  padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 10px));
-  padding-left: max(8px, env(safe-area-inset-left));
-  padding-right: max(8px, env(safe-area-inset-right));
+  padding-bottom: 12px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
 }
 
-/* Menu laterale non attaccato in alto */
 .tmfit-safe-drawer {
-  padding-top: max(42px, calc(env(safe-area-inset-top) + 18px));
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  padding-top: 20px !important;
+  padding-bottom: 16px !important;
+}
+
+.tmfit-tap {
+  min-width: 48px;
+  min-height: 48px;
 }
