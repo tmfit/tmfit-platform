@@ -470,7 +470,7 @@ function SideDrawer({
         }`}
       >
         <div className="flex h-full flex-col">
-          <div className="border-b border-white/10 p-5">
+          <div className="border-b border-white/10 p-5 tmfit-safe-drawer">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
@@ -565,8 +565,7 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
         </div>
       </div>
 
-      <div
-        className={`fixed bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pt-2 shadow-2xl backdrop-blur-xl md:hidden ${
+      <div className={`fixed bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pt-2 shadow-2xl backdrop-blur-xl tmfit-safe-bottom md:hidden ${
           contained
             ? "left-1/2 w-full max-w-[480px] -translate-x-1/2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
             : "left-0 right-0 pb-3"
@@ -3753,13 +3752,13 @@ const builderStats = getBuilderStats();
 const builderQuality = getBuilderQualityReport();
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
+      <header className="sticky top-0 z-30 bg-[#07111f] text-white shadow-xl tmfit-safe-header md:relative">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
          <div className="flex items-center gap-3">
   <button
     type="button"
     onClick={() => setDrawerOpen(true)}
-    className="rounded-2xl bg-white/10 p-3 text-white"
+    className="tmfit-tap flex items-center justify-center rounded-2xl bg-white/10 p-3 text-white"
   >
     <span className="block h-0.5 w-5 rounded bg-white" />
     <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
