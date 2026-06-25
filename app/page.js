@@ -3752,18 +3752,26 @@ const builderStats = getBuilderStats();
 const builderQuality = getBuilderQualityReport();
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <header className="sticky top-0 z-30 bg-[#07111f] text-white shadow-xl tmfit-safe-header md:relative">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+<header
+  className="sticky top-0 z-30 bg-[#07111f] text-white shadow-xl md:relative"
+  style={{
+    paddingTop: "72px",
+    paddingLeft: "20px",
+    paddingRight: "20px",
+    paddingBottom: "18px"
+  }}
+>        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
          <div className="flex items-center gap-3">
   <button
-    type="button"
-    onClick={() => setDrawerOpen(true)}
-    className="tmfit-tap flex items-center justify-center rounded-2xl bg-white/10 p-3 text-white"
-  >
-    <span className="block h-0.5 w-5 rounded bg-white" />
-    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
-    <span className="mt-1.5 block h-0.5 w-5 rounded bg-white" />
-  </button>
+  type="button"
+  onClick={() => setDrawerOpen(true)}
+  className="tmfit-tap flex shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+  aria-label="Apri menu"
+>
+  <span className="block h-0.5 w-6 rounded bg-white" />
+  <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+  <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+</button>
 
   <div>
     <h1 className="text-2xl font-black tracking-tight">TM FIT</h1>
