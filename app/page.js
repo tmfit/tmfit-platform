@@ -7233,6 +7233,8 @@ function WorkoutPlayerModal({
     feeling: "",
     notes: ""
   });
+  const [sessionStartedAt, setSessionStartedAt] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const open = player?.open;
   const plan = player?.plan;
@@ -7247,8 +7249,20 @@ function WorkoutPlayerModal({
       setFinished(false);
       setCompletedSetKeys([]);
       setFeedback({ difficulty: "", feeling: "", notes: "" });
+      setSessionStartedAt(Date.now());
+      setElapsedSeconds(0);
     }
   }, [open, plan?.id, day?.id]);
+
+  useEffect(() => {
+    if (!open || !sessionStartedAt) return;
+
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)));
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [open, sessionStartedAt]);
 
   if (!open || !plan || !day) return null;
 
@@ -7307,6 +7321,10 @@ function WorkoutPlayerModal({
   const currentExerciseProgress = plannedSets.length
     ? Math.round((currentExerciseCompletedSets / plannedSets.length) * 100)
     : 0;
+  const completedExercisesCount = exercises.filter((item) => {
+    const itemSets = plannedSetsForExercise(item);
+    return itemSets.length > 0 && completedSetsForExercise(item) >= itemSets.length;
+  }).length;
   const nextExercise = exercises[exerciseIndex + 1] || null;
   const previousExercise = exercises[exerciseIndex - 1] || null;
   const lastLoadValue = Number(lastHistory?.load_kg || 0);
@@ -7525,6 +7543,19 @@ function WorkoutPlayerModal({
     return parts.length ? parts.join(" · ") : "dato non compilato";
   }
 
+  function formatElapsed(value) {
+    const seconds = Math.max(0, Number(value || 0));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    return `${minutes}:${String(secs).padStart(2, "0")}`;
+  }
+
   function setCurrentExercise(index) {
     setExerciseIndex(index);
     setSetIndex(0);
@@ -7639,6 +7670,31 @@ function WorkoutPlayerModal({
     onClose();
   }
 
+  function requestCloseWorkout() {
+    if (finished || completedCount === 0 || typeof window === "undefined") {
+      onClose();
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Vuoi uscire da Allenati? Le serie già salvate restano registrate, ma la seduta non verrà chiusa con riepilogo finale."
+    );
+
+    if (confirmed) onClose();
+  }
+
+  function requestFinishWorkout() {
+    if (completedCount < totalPlannedSets && typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Hai salvato ${completedCount}/${totalPlannedSets} serie. Vuoi terminare comunque l’allenamento?`
+      );
+
+      if (!confirmed) return;
+    }
+
+    setFinished(true);
+  }
+
   function openVideo() {
     if (!videoUrl || typeof window === "undefined") return;
     window.open(videoUrl, "_blank", "noopener,noreferrer");
@@ -7687,7 +7743,7 @@ function WorkoutPlayerModal({
           <div className="flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestCloseWorkout}
               className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white active:scale-[.96]"
               aria-label="Chiudi allenamento"
             >
@@ -7723,6 +7779,21 @@ function WorkoutPlayerModal({
               />
             </div>
           </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-2xl bg-white/10 px-2 py-2 text-center">
+              <p className="text-sm font-black text-white">{formatElapsed(elapsedSeconds)}</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-slate-300">Tempo</p>
+            </div>
+            <div className="rounded-2xl bg-white/10 px-2 py-2 text-center">
+              <p className="text-sm font-black text-white">{completedCount}/{totalPlannedSets}</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-slate-300">Serie</p>
+            </div>
+            <div className="rounded-2xl bg-white/10 px-2 py-2 text-center">
+              <p className="truncate text-sm font-black text-white">{exerciseIndex + 1}/{Math.max(exercises.length, 1)}</p>
+              <p className="text-[9px] font-black uppercase tracking-wider text-slate-300">Esercizi</p>
+            </div>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4">
@@ -7754,6 +7825,22 @@ function WorkoutPlayerModal({
                   <p className="text-[10px] font-black uppercase text-slate-400">Fatto</p>
                 </div>
               </div>
+
+              <Card className="border-none bg-[#07111f] p-4 text-white shadow-md">
+                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-300">
+                  Dati seduta
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-white/10 p-3 text-center">
+                    <p className="text-2xl font-black">{formatElapsed(elapsedSeconds)}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-300">Tempo totale</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-3 text-center">
+                    <p className="text-2xl font-black">{completedExercisesCount}/{exercises.length}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-300">Esercizi completati</p>
+                  </div>
+                </div>
+              </Card>
 
               <Card className="p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -7868,6 +7955,26 @@ function WorkoutPlayerModal({
             />
           ) : (
             <div className="space-y-4">
+              <Card className="border-none bg-[#07111f] p-4 text-white shadow-md">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-300">
+                      Sessione live
+                    </p>
+                    <h3 className="mt-1 text-xl font-black">
+                      {formatElapsed(elapsedSeconds)} · {progressPercentage}% completato
+                    </h3>
+                    <p className="mt-1 text-xs font-bold leading-5 text-slate-300">
+                      {completedCount}/{totalPlannedSets} serie salvate · esercizio {exerciseIndex + 1}/{Math.max(exercises.length, 1)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-teal-300 px-3 py-2 text-center text-slate-950">
+                    <p className="text-sm font-black">{currentExerciseCompletedSets}/{plannedSets.length}</p>
+                    <p className="text-[9px] font-black uppercase tracking-wider">Serie eserc.</p>
+                  </div>
+                </div>
+              </Card>
+
               <Card className="overflow-hidden border-none shadow-md">
                 <div className="bg-white p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -8426,7 +8533,7 @@ function WorkoutPlayerModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFinished(true)}
+                  onClick={requestFinishWorkout}
                   className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
                 >
                   Termina
