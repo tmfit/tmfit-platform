@@ -7303,6 +7303,14 @@ function WorkoutPlayerModal({
   const targetLoad = currentSet?.target_load_kg || currentSet?.target_load_text || exercise?.target_load || "—";
   const videoUrl = exercise?.video_url || exercise?.image_url || "";
   const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
+  const currentExerciseCompletedSets = exercise ? completedSetsForExercise(exercise) : 0;
+  const currentExerciseProgress = plannedSets.length
+    ? Math.round((currentExerciseCompletedSets / plannedSets.length) * 100)
+    : 0;
+  const nextExercise = exercises[exerciseIndex + 1] || null;
+  const previousExercise = exercises[exerciseIndex - 1] || null;
+  const lastLoadValue = Number(lastHistory?.load_kg || 0);
+  const lastRepsValue = Number(lastHistory?.reps_done || 0);
 
   function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
@@ -7523,6 +7531,29 @@ function WorkoutPlayerModal({
     if (showRir) updateDraft(draftKey, "rir", currentSet.target_rir || draft.rir || "");
   }
 
+  function adjustDraftNumber(field, delta, decimals = 1) {
+    if (!draftKey) return;
+
+    const currentValue = Number(String(draft[field] || "").replace(",", "."));
+    const baseValue = Number.isNaN(currentValue) ? 0 : currentValue;
+    const nextValue = Math.max(0, baseValue + delta);
+    const formatted = Number.isInteger(nextValue)
+      ? String(nextValue)
+      : nextValue.toFixed(decimals).replace(/\.0$/, "");
+
+    updateDraft(draftKey, field, formatted);
+  }
+
+  function applyLastWithIncrement(extraKg = 0) {
+    if (!lastHistory || !draftKey) return;
+
+    const nextLoad = Number(lastHistory.load_kg || 0) + extraKg;
+    updateDraft(draftKey, "load_kg", nextLoad > 0 ? String(nextLoad).replace(/\.0$/, "") : "");
+    updateDraft(draftKey, "reps_done", lastHistory.reps_done || "");
+    if (showRpe) updateDraft(draftKey, "rpe", lastHistory.rpe || "");
+    if (showRir) updateDraft(draftKey, "rir", lastHistory.rir || "");
+  }
+
   async function saveCurrentSet() {
     if (!exercise || !currentSet) return;
 
@@ -7729,28 +7760,79 @@ function WorkoutPlayerModal({
             />
           ) : (
             <div className="space-y-4">
-              <Card className="p-4">
-                <Label title="Scheda completa">
-                  <Select
-                    value={String(exerciseIndex)}
-                    onChange={(event) => setCurrentExercise(Number(event.target.value))}
-                    className="text-base"
-                  >
+              <Card className="overflow-hidden border-none shadow-md">
+                <div className="bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                        Percorso allenamento
+                      </p>
+                      <h3 className="mt-1 text-xl font-black text-slate-950">
+                        {day.title || "Allenamento"}
+                      </h3>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        Tocca un numero per saltare subito all’esercizio.
+                      </p>
+                    </div>
+                    <Pill className="bg-[#07111f] text-white">
+                      {completedCount}/{totalPlannedSets} serie
+                    </Pill>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-5 gap-2">
                     {exercises.map((item, index) => {
                       const itemSets = plannedSetsForExercise(item);
                       const done = completedSetsForExercise(item);
+                      const active = index === exerciseIndex;
+                      const complete = itemSets.length > 0 && done >= itemSets.length;
+
                       return (
-                        <option key={item.id || item.temp_id || index} value={String(index)}>
-                          {index + 1}. {item.exercise_name || "Esercizio"} — {done}/{itemSets.length} serie
-                        </option>
+                        <button
+                          key={item.id || item.temp_id || index}
+                          type="button"
+                          onClick={() => setCurrentExercise(index)}
+                          className={`rounded-2xl px-2 py-3 text-center text-xs font-black active:scale-[.96] ${
+                            active
+                              ? "bg-[#07111f] text-white shadow-lg"
+                              : complete
+                              ? "bg-teal-50 text-teal-800"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          <span className="block text-base">{index + 1}</span>
+                          <span className="mt-0.5 block text-[10px] opacity-75">
+                            {done}/{itemSets.length}
+                          </span>
+                        </button>
                       );
                     })}
-                  </Select>
-                </Label>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                      <p className="text-lg font-black text-slate-950">{currentExerciseProgress}%</p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Esercizio</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                      <p className="truncate text-lg font-black text-slate-950">
+                        {previousExercise ? previousExercise.exercise_name || "Precedente" : "—"}
+                      </p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Prima</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                      <p className="truncate text-lg font-black text-slate-950">
+                        {nextExercise ? nextExercise.exercise_name || "Prossimo" : "Fine"}
+                      </p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Dopo</p>
+                    </div>
+                  </div>
+                </div>
               </Card>
 
               {resting && (
-                <RestTimer seconds={recoverySeconds} autoStart prominent />
+                <div id="tmfit-rest-timer">
+                  <RestTimer seconds={recoverySeconds} autoStart prominent />
+                </div>
               )}
 
               <Card className="overflow-hidden border-none shadow-md">
@@ -7959,6 +8041,37 @@ function WorkoutPlayerModal({
                   )}
                 </div>
 
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustDraftNumber("load_kg", -2.5)}
+                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+                  >
+                    -2,5 kg
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => adjustDraftNumber("load_kg", 2.5)}
+                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+                  >
+                    +2,5 kg
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => adjustDraftNumber("reps_done", -1, 0)}
+                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+                  >
+                    -1 rep
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => adjustDraftNumber("reps_done", 1, 0)}
+                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+                  >
+                    +1 rep
+                  </button>
+                </div>
+
                 <div className="mt-3">
                   <Label title="Note serie">
                     <Input
@@ -7973,19 +8086,34 @@ function WorkoutPlayerModal({
                 </div>
 
                 <div className="mt-4 grid gap-2">
-                  <button
-                    type="button"
-                    onClick={applyLastSet}
-                    disabled={!lastHistory}
-                    className="rounded-2xl bg-slate-100 px-3 py-3 text-left text-xs font-black text-slate-800 disabled:opacity-40"
-                  >
-                    <span className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                      Usa ultimo risultato
-                    </span>
-                    <span className="mt-1 block text-sm text-slate-950">
-                      {lastHistory ? metricText(lastHistory) : "Nessuno storico disponibile"}
-                    </span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={applyLastSet}
+                      disabled={!lastHistory}
+                      className="rounded-2xl bg-slate-100 px-3 py-3 text-left text-xs font-black text-slate-800 disabled:opacity-40"
+                    >
+                      <span className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                        Usa ultimo
+                      </span>
+                      <span className="mt-1 block text-sm text-slate-950">
+                        {lastHistory ? metricText(lastHistory) : "Nessuno storico"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyLastWithIncrement(2.5)}
+                      disabled={!lastHistory || !lastLoadValue}
+                      className="rounded-2xl bg-amber-50 px-3 py-3 text-left text-xs font-black text-amber-900 disabled:opacity-40"
+                    >
+                      <span className="block text-[10px] uppercase tracking-[0.18em] text-amber-700">
+                        Ultimo +2,5 kg
+                      </span>
+                      <span className="mt-1 block text-sm text-amber-950">
+                        {lastHistory && lastLoadValue ? `${lastLoadValue + 2.5} kg · ${lastRepsValue || "—"} reps` : "Non disponibile"}
+                      </span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={applyTargetSet}
@@ -8080,7 +8208,7 @@ function WorkoutPlayerModal({
                   disabled={saving}
                   className="h-14 w-full bg-[#07111f] text-white"
                 >
-                  {saving ? "Salvataggio..." : "Salva serie"}
+                  {saving ? "Salvataggio..." : `Salva serie ${setIndex + 1}/${plannedSets.length}`}
                 </Button>
               ) : (
                 <Button
