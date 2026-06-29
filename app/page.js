@@ -663,64 +663,78 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
 
   return (
     <div
+      id={prominent ? "tmfit-rest-timer" : undefined}
       className={
         prominent
-          ? "rounded-[1.8rem] border-2 border-teal-300 bg-[#07111f] p-5 text-white shadow-xl"
+          ? "sticky top-0 z-20 rounded-[1.8rem] border-2 border-teal-300 bg-[#07111f] p-4 text-white shadow-xl"
           : "rounded-3xl border border-slate-200 bg-white p-4 text-slate-950"
       }
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <div
-            className={
-              prominent
-                ? "flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-300 text-slate-950"
-                : "flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"
-            }
-          >
-            <Timer size={24} />
+      <div className="grid gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className={
+                prominent
+                  ? "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950"
+                  : "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"
+              }
+            >
+              <Timer size={24} />
+            </div>
+
+            <div className="min-w-0">
+              <p
+                className={
+                  prominent
+                    ? "text-[11px] font-black uppercase tracking-[0.25em] text-teal-300"
+                    : "text-[11px] font-black uppercase tracking-[0.25em] text-slate-400"
+                }
+              >
+                Recupero
+              </p>
+
+              <p
+                className={
+                  prominent
+                    ? "mt-1 text-5xl font-black leading-none tracking-tight text-white"
+                    : "mt-1 text-3xl font-black leading-none tracking-tight text-slate-950"
+                }
+              >
+                {minutes}:{String(secs).padStart(2, "0")}
+              </p>
+
+              <p
+                className={
+                  prominent
+                    ? "mt-1 text-xs font-bold text-slate-300"
+                    : "mt-1 text-xs font-bold text-slate-500"
+                }
+              >
+                {completed
+                  ? soundEnabled
+                    ? "Recupero finito: suono inviato."
+                    : "Recupero finito."
+                  : running
+                  ? "Timer in corso"
+                  : "Pronto per partire"}
+              </p>
+            </div>
           </div>
 
-          <div>
-            <p
-              className={
-                prominent
-                  ? "text-[11px] font-black uppercase tracking-[0.25em] text-teal-300"
-                  : "text-[11px] font-black uppercase tracking-[0.25em] text-slate-400"
-              }
-            >
-              Timer recupero
-            </p>
-
-            <p
-              className={
-                prominent
-                  ? "mt-1 text-5xl font-black tracking-tight text-white"
-                  : "mt-1 text-3xl font-black tracking-tight text-slate-950"
-              }
-            >
-              {minutes}:{String(secs).padStart(2, "0")}
-            </p>
-
-            <p
-              className={
-                prominent
-                  ? "mt-1 text-xs font-bold text-slate-300"
-                  : "mt-1 text-xs font-bold text-slate-500"
-              }
-            >
-              {completed
-                ? soundEnabled
-                  ? "Recupero finito: suono inviato."
-                  : "Recupero finito."
-                : running
-                ? "In corso"
-                : "Pronto"}
-            </p>
-          </div>
+          {prominent && (
+            <div className="rounded-2xl bg-white/10 px-3 py-2 text-center">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
+                Suono
+              </p>
+              <p className="mt-1 text-xs font-black text-white">
+                {soundEnabled ? "ON" : "OFF"}
+              </p>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+        <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => {
@@ -729,8 +743,8 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
             }}
             className={
               prominent
-                ? "rounded-xl bg-teal-300 px-3 py-3 text-xs font-black text-slate-950"
-                : "rounded-xl bg-[#07111f] px-3 py-3 text-xs font-black text-white"
+                ? "h-12 rounded-2xl bg-teal-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
+                : "h-11 rounded-xl bg-[#07111f] px-3 text-xs font-black text-white active:scale-[.97]"
             }
           >
             Start
@@ -745,8 +759,8 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
             }}
             className={
               prominent
-                ? "rounded-xl bg-white/10 px-3 py-3 text-xs font-black text-white"
-                : "rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
+                ? "h-12 rounded-2xl bg-white/10 px-3 text-xs font-black text-white active:scale-[.97]"
+                : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
             }
           >
             Reset
@@ -760,15 +774,21 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
             }}
             className={
               soundEnabled
-                ? "rounded-xl bg-amber-300 px-3 py-3 text-xs font-black text-slate-950"
+                ? "h-12 rounded-2xl bg-amber-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
                 : prominent
-                ? "rounded-xl bg-white/10 px-3 py-3 text-xs font-black text-white"
-                : "rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
+                ? "h-12 rounded-2xl bg-white/10 px-3 text-xs font-black text-white active:scale-[.97]"
+                : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
             }
           >
             {soundEnabled ? "Suono ON" : "Suono OFF"}
           </button>
         </div>
+
+        {prominent && (
+          <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
+            Per sentire il suono tieni aperta l’app durante il recupero.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -7517,6 +7537,14 @@ function WorkoutPlayerModal({
         prev.includes(draftKey) ? prev : [...prev, draftKey]
       );
       setResting(true);
+
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          document
+            .getElementById("tmfit-rest-timer")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 120);
+      }
     }
   }
 
