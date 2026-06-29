@@ -567,8 +567,8 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
 
       <div className={`fixed bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pt-2 shadow-2xl backdrop-blur-xl tmfit-safe-bottom md:hidden ${
           contained
-            ? "left-1/2 w-full max-w-[480px] -translate-x-1/2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
-            : "left-0 right-0 pb-3"
+            ? "left-1/2 w-full max-w-[480px] -translate-x-1/2"
+            : "left-0 right-0"
         }`}
       >
         <div className={`grid ${mobileGridClass} gap-1 rounded-[1.7rem] bg-slate-100 p-1`}>
@@ -1784,7 +1784,7 @@ async function loadTemplates() {
   )
   .eq("workout_sessions.client_id", numericClientId)
   .order("created_at", { ascending: false })
-  .limit(1000);
+  .limit(500);
 
 if (historyError) {
   console.warn(historyError.message);
@@ -3213,6 +3213,40 @@ async function savePrivateNote(event) {
       .filter((checkin) => isRecent(checkin.checkin_date || checkin.created_at))
       .slice(0, 6);
 
+    function criticalCheckinReason(checkin) {
+      const reasons = [];
+
+      if (Number(checkin.energy_level) > 0 && Number(checkin.energy_level) <= 4) {
+        reasons.push(`energia ${checkin.energy_level}/10`);
+      }
+
+      if (Number(checkin.sleep_quality) > 0 && Number(checkin.sleep_quality) <= 4) {
+        reasons.push(`sonno ${checkin.sleep_quality}/10`);
+      }
+
+      if (Number(checkin.stress_level) >= 8) {
+        reasons.push(`stress ${checkin.stress_level}/10`);
+      }
+
+      if (Number(checkin.diet_adherence) > 0 && Number(checkin.diet_adherence) <= 5) {
+        reasons.push(`aderenza dieta ${checkin.diet_adherence}/10`);
+      }
+
+      if (Number(checkin.training_adherence) > 0 && Number(checkin.training_adherence) <= 5) {
+        reasons.push(`aderenza allenamento ${checkin.training_adherence}/10`);
+      }
+
+      return reasons.join(" · ");
+    }
+
+    const criticalCheckins = coachControlData.checkins
+      .map((checkin) => ({
+        ...checkin,
+        criticalReason: criticalCheckinReason(checkin)
+      }))
+      .filter((checkin) => checkin.criticalReason)
+      .slice(0, 6);
+
     const recentSessions = coachControlData.sessions
       .filter((sessionItem) =>
         isRecent(sessionItem.session_date || sessionItem.created_at)
@@ -3288,6 +3322,15 @@ async function savePrivateNote(event) {
           onAction: () => openClient(client.id, "clients", "overview")
         };
       }),
+      ...criticalCheckins.map((checkin) => ({
+        id: `reminder-critical-checkin-${checkin.id}`,
+        priority: "Critico",
+        title: `${clientNameFromId(checkin.client_id)} da attenzionare`,
+        text: `Check-in critico: ${checkin.criticalReason}. Valuta scarico, recupero o modifica del percorso.`,
+        actionLabel: "Apri monitor",
+        tone: "red",
+        onAction: () => openClient(checkin.client_id, "monitor")
+      })),
       ...recentCheckins.slice(0, 3).map((checkin) => ({
         id: `reminder-checkin-${checkin.id}`,
         priority: "Nuovo",
@@ -4222,7 +4265,7 @@ const builderQuality = getBuilderQualityReport();
               )}
 
               {selectedClient && programPanel === "builder" && (
-                <Card className="p-5">
+                <Card className="border-2 border-slate-300 bg-slate-50 p-5 shadow-md">
                   <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h2 className="text-xl font-black">
@@ -4286,7 +4329,11 @@ const builderQuality = getBuilderQualityReport();
         }
       }}
     />
-    <div className="sticky top-20 z-30 rounded-[1.5rem] border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-xl">
+    <ClientProgramPreviewPanel
+      builder={builder}
+      selectedClient={selectedClient}
+    />
+    <div className="sticky top-20 z-30 rounded-[1.5rem] border-2 border-[#07111f]/10 bg-white/95 p-3 shadow-xl backdrop-blur-xl">
   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
     <div className="min-w-0">
       <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
@@ -4521,262 +4568,258 @@ const builderQuality = getBuilderQualityReport();
 </div>
                         </div>
 
-                        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
-                          <table className="min-w-[1180px] w-full text-left text-sm">
-                            <thead className="bg-[#07111f] text-xs font-black uppercase tracking-wider text-white">
-                              <tr>
-                                <th className="p-3">Img</th>
-                                <th className="p-3">Esercizio</th>
-                                <th className="p-3">Serie</th>
-                                <th className="p-3">Reps</th>
-                                <th className="p-3">Recupero sec</th>
-                                <th className="p-3">RPE</th>
-                                <th className="p-3">RIR</th>
-                                <th className="p-3">Esecuzione</th>
-                                <th className="p-3">Video opz.</th>
-                                <th className="p-3">Note</th>
-                                <th className="p-3">Progressione</th>
-                                <th className="p-3">Azioni</th>
-                              </tr>
-                            </thead>
-<tbody>
-  {day.exercises.map((exercise, exerciseIndex) => {
-    const matchedMedia = exercise.exercise_media_id
-      ? mediaById.get(exercise.exercise_media_id)
-      : findMediaForExercise(exercise.exercise_name);
+                        <div className="space-y-3">
+                          {day.exercises.map((exercise, exerciseIndex) => {
+                            const matchedMedia = exercise.exercise_media_id
+                              ? mediaById.get(exercise.exercise_media_id)
+                              : findMediaForExercise(exercise.exercise_name);
 
-    return (
-      <tr
-        key={exercise.temp_id}
-        className="border-t border-slate-100 align-top"
-      >
-        <td className="p-3">
-          <ExerciseMediaPreview media={matchedMedia} />
-        </td>
+                            return (
+                              <div
+                                key={exercise.temp_id}
+                                className="rounded-[1.6rem] border-2 border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200"
+                              >
+                                <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+                                  <div className="flex shrink-0 items-center gap-3 xl:block">
+                                    <ExerciseMediaPreview media={matchedMedia} />
+                                    <div className="xl:hidden">
+                                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-teal-700">
+                                        Esercizio {exerciseIndex + 1}
+                                      </p>
+                                      <p className="text-sm font-bold text-slate-500">
+                                        Scheda cliente
+                                      </p>
+                                    </div>
+                                  </div>
 
-        <td className="min-w-[260px] p-3">
-          <Input
-            list="exercise-media-list"
-            placeholder="Scrivi esercizio"
-            value={exercise.exercise_name}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "exercise_name",
-                event.currentTarget.value
-              )
-            }
-          />
+                                  <div className="min-w-0 flex-1 space-y-4">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="hidden text-[11px] font-black uppercase tracking-[0.2em] text-teal-700 xl:block">
+                                          Esercizio {exerciseIndex + 1}
+                                        </p>
+                                        <Input
+                                          list="exercise-media-list"
+                                          placeholder="Scrivi esercizio"
+                                          value={exercise.exercise_name}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "exercise_name",
+                                              event.currentTarget.value
+                                            )
+                                          }
+                                        />
 
-          <select
-            value={exercise.exercise_media_id}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "exercise_media_id",
-                event.currentTarget.value
-              )
-            }
-            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-          >
-            <option value="">Immagine auto/opzionale</option>
+                                        <select
+                                          value={exercise.exercise_media_id}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "exercise_media_id",
+                                              event.currentTarget.value
+                                            )
+                                          }
+                                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                                        >
+                                          <option value="">Immagine auto/opzionale</option>
 
-            {exerciseMedia.map((media) => (
-              <option key={media.id} value={media.id}>
-                {media.name}
-              </option>
-            ))}
-          </select>
-        </td>
+                                          {exerciseMedia.map((media) => (
+                                            <option key={media.id} value={media.id}>
+                                              {media.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
 
-       <td className="w-20 p-2">
-  <BuilderCellInput
-    type="text"
-    inputMode="text"
-    placeholder="3"
-    value={exercise.sets || ""}
-    onChange={(event) =>
-      updateExerciseField(
-        dayIndex,
-        exerciseIndex,
-        "sets",
-        event.target.value
-      )
-    }
-  />
-</td>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        <Button
+                                          type="button"
+                                          onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
+                                          disabled={exerciseIndex === 0}
+                                          className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
+                                        >
+                                          ↑
+                                        </Button>
 
-     <td className="w-24 p-2">
-  <BuilderCellInput
-    type="text"
-    inputMode="text"
-    placeholder="8-10"
-    value={exercise.reps || ""}
-    onChange={(event) =>
-      updateExerciseField(
-        dayIndex,
-        exerciseIndex,
-        "reps",
-        event.target.value
-      )
-    }
-  />
-</td>
-        <td className="w-32 p-3">
-          <Input
-            type="number"
-            value={exercise.recovery_seconds}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "recovery_seconds",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+                                        <Button
+                                          type="button"
+                                          onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
+                                          disabled={exerciseIndex === day.exercises.length - 1}
+                                          className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
+                                        >
+                                          ↓
+                                        </Button>
 
-       <td className="w-20 p-2">
-  <BuilderCellInput
-    type="text"
-    inputMode="decimal"
-    placeholder="8"
-    value={exercise.target_rpe || ""}
-    onChange={(event) =>
-      updateExerciseField(
-        dayIndex,
-        exerciseIndex,
-        "target_rpe",
-        event.target.value
-      )
-    }
-  />
-</td>
+                                        <Button
+                                          type="button"
+                                          onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
+                                          className="border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700"
+                                        >
+                                          Duplica
+                                        </Button>
 
-    <td className="w-20 p-2">
-  <BuilderCellInput
-    type="text"
-    inputMode="decimal"
-    placeholder="2"
-    value={exercise.target_rir || ""}
-    onChange={(event) =>
-      updateExerciseField(
-        dayIndex,
-        exerciseIndex,
-        "target_rir",
-        event.target.value
-      )
-    }
-  />
-</td>
+                                        <Button
+                                          type="button"
+                                          onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
+                                          className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+                                        >
+                                          <X size={14} />
+                                        </Button>
+                                      </div>
+                                    </div>
 
-        <td className="min-w-[180px] p-3">
-          <Input
-            placeholder="Controllata..."
-            value={exercise.execution_mode}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "execution_mode",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+                                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+                                      <Label title="Serie">
+                                        <BuilderCellInput
+                                          type="text"
+                                          inputMode="text"
+                                          placeholder="3"
+                                          value={exercise.sets || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "sets",
+                                              event.target.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
 
-        <td className="min-w-[210px] p-3">
-          <Input
-            placeholder="Link non obbligatorio"
-            value={exercise.video_url}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "video_url",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+                                      <Label title="Reps">
+                                        <BuilderCellInput
+                                          type="text"
+                                          inputMode="text"
+                                          placeholder="8-10"
+                                          value={exercise.reps || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "reps",
+                                              event.target.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
 
-        <td className="min-w-[210px] p-3">
-          <Input
-            placeholder="Note"
-            value={exercise.notes}
-            onChange={(event) =>
-              updateExerciseField(
-                dayIndex,
-                exerciseIndex,
-                "notes",
-                event.currentTarget.value
-              )
-            }
-          />
-        </td>
+                                      <Label title="Recupero sec">
+                                        <Input
+                                          type="number"
+                                          value={exercise.recovery_seconds}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "recovery_seconds",
+                                              event.currentTarget.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
 
-        <td className="w-40 p-3">
-          <label className="flex items-center gap-2 text-xs font-black">
-            <input
-              type="checkbox"
-              checked={exercise.has_weekly_progression}
-              onChange={(event) =>
-                toggleExerciseProgression(
-                  dayIndex,
-                  exerciseIndex,
-                  event.target.checked
-                )
-              }
-            />
-            Progressione
-          </label>
-        </td>
+                                      <Label title="RPE opz.">
+                                        <BuilderCellInput
+                                          type="text"
+                                          inputMode="decimal"
+                                          placeholder="8"
+                                          value={exercise.target_rpe || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "target_rpe",
+                                              event.target.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
 
-        <td className="w-56 p-2">
-  <div className="flex flex-wrap gap-1.5">
-    <Button
-      type="button"
-      onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
-      disabled={exerciseIndex === 0}
-      className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
-    >
-      ↑
-    </Button>
+                                      <Label title="RIR opz.">
+                                        <BuilderCellInput
+                                          type="text"
+                                          inputMode="decimal"
+                                          placeholder="2"
+                                          value={exercise.target_rir || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "target_rir",
+                                              event.target.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
 
-    <Button
-      type="button"
-      onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
-      disabled={exerciseIndex === day.exercises.length - 1}
-      className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
-    >
-      ↓
-    </Button>
+                                      <Label title="Esecuzione">
+                                        <Input
+                                          placeholder="Controllata..."
+                                          value={exercise.execution_mode}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "execution_mode",
+                                              event.currentTarget.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
 
-    <Button
-      type="button"
-      onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
-      className="border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700"
-    >
-      Duplica
-    </Button>
+                                      <Label title="Video opz.">
+                                        <Input
+                                          placeholder="Link"
+                                          value={exercise.video_url}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "video_url",
+                                              event.currentTarget.value
+                                            )
+                                          }
+                                        />
+                                      </Label>
+                                    </div>
 
-    <Button
-      type="button"
-      onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
-      className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
-    >
-      <X size={14} />
-    </Button>
-  </div>
-</td>
-      </tr>
-    );
-  })}
-</tbody>
-                          </table>
+                                    <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                                      <Input
+                                        placeholder="Note coach / cue esecutivi"
+                                        value={exercise.notes}
+                                        onChange={(event) =>
+                                          updateExerciseField(
+                                            dayIndex,
+                                            exerciseIndex,
+                                            "notes",
+                                            event.currentTarget.value
+                                          )
+                                        }
+                                      />
+
+                                      <label className="flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-xs font-black text-teal-800">
+                                        <input
+                                          type="checkbox"
+                                          checked={exercise.has_weekly_progression}
+                                          onChange={(event) =>
+                                            toggleExerciseProgression(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              event.target.checked
+                                            )
+                                          }
+                                        />
+                                        Progressione settimanale
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
 
                         <datalist id="exercise-media-list">
@@ -4804,168 +4847,132 @@ const builderQuality = getBuilderQualityReport();
                                   </p>
                                 </div>
 
-                                <div className="overflow-x-auto rounded-2xl border border-teal-100 bg-white">
-                                  <table className="w-[1000px] text-sm">
-                                    <thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-400">
-                                      <tr>
-                                        <th className="p-3">Week</th>
-                                        <th className="p-3">Serie</th>
-                                        <th className="p-3">Reps</th>
-                                        <th className="p-3">Kg / Target</th>
-                                        <th className="p-3">RPE</th>
-                                        <th className="p-3">RIR</th>
-                                        <th className="p-3">Recupero sec</th>
-                                        <th className="p-3">Note</th>
-                                      </tr>
-                                    </thead>
+                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                  {exercise.progressions.map(
+                                    (progression, progressionIndex) => (
+                                      <div
+                                        key={progression.temp_id}
+                                        className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
+                                      >
+                                        <div className="mb-3 flex items-center justify-between gap-2">
+                                          <p className="font-black text-teal-900">
+                                            Settimana {progression.week_number}
+                                          </p>
+                                          <Pill className="bg-teal-100 text-teal-700">Target</Pill>
+                                        </div>
 
-                                    <tbody>
-                                      {exercise.progressions.map(
-                                        (progression, progressionIndex) => (
-                                          <tr
-                                            key={progression.temp_id}
-                                            className="border-t border-slate-100"
-                                          >
-                                            <td className="p-3 font-black">
-                                              {progression.week_number}
-                                            </td>
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                          <Label title="Serie">
+                                            <Input
+                                              value={progression.target_sets}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].target_sets = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
 
-                                            <td className="p-3">
-                                              <Input
-                                                value={progression.target_sets}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].target_sets =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
+                                          <Label title="Reps">
+                                            <Input
+                                              value={progression.target_reps}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].target_reps = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
 
-                                            <td className="p-3">
-                                              <Input
-                                                value={progression.target_reps}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].target_reps =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
+                                          <Label title="Kg / target">
+                                            <Input
+                                              placeholder="70kg / +2.5kg"
+                                              value={progression.target_load_text}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].target_load_text = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
 
-                                            <td className="p-3">
-                                              <Input
-                                                placeholder="70kg / +2.5kg"
-                                                value={
-                                                  progression.target_load_text
-                                                }
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].target_load_text =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
+                                          <Label title="RPE">
+                                            <Input
+                                              value={progression.target_rpe}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].target_rpe = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
 
-                                            <td className="p-3">
-                                              <Input
-                                                value={progression.target_rpe}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].target_rpe =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
+                                          <Label title="RIR">
+                                            <Input
+                                              value={progression.target_rir}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].target_rir = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
 
-                                            <td className="p-3">
-                                              <Input
-                                                value={progression.target_rir}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].target_rir =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
+                                          <Label title="Recupero sec">
+                                            <Input
+                                              value={progression.recovery_seconds}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].recovery_seconds = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
+                                        </div>
 
-                                            <td className="p-3">
-                                              <Input
-                                                type="number"
-                                                value={
-                                                  progression.recovery_seconds
-                                                }
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].recovery_seconds =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
-
-                                            <td className="p-3">
-                                              <Input
-                                                value={progression.notes}
-                                                onChange={(event) =>
-                                                  updateBuilder((next) => {
-                                                    next.days[
-                                                      dayIndex
-                                                    ].exercises[
-                                                      exerciseIndex
-                                                    ].progressions[
-                                                      progressionIndex
-                                                    ].notes =
-                                                      event.target.value;
-                                                  })
-                                                }
-                                              />
-                                            </td>
-                                          </tr>
-                                        )
-                                      )}
-                                    </tbody>
-                                  </table>
+                                        <div className="mt-2">
+                                          <Label title="Note">
+                                            <Input
+                                              value={progression.notes}
+                                              onChange={(event) =>
+                                                updateBuilder((next) => {
+                                                  next.days[dayIndex].exercises[
+                                                    exerciseIndex
+                                                  ].progressions[
+                                                    progressionIndex
+                                                  ].notes = event.target.value;
+                                                })
+                                              }
+                                            />
+                                          </Label>
+                                        </div>
+                                      </div>
+                                    )
+                                  )}
                                 </div>
                               </div>
                             );
@@ -5813,6 +5820,83 @@ function BuilderWorkflowNav({ activeStep, onChange, quality }) {
           </p>
         </div>
         <Pill className={quality.statusClass}>{quality.statusLabel}</Pill>
+      </div>
+    </Card>
+  );
+}
+
+
+function ClientProgramPreviewPanel({ builder, selectedClient }) {
+  const firstDay = builder.days?.[0] || null;
+  const visibleExercises = firstDay?.exercises?.filter((exercise) =>
+    String(exercise.exercise_name || "").trim()
+  ) || [];
+
+  return (
+    <Card className="overflow-hidden border-2 border-[#07111f]/10 bg-white shadow-md">
+      <div className="bg-[#07111f] p-4 text-white md:p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+              Anteprima cliente
+            </p>
+            <h3 className="mt-2 text-xl font-black">
+              Come vedrà la scheda il cliente
+            </h3>
+            <p className="mt-1 text-sm font-semibold text-slate-300">
+              {selectedClient ? fullName(selectedClient) : "Cliente non selezionato"} · {builder.title || "Programma allenamento"}
+            </p>
+          </div>
+
+          <Pill className="bg-teal-300 text-slate-950">
+            Preview app
+          </Pill>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-4 lg:grid-cols-[.8fr_1.2fr]">
+        <div className="rounded-3xl bg-slate-50 p-4">
+          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+            Prossimo allenamento
+          </p>
+          <h4 className="mt-2 text-2xl font-black text-slate-950">
+            {firstDay?.title || "Allenamento A"}
+          </h4>
+          <p className="mt-2 text-sm font-bold text-slate-500">
+            {visibleExercises.length} esercizi · {firstDay?.estimated_minutes || 60} min · {builder.duration_weeks || 4} settimane
+          </p>
+          <div className="mt-4 rounded-2xl bg-[#07111f] px-4 py-3 text-center text-sm font-black text-white">
+            Inizia allenamento
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {visibleExercises.slice(0, 6).map((exercise, index) => (
+            <div
+              key={exercise.temp_id || index}
+              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-black text-slate-950">
+                  {index + 1}. {exercise.exercise_name}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  {exercise.sets || "—"} serie · {exercise.reps || "—"} reps · recupero {exercise.recovery_seconds || 90}s
+                </p>
+              </div>
+              {exercise.has_weekly_progression && (
+                <Pill className="bg-teal-100 text-teal-700">Progressione</Pill>
+              )}
+            </div>
+          ))}
+
+          {visibleExercises.length === 0 && (
+            <Empty
+              title="Anteprima vuota"
+              text="Inserisci almeno un esercizio per vedere come apparirà lato cliente."
+            />
+          )}
+        </div>
       </div>
     </Card>
   );
@@ -6791,6 +6875,27 @@ function PlansList({
 function ExerciseHistoryBox({ history = [] }) {
   const validHistory = history.filter((item) => item.load_kg || item.reps_done);
 
+  function sessionDate(item) {
+    const raw = item?.workout_sessions?.session_date || item?.created_at;
+    if (!raw) return null;
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatHistoryDate(value) {
+    const date = value instanceof Date ? value : sessionDate(value);
+    if (!date) return "—";
+    return date.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit"
+    });
+  }
+
+  function seriesText(item) {
+    return `${item?.load_kg || "—"} kg x ${item?.reps_done || "—"}`;
+  }
+
   if (validHistory.length === 0) {
     return (
       <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3">
@@ -6804,7 +6909,13 @@ function ExerciseHistoryBox({ history = [] }) {
     );
   }
 
-  const last = validHistory[0];
+  const sortedHistory = [...validHistory].sort((a, b) => {
+    const dateA = sessionDate(a)?.getTime() || 0;
+    const dateB = sessionDate(b)?.getTime() || 0;
+    return dateB - dateA;
+  });
+
+  const last = sortedHistory[0];
 
   const best = [...validHistory].sort((a, b) => {
     const loadDiff = (Number(b.load_kg) || 0) - (Number(a.load_kg) || 0);
@@ -6814,34 +6925,70 @@ function ExerciseHistoryBox({ history = [] }) {
     return (Number(b.reps_done) || 0) - (Number(a.reps_done) || 0);
   })[0];
 
-  const recent = validHistory.slice(0, 5);
+  const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const aroundThreeMonthsAgo = sortedHistory.find((item) => {
+    const date = sessionDate(item);
+    return date && date.getTime() <= ninetyDaysAgo;
+  });
+
+  const lastLoad = Number(last?.load_kg) || 0;
+  const oldLoad = Number(aroundThreeMonthsAgo?.load_kg) || 0;
+
+  let trendLabel = "Dati insufficienti";
+  let trendClass = "bg-slate-100 text-slate-600";
+
+  if (aroundThreeMonthsAgo && lastLoad > 0 && oldLoad > 0) {
+    const diff = lastLoad - oldLoad;
+
+    if (diff >= 2.5) {
+      trendLabel = `In crescita +${diff.toFixed(diff % 1 === 0 ? 0 : 1)} kg`;
+      trendClass = "bg-teal-100 text-teal-700";
+    } else if (diff <= -2.5) {
+      trendLabel = `Da monitorare ${diff.toFixed(diff % 1 === 0 ? 0 : 1)} kg`;
+      trendClass = "bg-amber-100 text-amber-700";
+    } else {
+      trendLabel = "Stabile";
+      trendClass = "bg-sky-100 text-sky-700";
+    }
+  }
+
+  const recent = sortedHistory.slice(0, 5);
 
   return (
     <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-        Storico carichi
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+          Storico carichi
+        </p>
+        <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${trendClass}`}>
+          {trendLabel}
+        </span>
+      </div>
 
-      <div className="mt-3 grid gap-2 md:grid-cols-2">
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
         <div className="rounded-2xl bg-white p-3">
           <p className="text-xs font-black text-slate-400">Ultima volta</p>
-          <p className="mt-1 font-black text-slate-900">
-            {last.load_kg || "—"} kg x {last.reps_done || "—"}
-          </p>
+          <p className="mt-1 font-black text-slate-900">{seriesText(last)}</p>
           <p className="text-xs font-bold text-slate-500">
-            RPE {last.rpe || "—"} · RIR {last.rir || "—"} ·{" "}
-            {last.workout_sessions?.session_date || "—"}
+            {formatHistoryDate(last)}
           </p>
         </div>
 
         <div className="rounded-2xl bg-white p-3">
           <p className="text-xs font-black text-slate-400">Miglior serie</p>
+          <p className="mt-1 font-black text-slate-900">{seriesText(best)}</p>
+          <p className="text-xs font-bold text-slate-500">
+            {formatHistoryDate(best)}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-white p-3">
+          <p className="text-xs font-black text-slate-400">Circa 3 mesi fa</p>
           <p className="mt-1 font-black text-slate-900">
-            {best.load_kg || "—"} kg x {best.reps_done || "—"}
+            {aroundThreeMonthsAgo ? seriesText(aroundThreeMonthsAgo) : "—"}
           </p>
           <p className="text-xs font-bold text-slate-500">
-            RPE {best.rpe || "—"} · RIR {best.rir || "—"} ·{" "}
-            {best.workout_sessions?.session_date || "—"}
+            {aroundThreeMonthsAgo ? formatHistoryDate(aroundThreeMonthsAgo) : "Non disponibile"}
           </p>
         </div>
       </div>
@@ -6853,11 +7000,11 @@ function ExerciseHistoryBox({ history = [] }) {
             className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-sm"
           >
             <span className="font-bold text-slate-500">
-              {item.workout_sessions?.session_date || "—"}
+              {formatHistoryDate(item)}
             </span>
 
             <span className="font-black text-slate-900">
-              {item.load_kg || "—"} kg x {item.reps_done || "—"}
+              {seriesText(item)}
             </span>
 
             <span className="text-xs font-bold text-slate-400">
@@ -6866,357 +7013,6 @@ function ExerciseHistoryBox({ history = [] }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-function CoachMonitorPanel({
-  selectedClient,
-  checkins = [],
-  logs = [],
-  photos = [],
-  openStorageFile
-}) {
-  const latestCheckin = checkins[0] || null;
-  const latestLog = logs[0] || null;
-  const latestWorkoutGroups = groupLogsBySession(logs).slice(0, 5);
-  const latestWorkoutGroup = latestWorkoutGroups[0] || null;
-
-  function formatDate(value) {
-    if (!value) return "—";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "—";
-
-    return date.toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric"
-    });
-  }
-
-  function daysSince(value) {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return Math.max(0, Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)));
-  }
-
-  function relativeDate(value) {
-    const days = daysSince(value);
-    if (days === null) return "mai";
-    if (days === 0) return "oggi";
-    if (days === 1) return "ieri";
-    return `${days} giorni fa`;
-  }
-
-  function hasValue(value) {
-    return value !== null && value !== undefined && String(value).trim() !== "";
-  }
-
-  function metricValue(value, suffix = "") {
-    return hasValue(value) ? `${value}${suffix}` : "—";
-  }
-
-  function logLine(log) {
-    const parts = [
-      `set ${log.set_number || "—"}`,
-      `${metricValue(log.load_kg, " kg")} x ${metricValue(log.reps_done)}`
-    ];
-
-    if (hasValue(log.rpe)) parts.push(`RPE ${log.rpe}`);
-    if (hasValue(log.rir)) parts.push(`RIR ${log.rir}`);
-
-    return parts.join(" · ");
-  }
-
-  function groupLogsBySession(items) {
-    const map = new Map();
-
-    items.forEach((log) => {
-      const date = log?.workout_sessions?.session_date || log?.created_at || "senza-data";
-      const key = `${log?.session_id || date}`;
-
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          date,
-          items: []
-        });
-      }
-
-      map.get(key).items.push(log);
-    });
-
-    return Array.from(map.values())
-      .map((group) => ({
-        ...group,
-        items: [...group.items].sort((a, b) => {
-          const nameCompare = String(a.workout_exercises?.exercise_name || "").localeCompare(
-            String(b.workout_exercises?.exercise_name || "")
-          );
-          if (nameCompare !== 0) return nameCompare;
-          return Number(a.set_number || 0) - Number(b.set_number || 0);
-        })
-      }))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }
-
-  if (!selectedClient) {
-    return (
-      <Empty
-        title="Seleziona un cliente"
-        text="Il monitor mostra check-in, log allenamenti e foto del cliente selezionato."
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <Card className="overflow-hidden border-2 border-slate-200">
-        <div className="bg-[#07111f] p-5 text-white">
-          <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-300">
-            Monitor cliente
-          </p>
-
-          <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-3xl font-black">
-                {fullName(selectedClient)}
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-slate-300">
-                Check-in, aderenza e log allenamenti in formato compatto.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl bg-white/10 px-3 py-2">
-                <p className="text-xl font-black">{checkins.length}</p>
-                <p className="text-[10px] font-black uppercase text-slate-300">check-in</p>
-              </div>
-              <div className="rounded-2xl bg-white/10 px-3 py-2">
-                <p className="text-xl font-black">{logs.length}</p>
-                <p className="text-[10px] font-black uppercase text-slate-300">serie</p>
-              </div>
-              <div className="rounded-2xl bg-teal-300 px-3 py-2 text-slate-950">
-                <p className="text-xl font-black">{photos.length}</p>
-                <p className="text-[10px] font-black uppercase">foto</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 bg-white p-4 md:grid-cols-3">
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-              Ultimo check-in
-            </p>
-            <p className="mt-1 text-lg font-black text-slate-950">
-              {latestCheckin ? relativeDate(latestCheckin.checkin_date || latestCheckin.created_at) : "mai"}
-            </p>
-            <p className="text-xs font-bold text-slate-500">
-              {latestCheckin ? formatDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Nessun dato"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-              Ultimo allenamento
-            </p>
-            <p className="mt-1 text-lg font-black text-slate-950">
-              {latestLog ? relativeDate(latestLog.workout_sessions?.session_date || latestLog.created_at) : "mai"}
-            </p>
-            <p className="text-xs font-bold text-slate-500">
-              {latestLog ? formatDate(latestLog.workout_sessions?.session_date || latestLog.created_at) : "Nessun log"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-              Ultima serie loggata
-            </p>
-            <p className="mt-1 truncate text-lg font-black text-slate-950">
-              {latestLog?.workout_exercises?.exercise_name || "—"}
-            </p>
-            <p className="text-xs font-bold text-slate-500">
-              {latestLog ? logLine(latestLog) : "Nessun dato"}
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      <div className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-slate-950">Ultimi check-in</h2>
-              <p className="text-sm font-semibold text-slate-500">
-                Vista compatta ma completa dei dati più importanti.
-              </p>
-            </div>
-            <Pill className="bg-slate-100 text-slate-700">
-              {checkins.length}
-            </Pill>
-          </div>
-
-          <div className="space-y-3">
-            {checkins.slice(0, 8).map((checkin) => (
-              <div key={checkin.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-base font-black text-slate-950">
-                      {formatDate(checkin.checkin_date || checkin.created_at)}
-                    </p>
-                    <p className="text-xs font-bold text-slate-500">
-                      {relativeDate(checkin.checkin_date || checkin.created_at)}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Pill className="bg-slate-100 text-slate-700">
-                      Peso {metricValue(checkin.weight_kg, " kg")}
-                    </Pill>
-                    <Pill className="bg-teal-100 text-teal-800">
-                      Dieta {metricValue(checkin.diet_adherence, "/10")}
-                    </Pill>
-                    <Pill className="bg-teal-100 text-teal-800">
-                      Training {metricValue(checkin.training_adherence, "/10")}
-                    </Pill>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-slate-600 sm:grid-cols-4">
-                  <div className="rounded-xl bg-slate-50 p-2">Energia {metricValue(checkin.energy_level, "/10")}</div>
-                  <div className="rounded-xl bg-slate-50 p-2">Sonno {metricValue(checkin.sleep_quality, "/10")}</div>
-                  <div className="rounded-xl bg-slate-50 p-2">Stress {metricValue(checkin.stress_level, "/10")}</div>
-                  <div className="rounded-xl bg-slate-50 p-2">Fame {metricValue(checkin.hunger_level, "/10")}</div>
-                </div>
-
-                {checkin.notes && (
-                  <p className="mt-3 whitespace-pre-wrap break-words rounded-2xl bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">
-                    {checkin.notes}
-                  </p>
-                )}
-              </div>
-            ))}
-
-            {checkins.length === 0 && (
-              <Empty
-                title="Nessun check-in"
-                text="Il cliente non ha ancora compilato check-in."
-              />
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-slate-950">Log allenamento</h2>
-              <p className="text-sm font-semibold text-slate-500">
-                Ultima seduta completa e storico recente per data.
-              </p>
-            </div>
-            <Pill className="bg-[#07111f] text-white">
-              {latestWorkoutGroup ? formatDate(latestWorkoutGroup.date) : "—"}
-            </Pill>
-          </div>
-
-          {latestWorkoutGroup ? (
-            <div className="space-y-4">
-              <div className="rounded-3xl border-2 border-teal-200 bg-teal-50 p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-700">
-                      Ultimo allenamento completo
-                    </p>
-                    <p className="text-lg font-black text-teal-950">
-                      {formatDate(latestWorkoutGroup.date)} · {relativeDate(latestWorkoutGroup.date)}
-                    </p>
-                  </div>
-                  <Pill className="bg-teal-300 text-slate-950">
-                    {latestWorkoutGroup.items.length} serie
-                  </Pill>
-                </div>
-
-                <div className="space-y-2">
-                  {latestWorkoutGroup.items.map((log) => (
-                    <div key={log.id} className="rounded-2xl bg-white p-3">
-                      <p className="font-black text-slate-950">
-                        {log.workout_exercises?.exercise_name || "Esercizio"}
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-slate-600">
-                        {logLine(log)}
-                      </p>
-                      {log.notes && (
-                        <p className="mt-1 whitespace-pre-wrap break-words text-xs font-bold text-slate-500">
-                          {log.notes}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {latestWorkoutGroups.slice(1).map((group) => (
-                  <div key={group.key} className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-black text-slate-950">
-                        {formatDate(group.date)}
-                      </p>
-                      <p className="text-xs font-bold text-slate-500">
-                        {group.items.length} serie
-                      </p>
-                    </div>
-                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                      {group.items.slice(0, 5).map((log) => `${log.workout_exercises?.exercise_name || "Esercizio"}: ${logLine(log)}`).join("  |  ")}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <Empty
-              title="Nessun log"
-              text="Il cliente non ha ancora registrato carichi."
-            />
-          )}
-        </Card>
-      </div>
-
-      <Card className="p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-black text-slate-950">Foto progressi</h2>
-            <p className="text-sm font-semibold text-slate-500">
-              Ultime foto caricate dal cliente o dal professionista.
-            </p>
-          </div>
-          <Camera size={20} className="text-teal-600" />
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          {photos.slice(0, 9).map((photo) => (
-            <button
-              key={photo.id}
-              type="button"
-              onClick={() => openStorageFile("progress-photos", photo.file_path)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
-            >
-              <Camera size={20} className="text-teal-600" />
-
-              <p className="mt-2 font-black text-slate-950">{photo.photo_type}</p>
-
-              <p className="text-sm font-semibold text-slate-500">
-                {formatDate(photo.photo_date || photo.created_at)}
-              </p>
-            </button>
-          ))}
-
-          {photos.length === 0 && (
-            <Empty title="Nessuna foto" text="Le foto compariranno qui." />
-          )}
-        </div>
-      </Card>
     </div>
   );
 }
@@ -8776,7 +8572,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   )
   .eq("workout_sessions.client_id", numericClientId)
   .order("created_at", { ascending: false })
-  .limit(1000);
+  .limit(500);
 
 if (historyError) {
   console.warn(historyError.message);
@@ -9057,6 +8853,21 @@ function getExerciseHistory(exercise) {
   const latestCheckinDays = daysSince(latestCheckin?.checkin_date || latestCheckin?.created_at);
   const latestPhotoDays = daysSince(latestPhoto?.photo_date || latestPhoto?.created_at);
 
+  const completedWorkoutKeys = new Set(
+    loadHistory
+      .map((item) => item.session_id || item.workout_sessions?.session_date)
+      .filter(Boolean)
+  );
+
+  const clientCompletedWorkoutCount = completedWorkoutKeys.size;
+  const lastWorkoutLog = loadHistory[0] || null;
+  const lastWorkoutDate =
+    lastWorkoutLog?.workout_sessions?.session_date || lastWorkoutLog?.created_at;
+
+  const nextWorkoutTitle = activePlan
+    ? activePlan.workout_weeks?.[0]?.workout_days?.[0]?.title || "Allenamento disponibile"
+    : "Programma non disponibile";
+
   const clientReminderItems = [
     activePlan
       ? {
@@ -9123,6 +8934,41 @@ function getExerciseHistory(exercise) {
         }
       : null
   ].filter(Boolean);
+
+  const primaryClientReminder = clientReminderItems[0] || null;
+
+  const clientTimelineItems = [
+    latestCheckin && {
+      id: `timeline-checkin-${latestCheckin.id}`,
+      date: latestCheckin.checkin_date || latestCheckin.created_at,
+      label: "Check-in inviato",
+      text: `Peso ${latestCheckin.weight_kg || "—"} kg · energia ${latestCheckin.energy_level || "—"}/10`,
+      tone: "teal"
+    },
+    latestPhoto && {
+      id: `timeline-photo-${latestPhoto.id}`,
+      date: latestPhoto.photo_date || latestPhoto.created_at,
+      label: "Foto progressi caricata",
+      text: latestPhoto.photo_type || "Foto progressi",
+      tone: "amber"
+    },
+    latestDiet && {
+      id: `timeline-diet-${latestDiet.id}`,
+      date: latestDiet.created_at || latestDiet.start_date,
+      label: "Dieta disponibile",
+      text: latestDiet.title || latestDiet.file_name || "Piano alimentare",
+      tone: "slate"
+    },
+    lastWorkoutLog && {
+      id: `timeline-workout-${lastWorkoutLog.id}`,
+      date: lastWorkoutDate,
+      label: "Ultimo allenamento registrato",
+      text: `${lastWorkoutLog.workout_exercises?.exercise_name || "Serie salvata"}: ${lastWorkoutLog.load_kg || "—"} kg x ${lastWorkoutLog.reps_done || "—"}`,
+      tone: "teal"
+    }
+  ]
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
   function ClientReminderCard({ item }) {
     const toneClass =
@@ -9266,24 +9112,91 @@ function getExerciseHistory(exercise) {
   userProfile={userProfile}
   side="right"
 />
-      <main className="mx-auto w-full max-w-[480px] space-y-5 overflow-x-hidden p-4 pb-[calc(7.75rem+env(safe-area-inset-bottom))] md:p-5">
+      <main className="mx-auto w-full max-w-[480px] space-y-5 overflow-x-hidden p-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
           <div className="space-y-5">
             <Card className="overflow-hidden border-none bg-transparent shadow-none">
-  <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
-    <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
-      BENVENUTO
-    </p>
+              <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
+                <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
+                  OGGI
+                </p>
 
-    <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
-      {client ? fullName(client) : "Cliente"}
-    </h2>
+                <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
+                  {client ? fullName(client) : "Cliente"}
+                </h2>
 
-    <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
-      Scheda, timer, carichi, dieta, check-in e progressi.
-    </p>
-  </div>
-</Card>
+                <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
+                  Apri l’app, guarda la prossima azione e completa il percorso senza schermate confuse.
+                </p>
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden border-2 border-[#07111f]/10 shadow-lg">
+              <div className="bg-white p-4 md:p-6">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
+                        Prossima azione
+                      </p>
+                      <h3 className="mt-2 text-2xl font-black text-slate-950">
+                        {primaryClientReminder?.title || "Tutto aggiornato"}
+                      </h3>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                        {primaryClientReminder?.text || "Non hai azioni urgenti da completare in questo momento."}
+                      </p>
+                    </div>
+
+                    {primaryClientReminder && (
+                      <Button
+                        onClick={primaryClientReminder.onAction}
+                        className="shrink-0 bg-[#07111f] text-white"
+                      >
+                        {primaryClientReminder.actionLabel}
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-3xl bg-slate-50 p-4">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        Prossimo workout
+                      </p>
+                      <p className="mt-1 font-black text-slate-950">
+                        {nextWorkoutTitle}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl bg-slate-50 p-4">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        Allenamenti registrati
+                      </p>
+                      <p className="mt-1 font-black text-slate-950">
+                        {clientCompletedWorkoutCount}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl bg-slate-50 p-4">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        Ultimo check-in
+                      </p>
+                      <p className="mt-1 font-black text-slate-950">
+                        {latestCheckin ? formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Mai inviato"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl bg-slate-50 p-4">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        Dieta attiva
+                      </p>
+                      <p className="mt-1 font-black text-slate-950">
+                        {latestDiet ? latestDiet.title || "Disponibile" : "Non caricata"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
 
             <Card className="overflow-hidden border-none shadow-lg">
               <div className="bg-white p-4 md:p-6">
@@ -9296,8 +9209,6 @@ function getExerciseHistory(exercise) {
                     <h3 className="mt-2 text-2xl font-black text-slate-950">
                       Cose da fare oggi
                     </h3>
-
-                   
                   </div>
 
                   <Pill className="bg-teal-100 text-teal-700">
@@ -9305,11 +9216,28 @@ function getExerciseHistory(exercise) {
                   </Pill>
                 </div>
 
-                <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <div className="mt-5 grid gap-3">
                   {clientReminderItems.map((item) => (
                     <ClientReminderCard key={item.id} item={item} />
                   ))}
                 </div>
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
+                    Installa app
+                  </p>
+                  <h3 className="mt-2 text-xl font-black text-slate-950">
+                    Usa TMFIT dalla schermata Home
+                  </h3>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                    iPhone: Safari → Condividi → Aggiungi alla schermata Home. Android: Chrome → Menu → Installa app.
+                  </p>
+                </div>
+                <Pill className="bg-[#07111f] text-white">PWA</Pill>
               </div>
             </Card>
           </div>
@@ -9659,20 +9587,37 @@ function getExerciseHistory(exercise) {
                   ["diet_adherence", "Aderenza dieta"],
                   ["training_adherence", "Aderenza allenamento"]
                 ].map(([field, label]) => (
-                  <Label key={field} title={`${label} 1-10`}>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      value={checkinForm[field]}
-                      onChange={(event) =>
-                        setCheckinForm({
-                          ...checkinForm,
-                          [field]: event.target.value
-                        })
-                      }
-                    />
-                  </Label>
+                  <div key={field} className="md:col-span-2">
+                    <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">
+                      {label} 1-10
+                    </p>
+                    <div className="grid grid-cols-10 gap-1">
+                      {Array.from({ length: 10 }, (_, index) => {
+                        const value = String(index + 1);
+                        const selected = String(checkinForm[field]) === value;
+
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() =>
+                              setCheckinForm({
+                                ...checkinForm,
+                                [field]: value
+                              })
+                            }
+                            className={`h-10 rounded-xl text-xs font-black transition active:scale-[.96] ${
+                              selected
+                                ? "bg-[#07111f] text-white shadow-md"
+                                : "border border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
 
                 <Label title="Acqua litri">
@@ -9745,119 +9690,212 @@ function getExerciseHistory(exercise) {
         )}
 
         {activeTab === "progress" && (
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-5">
             <Card className="p-5">
-              <h2 className="text-xl font-black">Carica foto progressi</h2>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
+                    Timeline progressi
+                  </p>
+                  <h2 className="mt-2 text-xl font-black text-slate-950">
+                    Ultimi aggiornamenti
+                  </h2>
+                </div>
+                <Pill className="bg-teal-100 text-teal-700">
+                  {clientTimelineItems.length} eventi
+                </Pill>
+              </div>
 
-              <form onSubmit={uploadProgressPhoto} className="mt-4 space-y-3">
-                <Input
-                  type="date"
-                  className="text-center appearance-none"
-                  value={photoForm.photo_date}
-                  onChange={(event) =>
-                    setPhotoForm({
-                      ...photoForm,
-                      photo_date: event.target.value
-                    })
-                  }
-                />
-
-                <Select
-                  value={photoForm.photo_type}
-                  onChange={(event) =>
-                    setPhotoForm({
-                      ...photoForm,
-                      photo_type: event.target.value
-                    })
-                  }
-                >
-                  <option value="front">Frontale</option>
-                  <option value="side">Laterale</option>
-                  <option value="back">Posteriore</option>
-                  <option value="other">Altro</option>
-                </Select>
-
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) =>
-                    setPhotoFile(event.target.files?.[0] || null)
-                  }
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold"
-                />
-
-                <Textarea
-                  placeholder="Note foto"
-                  value={photoForm.notes}
-                  onChange={(event) =>
-                    setPhotoForm({
-                      ...photoForm,
-                      notes: event.target.value
-                    })
-                  }
-                />
-
-                <Button type="submit" className="w-full bg-[#07111f] text-white">
-                  Carica foto
-                </Button>
-              </form>
-            </Card>
-
-            <Card className="p-5">
-              <h2 className="text-xl font-black">Le tue foto</h2>
-
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {photos.map((photo) => (
-                  <button
-                    key={photo.id}
-                    type="button"
-                    onClick={() =>
-                      openStorageFile("progress-photos", photo.file_path)
-                    }
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left"
+              <div className="mt-4 space-y-3">
+                {clientTimelineItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex gap-3 rounded-3xl border border-slate-200 bg-white p-4"
                   >
-                    <Camera className="text-teal-600" />
-
-                    <p className="mt-2 font-black">{photo.photo_type}</p>
-
-                    <p className="text-sm font-semibold text-slate-500">
-                      {photo.photo_date}
-                    </p>
-                  </button>
+                    <span
+                      className={`mt-1 h-3 w-3 shrink-0 rounded-full ${
+                        item.tone === "teal"
+                          ? "bg-teal-400"
+                          : item.tone === "amber"
+                          ? "bg-amber-400"
+                          : "bg-slate-300"
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                        {formatClientDate(item.date)}
+                      </p>
+                      <p className="mt-1 font-black text-slate-950">
+                        {item.label}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-500">
+                        {item.text}
+                      </p>
+                    </div>
+                  </div>
                 ))}
 
-                {photos.length === 0 && (
-                  <Empty title="Nessuna foto" text="Carica la prima foto." />
+                {clientTimelineItems.length === 0 && (
+                  <Empty
+                    title="Timeline vuota"
+                    text="Quando invierai check-in, foto o allenamenti, li vedrai qui."
+                  />
                 )}
               </div>
             </Card>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card className="p-5">
+                <h2 className="text-xl font-black">Carica foto progressi</h2>
+
+                <form onSubmit={uploadProgressPhoto} className="mt-4 space-y-3">
+                  <Input
+                    type="date"
+                    className="text-center appearance-none"
+                    value={photoForm.photo_date}
+                    onChange={(event) =>
+                      setPhotoForm({
+                        ...photoForm,
+                        photo_date: event.target.value
+                      })
+                    }
+                  />
+
+                  <Select
+                    value={photoForm.photo_type}
+                    onChange={(event) =>
+                      setPhotoForm({
+                        ...photoForm,
+                        photo_type: event.target.value
+                      })
+                    }
+                  >
+                    <option value="front">Frontale</option>
+                    <option value="side">Laterale</option>
+                    <option value="back">Posteriore</option>
+                    <option value="other">Altro</option>
+                  </Select>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) =>
+                      setPhotoFile(event.target.files?.[0] || null)
+                    }
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold"
+                  />
+
+                  <Textarea
+                    placeholder="Note foto"
+                    value={photoForm.notes}
+                    onChange={(event) =>
+                      setPhotoForm({
+                        ...photoForm,
+                        notes: event.target.value
+                      })
+                    }
+                  />
+
+                  <Button type="submit" className="w-full bg-[#07111f] text-white">
+                    Carica foto
+                  </Button>
+                </form>
+              </Card>
+
+              <Card className="p-5">
+                <h2 className="text-xl font-black">Le tue foto</h2>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {photos.map((photo) => (
+                    <button
+                      key={photo.id}
+                      type="button"
+                      onClick={() =>
+                        openStorageFile("progress-photos", photo.file_path)
+                      }
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left"
+                    >
+                      <Camera className="text-teal-600" />
+
+                      <p className="mt-2 font-black">{photo.photo_type}</p>
+
+                      <p className="text-sm font-semibold text-slate-500">
+                        {photo.photo_date}
+                      </p>
+                    </button>
+                  ))}
+
+                  {photos.length === 0 && (
+                    <Empty title="Nessuna foto" text="Carica la prima foto." />
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
         {activeTab === "diet" && (
           <Card className="p-5">
-            <h2 className="text-xl font-black">Dieta</h2>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
+                  Piano alimentare
+                </p>
+                <h2 className="mt-2 text-xl font-black text-slate-950">
+                  Dieta e indicazioni coach
+                </h2>
+              </div>
+              <Pill className="bg-teal-100 text-teal-700">
+                {diets.length} disponibili
+              </Pill>
+            </div>
 
             <div className="mt-4 space-y-3">
-              {diets.map((diet) => (
+              {diets.map((diet, index) => (
                 <div
                   key={diet.id}
-                  className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 md:flex-row md:items-center md:justify-between"
+                  className={`rounded-3xl border p-4 ${
+                    index === 0
+                      ? "border-[#07111f] bg-slate-50"
+                      : "border-slate-200 bg-white"
+                  }`}
                 >
-                  <div>
-                    <p className="font-black">{diet.title}</p>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-black text-slate-950">{diet.title}</p>
+                        {index === 0 && (
+                          <Pill className="bg-[#07111f] text-white">Attiva</Pill>
+                        )}
+                      </div>
 
-                    <p className="text-sm font-semibold text-slate-500">
-                      {diet.file_name}
-                    </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-500">
+                        {diet.file_name}
+                      </p>
+
+                      {(diet.start_date || diet.end_date) && (
+                        <p className="mt-1 text-xs font-bold text-slate-400">
+                          {diet.start_date || "—"} → {diet.end_date || "—"}
+                        </p>
+                      )}
+
+                      {diet.notes && (
+                        <div className="mt-3 rounded-2xl bg-white p-3 text-sm font-semibold leading-6 text-slate-600">
+                          <p className="mb-1 text-xs font-black uppercase tracking-wider text-teal-700">
+                            Indicazioni coach
+                          </p>
+                          {diet.notes}
+                        </div>
+                      )}
+                    </div>
+
+                    <Button
+                      onClick={() => openStorageFile("diets", diet.file_path)}
+                      className="shrink-0 bg-[#07111f] text-white"
+                    >
+                      Apri dieta
+                    </Button>
                   </div>
-
-                  <Button
-                    onClick={() => openStorageFile("diets", diet.file_path)}
-                    className="bg-[#07111f] text-white"
-                  >
-                    Apri dieta
-                  </Button>
                 </div>
               ))}
 
@@ -9873,27 +9911,55 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "posts" && (
           <Card className="p-5">
-            <h2 className="text-xl font-black">Bacheca coach</h2>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
+                  Comunicazioni
+                </p>
+                <h2 className="mt-2 text-xl font-black text-slate-950">
+                  Bacheca coach
+                </h2>
+              </div>
+              <Pill className="bg-teal-100 text-teal-700">
+                {posts.length} messaggi
+              </Pill>
+            </div>
 
             <div className="mt-4 space-y-3">
-              {posts.map((post) => (
-                <div
-                  key={post.id}
-                  className="rounded-2xl border border-slate-200 p-4"
-                >
-                  <div className="flex items-center gap-2">
-                    <p className="font-black">{post.title}</p>
+              {posts.map((post) => {
+                const category = String(post.post_type || "info").toLowerCase();
+                const categoryClass =
+                  category.includes("mot")
+                    ? "bg-teal-100 text-teal-700"
+                    : category.includes("avv") || category.includes("alert")
+                    ? "bg-amber-100 text-amber-700"
+                    : category.includes("mat")
+                    ? "bg-sky-100 text-sky-700"
+                    : "bg-slate-100 text-slate-700";
 
-                    {post.is_pinned && (
-                      <Pill className="bg-teal-100 text-teal-700">Fissato</Pill>
-                    )}
+                return (
+                  <div
+                    key={post.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Pill className={categoryClass}>
+                        {post.post_type || "Info"}
+                      </Pill>
+
+                      {post.is_pinned && (
+                        <Pill className="bg-[#07111f] text-white">Fissato</Pill>
+                      )}
+                    </div>
+
+                    <p className="mt-3 font-black text-slate-950">{post.title}</p>
+
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                      {post.body}
+                    </p>
                   </div>
-
-                  <p className="mt-2 text-sm font-semibold text-slate-600">
-                    {post.body}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
 
               {posts.length === 0 && (
                 <Empty title="Nessun messaggio" text="La bacheca è vuota." />
@@ -9901,6 +9967,7 @@ function getExerciseHistory(exercise) {
             </div>
           </Card>
         )}
+
 <WorkoutPlayerModal
   player={workoutPlayer}
   onClose={() =>
