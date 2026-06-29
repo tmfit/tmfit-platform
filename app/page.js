@@ -7801,14 +7801,23 @@ function WorkoutPlayerModal({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                      Serie da registrare
+                      Registra serie
                     </p>
                     <h4 className="mt-1 text-xl font-black text-slate-950">
                       Serie {setIndex + 1} di {plannedSets.length}
                     </h4>
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      Inserisci solo peso e ripetizioni. RPE/RIR compaiono solo se previsti dal coach.
+                    </p>
                   </div>
-                  <Pill className="bg-[#07111f] text-white">
-                    {completedCount}/{totalPlannedSets}
+                  <Pill
+                    className={
+                      completedSetKeys.includes(draftKey)
+                        ? "bg-teal-300 text-slate-950"
+                        : "bg-[#07111f] text-white"
+                    }
+                  >
+                    {completedSetKeys.includes(draftKey) ? "Salvata" : `${completedCount}/${totalPlannedSets}`}
                   </Pill>
                 </div>
 
@@ -7839,6 +7848,33 @@ function WorkoutPlayerModal({
                       </button>
                     );
                   })}
+                </div>
+
+                <div className="mt-4 rounded-[1.35rem] bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                    Target serie attuale
+                  </p>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
+                      <p className="text-base font-black text-slate-950">{targetReps}</p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Reps</p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
+                      <p className="truncate text-base font-black text-slate-950">{targetLoad}</p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Carico</p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
+                      <p className="text-base font-black text-slate-950">{recoverySeconds}\"</p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
+                    </div>
+                  </div>
+                  {(showRpe || showRir) && (
+                    <div className="mt-2 rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm">
+                      {showRpe && <span>RPE target: {currentSet?.target_rpe || exercise?.target_rpe || "—"}</span>}
+                      {showRpe && showRir && <span> · </span>}
+                      {showRir && <span>RIR target: {currentSet?.target_rir || exercise?.target_rir || "—"}</span>}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-5 grid grid-cols-2 gap-3">
@@ -7908,21 +7944,26 @@ function WorkoutPlayerModal({
                   </Label>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="mt-4 grid gap-2">
                   <button
                     type="button"
                     onClick={applyLastSet}
                     disabled={!lastHistory}
-                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-800 disabled:opacity-40"
+                    className="rounded-2xl bg-slate-100 px-3 py-3 text-left text-xs font-black text-slate-800 disabled:opacity-40"
                   >
-                    Usa ultimo
+                    <span className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                      Usa ultimo risultato
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-950">
+                      {lastHistory ? metricText(lastHistory) : "Nessuno storico disponibile"}
+                    </span>
                   </button>
                   <button
                     type="button"
                     onClick={applyTargetSet}
-                    className="rounded-2xl bg-teal-300 px-3 py-3 text-xs font-black text-slate-950"
+                    className="rounded-2xl bg-teal-300 px-3 py-3 text-sm font-black text-slate-950"
                   >
-                    Usa target
+                    Usa target della scheda
                   </button>
                 </div>
               </Card>
