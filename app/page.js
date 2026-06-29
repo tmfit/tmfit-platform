@@ -8742,288 +8742,293 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "training" && (
           <div className="space-y-5">
-            {plans.map((plan) => (
-              <Card key={plan.id} className="p-5">
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h2 className="text-2xl font-black">{plan.title}</h2>
+            {plans.map((plan) => {
+              const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
+                (week.workout_days || []).map((day) => ({ week, day }))
+              );
 
-                    {plan.goal && (
-                      <p className="mt-1 text-sm font-bold text-teal-700">
-                        {plan.goal}
+              const currentWeek = currentWeekNumber(plan);
+              const currentWeekDays = allTrainingDays.filter(
+                ({ week }) => Number(week?.week_number || 0) === currentWeek
+              );
+              const visibleTrainingDays =
+                currentWeekDays.length > 0 ? currentWeekDays : allTrainingDays;
+
+              const nextTraining = visibleTrainingDays[0] || allTrainingDays[0] || null;
+              const nextDay = nextTraining?.day || null;
+              const nextExerciseCount =
+                nextDay?.workout_blocks?.reduce(
+                  (sum, block) =>
+                    sum + (block.workout_exercises?.length || 0),
+                  0
+                ) || 0;
+              const nextMinutes = nextDay?.estimated_minutes || 60;
+
+              return (
+                <div key={plan.id} className="space-y-4">
+                  <Card className="overflow-hidden border-none bg-[#07111f] text-white shadow-xl">
+                    <div className="p-5">
+                      <p className="text-[11px] font-black uppercase tracking-[0.35em] text-teal-300">
+                        Prossimo allenamento
+                      </p>
+
+                      <div className="mt-4 flex flex-col gap-4">
+                        <div>
+                          <h2 className="text-3xl font-black leading-tight tracking-tight">
+                            {nextDay?.title || "Scheda non disponibile"}
+                          </h2>
+
+                          <p className="mt-2 text-sm font-bold text-slate-300">
+                            {plan.title}
+                            {plan.goal ? ` · ${plan.goal}` : ""}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="rounded-2xl bg-white/10 p-3">
+                            <p className="text-2xl font-black">
+                              {nextExerciseCount}
+                            </p>
+                            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
+                              Esercizi
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl bg-white/10 p-3">
+                            <p className="text-2xl font-black">
+                              {nextMinutes}
+                            </p>
+                            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
+                              Min
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl bg-white/10 p-3">
+                            <p className="text-2xl font-black">
+                              {currentWeek}
+                            </p>
+                            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
+                              Settimana
+                            </p>
+                          </div>
+                        </div>
+
+                        <Button
+                          type="button"
+                          disabled={!nextDay}
+                          onClick={() =>
+                            nextDay &&
+                            setWorkoutPlayer({
+                              open: true,
+                              plan,
+                              day: nextDay
+                            })
+                          }
+                          className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+                        >
+                          <Dumbbell size={17} className="mr-2" />
+                          Inizia allenamento
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card className="p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.28em] text-teal-600">
+                          Scheda
+                        </p>
+
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          Allenamenti settimana corrente
+                        </h3>
+                      </div>
+
+                      <Pill className="bg-teal-100 text-teal-700">
+                        {visibleTrainingDays.length} sedute
+                      </Pill>
+                    </div>
+
+                    {plan.notes && (
+                      <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-500">
+                        {plan.notes}
                       </p>
                     )}
 
-                    <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Settimana corrente: {currentWeekNumber(plan)}
-                    </p>
-                  </div>
+                    <div className="mt-4 space-y-3">
+                      {visibleTrainingDays.map(({ week, day }, dayIndex) => {
+                        const exerciseCount =
+                          day.workout_blocks?.reduce(
+                            (sum, block) =>
+                              sum + (block.workout_exercises?.length || 0),
+                            0
+                          ) || 0;
+                        const estimatedMinutes = day.estimated_minutes || 60;
 
-                  <Pill className="bg-teal-100 text-teal-700">
-                    {plan.duration_weeks || 4} settimane
-                  </Pill>
-                </div>
+                        return (
+                          <div
+                            key={`${week?.id || week?.week_number || "week"}-${day.id}`}
+                            className="rounded-3xl border border-slate-200 bg-white p-4"
+                          >
+                            <div className="flex flex-col gap-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+                                    Allenamento {dayIndex + 1}
+                                  </p>
 
-                {plan.notes && (
-                  <p className="mt-3 text-sm font-semibold text-slate-500">
-                    {plan.notes}
-                  </p>
-                )}
+                                  <h4 className="mt-1 truncate text-xl font-black text-slate-950">
+                                    {day.title}
+                                  </h4>
 
-                <div className="mt-5 space-y-5">
-                  {plan.workout_weeks?.map((week) =>
-                    week.workout_days?.map((day) => (
-                      <details
-                        key={day.id}
-                        open
-                        className="rounded-3xl bg-slate-50 p-4"
-                      >
-                        <summary className="cursor-pointer text-lg font-black">
-                          {day.title}
-                        </summary>
-<div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-  <p className="text-sm font-semibold text-slate-500">
-    Avvia questo allenamento in modalità guidata.
-  </p>
+                                  <p className="mt-1 text-sm font-bold text-slate-500">
+                                    {exerciseCount} esercizi · {estimatedMinutes} min
+                                    {week?.week_number
+                                      ? ` · settimana ${week.week_number}`
+                                      : ""}
+                                  </p>
+                                </div>
 
-  <Button
-    type="button"
-    onClick={() =>
-      setWorkoutPlayer({
-        open: true,
-        plan,
-        day
-      })
-    }
-    className="bg-[#07111f] text-white"
-  >
-    <Dumbbell size={17} className="mr-2" />
-    Allenati
-  </Button>
-</div>
-
-                        {day.notes && (
-                          <p className="mt-2 text-sm font-semibold text-slate-500">
-                            {day.notes}
-                          </p>
-                        )}
-
-                        <div className="mt-4 space-y-4">
-                          {day.workout_blocks?.map((block) =>
-                            block.workout_exercises?.map((exercise) => {
-                              const progression = progressionForExercise(
-                                plan,
-                                exercise
-                              );
-
-                              const targetSets =
-                                progression?.target_sets || exercise.sets;
-                              const targetReps =
-                                progression?.target_reps || exercise.reps;
-                              const targetRecovery =
-                                progression?.recovery_seconds ||
-                                exercise.recovery_seconds ||
-                                90;
-const exerciseHistory = getExerciseHistory(exercise);
-                              return (
-                                <div
-                                  key={exercise.id}
-                                  className="rounded-2xl bg-white p-4"
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setWorkoutPlayer({
+                                      open: true,
+                                      plan,
+                                      day
+                                    })
+                                  }
+                                  className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.98]"
                                 >
-                                  <div className="flex flex-col gap-4 md:flex-row md:items-start">
-                                    <ExerciseMediaPreview
-                                      media={exercise.exercise_media_library}
-                                    />
+                                  Inizia
+                                </button>
+                              </div>
 
-                                    <div className="flex-1">
-                                      <h4 className="text-lg font-black">
-                                        {exercise.exercise_name}
-                                      </h4>
+                              {day.notes && (
+                                <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-500">
+                                  {day.notes}
+                                </p>
+                              )}
 
-                                      <p className="mt-1 text-sm font-bold text-slate-600">
-                                        {targetSets || "—"} serie ·{" "}
-                                        {targetReps || "—"} reps · recupero{" "}
-                                        {targetRecovery}s
-                                      </p>
+                              <details className="group rounded-2xl bg-slate-50 p-3">
+                                <summary className="cursor-pointer list-none text-sm font-black text-slate-800">
+                                  Vedi esercizi e target
+                                </summary>
 
-                                      {progression && (
-                                        <div className="mt-3 rounded-2xl bg-teal-50 p-3 text-sm font-bold text-teal-800">
-                                          Target settimana{" "}
-                                          {progression.week_number}:{" "}
-                                          {progression.target_load_text ||
-                                            progression.target_load_kg ||
-                                            "carico libero"}{" "}
-                                          · RPE{" "}
-                                          {progression.target_rpe || "—"} · RIR{" "}
-                                          {progression.target_rir || "—"}
-                                          {progression.notes && (
-                                            <p className="mt-1">
-                                              Note: {progression.notes}
-                                            </p>
-                                          )}
-                                        </div>
-                                      )}
+                                <div className="mt-3 space-y-3">
+                                  {day.workout_blocks?.map((block) =>
+                                    block.workout_exercises?.map((exercise) => {
+                                      const progression = progressionForExercise(
+                                        plan,
+                                        exercise
+                                      );
 
-                                      {exercise.execution_mode && (
-                                        <p className="mt-2 text-sm font-semibold text-slate-500">
-                                          Esecuzione: {exercise.execution_mode}
-                                        </p>
-                                      )}
+                                      const targetSets =
+                                        progression?.target_sets || exercise.sets;
+                                      const targetReps =
+                                        progression?.target_reps || exercise.reps;
+                                      const targetRecovery =
+                                        progression?.recovery_seconds ||
+                                        exercise.recovery_seconds ||
+                                        90;
+                                      const exerciseHistory =
+                                        getExerciseHistory(exercise);
 
-                                      {exercise.notes && (
-                                        <p className="mt-1 text-sm font-semibold text-slate-500">
-                                          Note: {exercise.notes}
-                                        </p>
-                                      )}
-
-                                      <div className="mt-3 flex flex-wrap gap-2">
-                                        {exercise.video_url && (
-                                          <a
-                                            href={exercise.video_url}
-                                            target="_blank"
-                                            className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
-                                          >
-                                            Video
-                                          </a>
-                                        )}
-
-                                        {exercise.image_url && (
-                                          <a
-                                            href={exercise.image_url}
-                                            target="_blank"
-                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black"
-                                          >
-                                            Immagine
-                                          </a>
-                                        )}
-                                      </div>
-                                          <ExerciseHistoryBox history={exerciseHistory} />
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-4 space-y-3">
-                                    {exercise.workout_exercise_sets?.map(
-                                      (set) => {
-                                        const key = `${exercise.id}-${set.id}`;
-                                        const draft = drafts[key] || {};
-
-                                        return (
-                                          <div
-                                            key={set.id}
-                                            className="rounded-2xl bg-slate-50 p-3"
-                                          >
-                                            <div className="mb-2 flex items-center justify-between gap-3">
-                                              <p className="font-black">
-                                                Serie {set.set_number}
-                                              </p>
-
-                                              <Pill className="bg-white text-slate-700">
-                                                Target {targetReps || "—"}
-                                              </Pill>
-                                            </div>
-
-                                            <div className="grid gap-2 md:grid-cols-5">
-                                              <Input
-                                                type="number"
-                                                placeholder="Kg"
-                                                value={draft.load_kg || ""}
-                                                onChange={(event) =>
-                                                  updateDraft(
-                                                    key,
-                                                    "load_kg",
-                                                    event.target.value
-                                                  )
-                                                }
-                                              />
-
-                                              <Input
-                                                type="number"
-                                                placeholder="Reps"
-                                                value={draft.reps_done || ""}
-                                                onChange={(event) =>
-                                                  updateDraft(
-                                                    key,
-                                                    "reps_done",
-                                                    event.target.value
-                                                  )
-                                                }
-                                              />
-
-                                              <Input
-                                                type="number"
-                                                placeholder="RPE"
-                                                value={draft.rpe || ""}
-                                                onChange={(event) =>
-                                                  updateDraft(
-                                                    key,
-                                                    "rpe",
-                                                    event.target.value
-                                                  )
-                                                }
-                                              />
-
-                                              <Input
-                                                type="number"
-                                                placeholder="RIR"
-                                                value={draft.rir || ""}
-                                                onChange={(event) =>
-                                                  updateDraft(
-                                                    key,
-                                                    "rir",
-                                                    event.target.value
-                                                  )
-                                                }
-                                              />
-
-                                              <Button
-                                                onClick={() =>
-                                                  saveSetLog(
-                                                    plan,
-                                                    day,
-                                                    exercise,
-                                                    set
-                                                  )
-                                                }
-                                                className="bg-[#07111f] text-white"
-                                              >
-                                                Salva
-                                              </Button>
-                                            </div>
-
-                                            <Input
-                                              className="mt-2"
-                                              placeholder="Note serie"
-                                              value={draft.notes || ""}
-                                              onChange={(event) =>
-                                                updateDraft(
-                                                  key,
-                                                  "notes",
-                                                  event.target.value
-                                                )
+                                      return (
+                                        <div
+                                          key={exercise.id}
+                                          className="rounded-2xl bg-white p-3 shadow-sm"
+                                        >
+                                          <div className="flex gap-3">
+                                            <ExerciseMediaPreview
+                                              media={
+                                                exercise.exercise_media_library
                                               }
                                             />
 
-                                            <div className="mt-3">
-                                              <RestTimer
-                                                seconds={targetRecovery}
-                                              />
+                                            <div className="min-w-0 flex-1">
+                                              <h5 className="truncate text-base font-black text-slate-950">
+                                                {exercise.exercise_name}
+                                              </h5>
+
+                                              <p className="mt-1 text-sm font-bold text-slate-600">
+                                                {targetSets || "—"} serie ·{" "}
+                                                {targetReps || "—"} reps ·{" "}
+                                                recupero {targetRecovery}s
+                                              </p>
+
+                                              {progression && (
+                                                <p className="mt-2 rounded-xl bg-teal-50 px-3 py-2 text-xs font-bold leading-5 text-teal-800">
+                                                  Target settimana{" "}
+                                                  {progression.week_number}:{" "}
+                                                  {progression.target_load_text ||
+                                                    progression.target_load_kg ||
+                                                    "carico libero"}
+                                                </p>
+                                              )}
+
+                                              {exercise.notes && (
+                                                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                                                  Note: {exercise.notes}
+                                                </p>
+                                              )}
+
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                {exercise.video_url && (
+                                                  <a
+                                                    href={exercise.video_url}
+                                                    target="_blank"
+                                                    className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
+                                                  >
+                                                    Video
+                                                  </a>
+                                                )}
+
+                                                {exercise.image_url && (
+                                                  <a
+                                                    href={exercise.image_url}
+                                                    target="_blank"
+                                                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                                                  >
+                                                    Immagine
+                                                  </a>
+                                                )}
+                                              </div>
                                             </div>
                                           </div>
-                                        );
-                                      }
-                                    )}
-                                  </div>
+
+                                          <ExerciseHistoryBox
+                                            history={exerciseHistory}
+                                          />
+                                        </div>
+                                      );
+                                    })
+                                  )}
+
+                                  {exerciseCount === 0 && (
+                                    <p className="text-sm font-semibold text-slate-500">
+                                      Nessun esercizio inserito per questa seduta.
+                                    </p>
+                                  )}
                                 </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      </details>
-                    ))
-                  )}
+                              </details>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {visibleTrainingDays.length === 0 && (
+                        <Empty
+                          title="Nessun allenamento nella settimana corrente"
+                          text="Il programma è attivo, ma non ci sono sedute disponibili."
+                        />
+                      )}
+                    </div>
+                  </Card>
                 </div>
-              </Card>
-            ))}
+              );
+            })}
 
             {plans.length === 0 && (
               <Empty
