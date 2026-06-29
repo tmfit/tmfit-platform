@@ -196,10 +196,10 @@ function Select({ className = "", children, ...props }) {
   );
 }
 
-function Label({ title, children }) {
+function Label({ title, children, className = "", labelClassName = "" }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-black uppercase tracking-wider text-slate-400">
+    <label className={`block ${className}`}>
+      <span className={`mb-1 block text-xs font-black uppercase tracking-wider text-slate-400 ${labelClassName}`}>
         {title}
       </span>
       {children}
@@ -4222,21 +4222,24 @@ const builderQuality = getBuilderQualityReport();
           )}
 
           {activeTab === "programs" && (
-            <div className="space-y-5">
-              <Card className="p-3">
+            <div className="space-y-4">
+              <Card className="border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-                      Area programmi
+                      Programmi
                     </p>
+                    <h2 className="mt-1 text-xl font-black text-slate-950">
+                      Builder snello
+                    </h2>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Lavora a step: builder, programmi salvati e template separati.
+                      Meno schermate, più compilazione: dati base, giorni, esercizi e salvataggio.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
+                  <div className="grid grid-cols-3 gap-1 rounded-2xl bg-slate-100 p-1">
                     {[
-                      { id: "builder", label: "Builder" },
+                      { id: "builder", label: "Crea" },
                       { id: "saved", label: `Salvati ${plans.length}` },
                       { id: "templates", label: `Template ${templates.length}` }
                     ].map((item) => (
@@ -4247,7 +4250,7 @@ const builderQuality = getBuilderQualityReport();
                         className={`rounded-xl px-3 py-2 text-xs font-black transition ${
                           programPanel === item.id
                             ? "bg-[#07111f] text-white shadow-sm"
-                            : "text-slate-500 hover:bg-white"
+                            : "text-slate-600 hover:bg-white"
                         }`}
                       >
                         {item.label}
@@ -4260,129 +4263,91 @@ const builderQuality = getBuilderQualityReport();
               {!selectedClient && programPanel === "builder" && (
                 <Empty
                   title="Seleziona un cliente"
-                  text="Poi crea il programma smart."
+                  text="Scegli un cliente e poi crea la scheda."
                 />
               )}
 
               {selectedClient && programPanel === "builder" && (
-                <Card className="border-2 border-slate-300 bg-slate-50 p-5 shadow-md">
-                  <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <h2 className="text-xl font-black">
-  {editingProgramId
-    ? `Modifica programma: ${editingProgramTitle}`
-    : "Smart Workout Builder"}
-</h2>
+                <form onSubmit={saveWorkoutPlan} className="space-y-4">
+                  <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                          Scheda cliente
+                        </p>
+                        <h2 className="mt-1 truncate text-2xl font-black text-slate-950">
+                          {editingProgramId
+                            ? `Modifica: ${editingProgramTitle}`
+                            : builder.title || "Nuovo programma"}
+                        </h2>
+                        <p className="mt-1 text-sm font-semibold text-slate-500">
+                          {builderStats.totalDays} giorni · {builderStats.totalExercises} esercizi · {builder.duration_weeks || 4} settimane
+                        </p>
+                      </div>
 
-                      <p className="text-sm font-semibold text-slate-500">
-                        Allenamenti liberi, righe orizzontali, progressione solo
-                        dove serve.
-                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {editingProgramId && (
+                          <Button
+                            type="button"
+                            onClick={cancelProgramEditing}
+                            className="border border-amber-200 bg-amber-50 text-amber-700"
+                          >
+                            <X size={16} className="mr-2" />
+                            Annulla
+                          </Button>
+                        )}
+
+                        <Button
+                          type="button"
+                          onClick={addWorkoutDay}
+                          className="border border-slate-200 bg-white text-slate-900"
+                        >
+                          <Plus size={16} className="mr-2" />
+                          Giorno
+                        </Button>
+
+                        <Button
+                          type="button"
+                          onClick={saveBuilderAsTemplate}
+                          disabled={savingTemplate}
+                          className="border border-teal-200 bg-teal-50 text-teal-700"
+                        >
+                          <Save size={16} className="mr-2" />
+                          {savingTemplate ? "Salvataggio..." : "Template"}
+                        </Button>
+
+                        <Button
+                          type="submit"
+                          disabled={savingPlan || builderQuality.warnings.length > 0}
+                          className="bg-[#07111f] text-white"
+                        >
+                          {savingPlan
+                            ? "Salvataggio..."
+                            : editingProgramId
+                            ? "Aggiorna"
+                            : "Salva"}
+                        </Button>
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-  {editingProgramId && (
-    <Button
-  type="button"
-  onClick={cancelProgramEditing}
-  className="border border-slate-200 bg-white text-slate-700"
->
-  <X size={16} className="mr-2" />
-  Annulla modifica
-</Button>
-  )}
+                    {builderQuality.warnings.length > 0 && (
+                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+                        {builderQuality.warnings[0]}
+                        {builderQuality.warnings.length > 1 ? ` +${builderQuality.warnings.length - 1} avvisi` : ""}
+                      </div>
+                    )}
+                  </Card>
 
-  <Button
-  type="button"
-  onClick={addWorkoutDay}
-    className="border border-slate-200 bg-white text-slate-900"
-  >
-    <Plus size={16} className="mr-2" />
-    Allenamento
-  </Button>
-  
-</div>
-                  </div>
+                  <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-lg font-black text-slate-950">Dati base</h3>
+                      <Pill className="bg-slate-100 text-slate-700">
+                        Setup
+                      </Pill>
+                    </div>
 
-                  <form onSubmit={saveWorkoutPlan} className="space-y-5">
-    <SmartBuilderOverview
-  builder={builder}
-  editingProgramId={editingProgramId}
-  editingProgramTitle={editingProgramTitle}
-  stats={builderStats}
-  savingPlan={savingPlan}
-  savingTemplate={savingTemplate}
-  onSaveTemplate={saveBuilderAsTemplate}
-  onCancelEditing={cancelProgramEditing}
-/>
-    <BuilderWorkflowNav
-      activeStep={builderStep}
-      quality={builderQuality}
-      onChange={(step) => {
-        setBuilderStep(step);
-        if (typeof window !== "undefined") {
-          window.setTimeout(() => {
-            document
-              .getElementById(`builder-${step}`)
-              ?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 50);
-        }
-      }}
-    />
-    <ClientProgramPreviewPanel
-      builder={builder}
-      selectedClient={selectedClient}
-    />
-    <div className="sticky top-20 z-30 rounded-[1.5rem] border-2 border-[#07111f]/10 bg-white/95 p-3 shadow-xl backdrop-blur-xl">
-  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-    <div className="min-w-0">
-      <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-        Builder attivo
-      </p>
-
-      <p className="truncate text-sm font-bold text-slate-500">
-        {builder.title || "Nuovo programma"} · {builderStats.totalDays} giorni ·{" "}
-        {builderStats.totalExercises} esercizi ·{" "}
-        {builderStats.estimatedMinutes || 0} min stimati
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-2">
-      {editingProgramId && (
-        <Button
-          type="button"
-          onClick={cancelProgramEditing}
-          className="border border-slate-200 bg-white text-slate-700"
-        >
-          Annulla
-        </Button>
-      )}
-
-      <Button
-        type="button"
-        onClick={saveBuilderAsTemplate}
-        disabled={savingTemplate}
-        className="border border-teal-200 bg-teal-50 text-teal-700"
-      >
-        {savingTemplate ? "Salvataggio..." : "Salva template"}
-      </Button>
-
-      <Button
-        type="submit"
-        disabled={savingPlan || builderQuality.warnings.length > 0}
-        className="bg-[#07111f] text-white"
-      >
-        {savingPlan
-          ? "Salvataggio..."
-          : editingProgramId
-          ? "Aggiorna programma"
-          : "Salva programma"}
-      </Button>
-    </div>
-  </div>
-</div>
-                    <div id="builder-setup" className="grid scroll-mt-32 gap-3 md:grid-cols-3">
-                      <Label title="Titolo programma">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                      <Label title="Titolo" className="xl:col-span-2">
                         <Input
                           value={builder.title}
                           onChange={(event) =>
@@ -4394,7 +4359,7 @@ const builderQuality = getBuilderQualityReport();
                         />
                       </Label>
 
-                      <Label title="Obiettivo">
+                      <Label title="Obiettivo" className="xl:col-span-2">
                         <Input
                           value={builder.goal}
                           onChange={(event) =>
@@ -4413,10 +4378,24 @@ const builderQuality = getBuilderQualityReport();
                           min="1"
                           max="12"
                           value={builder.duration_weeks}
-                          onChange={(event) =>
-                            updateDurationWeeks(event.target.value)
-                          }
+                          onChange={(event) => updateDurationWeeks(event.target.value)}
                         />
+                      </Label>
+
+                      <Label title="Luogo">
+                        <Select
+                          value={builder.location}
+                          onChange={(event) =>
+                            setBuilder({
+                              ...builder,
+                              location: event.target.value
+                            })
+                          }
+                        >
+                          <option value="palestra">Palestra</option>
+                          <option value="casa">Casa</option>
+                          <option value="ibrido">Ibrido</option>
+                        </Select>
                       </Label>
 
                       <Label title="Inizio">
@@ -4445,571 +4424,424 @@ const builderQuality = getBuilderQualityReport();
                         />
                       </Label>
 
-                      <Label title="Luogo">
-                        <Select
-                          value={builder.location}
+                      <Label title="Note generali" className="md:col-span-2 xl:col-span-4">
+                        <Input
+                          value={builder.notes}
                           onChange={(event) =>
                             setBuilder({
                               ...builder,
-                              location: event.target.value
+                              notes: event.target.value
                             })
                           }
-                        >
-                          <option value="palestra">Palestra</option>
-                          <option value="casa">Casa</option>
-                          <option value="ibrido">Ibrido</option>
-                        </Select>
+                          placeholder="Indicazioni generali, gestione carichi, focus tecnico..."
+                        />
                       </Label>
                     </div>
+                  </Card>
 
-                    <Label title="Note generali">
-                      <Textarea
-                        value={builder.notes}
-                        onChange={(event) =>
-                          setBuilder({
-                            ...builder,
-                            notes: event.target.value
-                          })
-                        }
-                        placeholder="Indicazioni generali, focus tecnico, gestione carichi..."
-                      />
-                    </Label>
-
-                    <div id="builder-workouts" className="scroll-mt-32 space-y-5">
+                  <div className="space-y-4">
                     {builder.days.map((day, dayIndex) => (
-                      <div
+                      <Card
                         key={day.temp_id}
-                        className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm"
+                        className="overflow-hidden border border-slate-200 bg-white shadow-sm"
                       >
-                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                          <div className="grid flex-1 gap-3 md:grid-cols-3">
-                            <Label title="Allenamento">
-                              <Input
-                                value={day.title}
-                                onChange={(event) =>
-                                  updateBuilder((next) => {
-                                    next.days[dayIndex].title =
-                                      event.target.value;
-                                  })
-                                }
-                              />
-                            </Label>
+                        <div className="border-b border-slate-100 bg-[#07111f] p-4 text-white">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1.5fr)_120px_minmax(0,1fr)]">
+                              <Label title="Giorno" className="text-white [&_span]:text-slate-300">
+                                <Input
+                                  value={day.title}
+                                  onChange={(event) =>
+                                    updateBuilder((next) => {
+                                      next.days[dayIndex].title = event.target.value;
+                                    })
+                                  }
+                                  className="border-white/10 bg-white text-slate-950"
+                                />
+                              </Label>
 
-                            <Label title="Minuti stimati">
-                              <Input
-                                type="number"
-                                value={day.estimated_minutes}
-                                onChange={(event) =>
-                                  updateBuilder((next) => {
-                                    next.days[dayIndex].estimated_minutes =
-                                      event.target.value;
-                                  })
-                                }
-                              />
-                            </Label>
+                              <Label title="Minuti" className="text-white [&_span]:text-slate-300">
+                                <Input
+                                  type="number"
+                                  value={day.estimated_minutes}
+                                  onChange={(event) =>
+                                    updateBuilder((next) => {
+                                      next.days[dayIndex].estimated_minutes = event.target.value;
+                                    })
+                                  }
+                                  className="border-white/10 bg-white text-slate-950"
+                                />
+                              </Label>
 
-                            <Label title="Note giorno">
-                              <Input
-                                value={day.notes}
-                                onChange={(event) =>
-                                  updateBuilder((next) => {
-                                    next.days[dayIndex].notes =
-                                      event.target.value;
-                                  })
-                                }
-                                placeholder="Focus gambe, upper, push..."
-                              />
-                            </Label>
+                              <Label title="Note giorno" className="text-white [&_span]:text-slate-300">
+                                <Input
+                                  value={day.notes}
+                                  onChange={(event) =>
+                                    updateBuilder((next) => {
+                                      next.days[dayIndex].notes = event.target.value;
+                                    })
+                                  }
+                                  placeholder="Upper, lower, push..."
+                                  className="border-white/10 bg-white text-slate-950"
+                                />
+                              </Label>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                onClick={() => moveWorkoutDay(dayIndex, -1)}
+                                disabled={dayIndex === 0}
+                                className="border border-white/10 bg-white/10 px-3 text-white"
+                              >
+                                ↑
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => moveWorkoutDay(dayIndex, 1)}
+                                disabled={dayIndex === builder.days.length - 1}
+                                className="border border-white/10 bg-white/10 px-3 text-white"
+                              >
+                                ↓
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => duplicateWorkoutDay(dayIndex)}
+                                className="border border-white/10 bg-white/10 text-white"
+                              >
+                                Duplica
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => addExerciseRow(dayIndex)}
+                                className="bg-teal-300 text-slate-950"
+                              >
+                                <Plus size={16} className="mr-2" />
+                                Esercizio
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => removeWorkoutDay(dayIndex)}
+                                className="border border-red-300 bg-white text-red-600"
+                              >
+                                <X size={16} />
+                              </Button>
+                            </div>
                           </div>
-
-                          <div className="flex flex-wrap gap-2">
-  <Button
-    type="button"
-    onClick={() => moveWorkoutDay(dayIndex, -1)}
-    disabled={dayIndex === 0}
-    className="border border-slate-200 bg-white px-3 text-slate-700"
-  >
-    ↑
-  </Button>
-
-  <Button
-    type="button"
-    onClick={() => moveWorkoutDay(dayIndex, 1)}
-    disabled={dayIndex === builder.days.length - 1}
-    className="border border-slate-200 bg-white px-3 text-slate-700"
-  >
-    ↓
-  </Button>
-
-  <Button
-    type="button"
-    onClick={() => duplicateWorkoutDay(dayIndex)}
-    className="border border-teal-200 bg-teal-50 text-teal-700"
-  >
-    Duplica giorno
-  </Button>
-
-  <Button
-    type="button"
-    onClick={() => addExerciseRow(dayIndex)}
-    className="border border-slate-200 bg-white text-slate-900"
-  >
-    <Plus size={16} className="mr-2" />
-    Esercizio
-  </Button>
-
-  <Button
-    type="button"
-    onClick={() => removeWorkoutDay(dayIndex)}
-    className="border border-red-200 bg-white text-red-600"
-  >
-    <X size={16} />
-  </Button>
-</div>
                         </div>
 
-                        <div className="space-y-3">
-                          {day.exercises.map((exercise, exerciseIndex) => {
-                            const matchedMedia = exercise.exercise_media_id
-                              ? mediaById.get(exercise.exercise_media_id)
-                              : findMediaForExercise(exercise.exercise_name);
-
-                            return (
-                              <div
-                                key={exercise.temp_id}
-                                className="rounded-[1.6rem] border-2 border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200"
-                              >
-                                <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-                                  <div className="flex shrink-0 items-center gap-3 xl:block">
-                                    <ExerciseMediaPreview media={matchedMedia} />
-                                    <div className="xl:hidden">
-                                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-teal-700">
-                                        Esercizio {exerciseIndex + 1}
-                                      </p>
-                                      <p className="text-sm font-bold text-slate-500">
-                                        Scheda cliente
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="min-w-0 flex-1 space-y-4">
-                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="hidden text-[11px] font-black uppercase tracking-[0.2em] text-teal-700 xl:block">
-                                          Esercizio {exerciseIndex + 1}
-                                        </p>
-                                        <Input
-                                          list="exercise-media-list"
-                                          placeholder="Scrivi esercizio"
-                                          value={exercise.exercise_name}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "exercise_name",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                        />
-
-                                        <select
-                                          value={exercise.exercise_media_id}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "exercise_media_id",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                                        >
-                                          <option value="">Immagine auto/opzionale</option>
-
-                                          {exerciseMedia.map((media) => (
-                                            <option key={media.id} value={media.id}>
-                                              {media.name}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-
-                                      <div className="flex flex-wrap gap-1.5">
-                                        <Button
-                                          type="button"
-                                          onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
-                                          disabled={exerciseIndex === 0}
-                                          className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
-                                        >
-                                          ↑
-                                        </Button>
-
-                                        <Button
-                                          type="button"
-                                          onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
-                                          disabled={exerciseIndex === day.exercises.length - 1}
-                                          className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
-                                        >
-                                          ↓
-                                        </Button>
-
-                                        <Button
-                                          type="button"
-                                          onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
-                                          className="border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700"
-                                        >
-                                          Duplica
-                                        </Button>
-
-                                        <Button
-                                          type="button"
-                                          onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
-                                          className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
-                                        >
-                                          <X size={14} />
-                                        </Button>
-                                      </div>
-                                    </div>
-
-                                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-                                      <Label title="Serie">
-                                        <BuilderCellInput
-                                          type="text"
-                                          inputMode="text"
-                                          placeholder="3"
-                                          value={exercise.sets || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "sets",
-                                              event.target.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-
-                                      <Label title="Reps">
-                                        <BuilderCellInput
-                                          type="text"
-                                          inputMode="text"
-                                          placeholder="8-10"
-                                          value={exercise.reps || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "reps",
-                                              event.target.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-
-                                      <Label title="Recupero sec">
-                                        <Input
-                                          type="number"
-                                          value={exercise.recovery_seconds}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "recovery_seconds",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-
-                                      <Label title="RPE opz.">
-                                        <BuilderCellInput
-                                          type="text"
-                                          inputMode="decimal"
-                                          placeholder="8"
-                                          value={exercise.target_rpe || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "target_rpe",
-                                              event.target.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-
-                                      <Label title="RIR opz.">
-                                        <BuilderCellInput
-                                          type="text"
-                                          inputMode="decimal"
-                                          placeholder="2"
-                                          value={exercise.target_rir || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "target_rir",
-                                              event.target.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-
-                                      <Label title="Esecuzione">
-                                        <Input
-                                          placeholder="Controllata..."
-                                          value={exercise.execution_mode}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "execution_mode",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-
-                                      <Label title="Video opz.">
-                                        <Input
-                                          placeholder="Link"
-                                          value={exercise.video_url}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "video_url",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                        />
-                                      </Label>
-                                    </div>
-
-                                    <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
-                                      <Input
-                                        placeholder="Note coach / cue esecutivi"
-                                        value={exercise.notes}
-                                        onChange={(event) =>
-                                          updateExerciseField(
-                                            dayIndex,
-                                            exerciseIndex,
-                                            "notes",
-                                            event.currentTarget.value
-                                          )
-                                        }
-                                      />
-
-                                      <label className="flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-xs font-black text-teal-800">
-                                        <input
-                                          type="checkbox"
-                                          checked={exercise.has_weekly_progression}
-                                          onChange={(event) =>
-                                            toggleExerciseProgression(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              event.target.checked
-                                            )
-                                          }
-                                        />
-                                        Progressione settimanale
-                                      </label>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <datalist id="exercise-media-list">
-                          {exerciseMedia.map((media) => (
-                            <option key={media.id} value={media.name} />
-                          ))}
-                        </datalist>
-
-                        <div className="mt-4 space-y-3">
-                          {day.exercises.map((exercise, exerciseIndex) => {
-                            if (!exercise.has_weekly_progression) return null;
-
-                            return (
-                              <div
-                                key={`${exercise.temp_id}-progression`}
-                                className="rounded-3xl border border-teal-200 bg-teal-50 p-4"
-                              >
-                                <div className="mb-3 flex items-center gap-2">
-                                  <Check size={17} className="text-teal-700" />
-
-                                  <p className="font-black text-teal-900">
-                                    Progressione settimanale ·{" "}
-                                    {exercise.exercise_name ||
-                                      `Esercizio ${exerciseIndex + 1}`}
-                                  </p>
-                                </div>
-
-                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                  {exercise.progressions.map(
-                                    (progression, progressionIndex) => (
-                                      <div
-                                        key={progression.temp_id}
-                                        className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
-                                      >
-                                        <div className="mb-3 flex items-center justify-between gap-2">
-                                          <p className="font-black text-teal-900">
-                                            Settimana {progression.week_number}
-                                          </p>
-                                          <Pill className="bg-teal-100 text-teal-700">Target</Pill>
-                                        </div>
-
-                                        <div className="grid gap-2 sm:grid-cols-2">
-                                          <Label title="Serie">
-                                            <Input
-                                              value={progression.target_sets}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].target_sets = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-
-                                          <Label title="Reps">
-                                            <Input
-                                              value={progression.target_reps}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].target_reps = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-
-                                          <Label title="Kg / target">
-                                            <Input
-                                              placeholder="70kg / +2.5kg"
-                                              value={progression.target_load_text}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].target_load_text = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-
-                                          <Label title="RPE">
-                                            <Input
-                                              value={progression.target_rpe}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].target_rpe = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-
-                                          <Label title="RIR">
-                                            <Input
-                                              value={progression.target_rir}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].target_rir = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-
-                                          <Label title="Recupero sec">
-                                            <Input
-                                              value={progression.recovery_seconds}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].recovery_seconds = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-                                        </div>
-
-                                        <div className="mt-2">
-                                          <Label title="Note">
-                                            <Input
-                                              value={progression.notes}
-                                              onChange={(event) =>
-                                                updateBuilder((next) => {
-                                                  next.days[dayIndex].exercises[
-                                                    exerciseIndex
-                                                  ].progressions[
-                                                    progressionIndex
-                                                  ].notes = event.target.value;
-                                                })
-                                              }
-                                            />
-                                          </Label>
-                                        </div>
-                                      </div>
-                                    )
+                        <div className="space-y-3 p-4">
+                          {day.exercises.map((exercise, exerciseIndex) => (
+                            <div
+                              key={exercise.temp_id}
+                              className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+                            >
+                              <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Pill className="bg-teal-100 text-teal-700">
+                                    Esercizio {exerciseIndex + 1}
+                                  </Pill>
+                                  {exercise.has_weekly_progression && (
+                                    <Pill className="bg-[#07111f] text-white">
+                                      Progressione
+                                    </Pill>
                                   )}
                                 </div>
+
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button
+                                    type="button"
+                                    onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
+                                    disabled={exerciseIndex === 0}
+                                    className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
+                                  >
+                                    ↑
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
+                                    disabled={exerciseIndex === day.exercises.length - 1}
+                                    className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
+                                  >
+                                    ↓
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
+                                    className="border border-teal-200 bg-white px-3 py-2 text-xs text-teal-700"
+                                  >
+                                    Duplica
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
+                                    className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+                                  >
+                                    <X size={14} />
+                                  </Button>
+                                </div>
                               </div>
-                            );
-                          })}
+
+                              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_90px_110px_120px_90px_90px]">
+                                <Label title="Esercizio" className="md:col-span-2 xl:col-span-1">
+                                  <Input
+                                    placeholder="Panca piana, Squat, Lat machine..."
+                                    value={exercise.exercise_name}
+                                    onChange={(event) =>
+                                      updateExerciseField(
+                                        dayIndex,
+                                        exerciseIndex,
+                                        "exercise_name",
+                                        event.currentTarget.value
+                                      )
+                                    }
+                                  />
+                                </Label>
+
+                                <Label title="Serie">
+                                  <Input
+                                    value={exercise.sets || ""}
+                                    onChange={(event) =>
+                                      updateExerciseField(dayIndex, exerciseIndex, "sets", event.target.value)
+                                    }
+                                  />
+                                </Label>
+
+                                <Label title="Reps">
+                                  <Input
+                                    value={exercise.reps || ""}
+                                    onChange={(event) =>
+                                      updateExerciseField(dayIndex, exerciseIndex, "reps", event.target.value)
+                                    }
+                                  />
+                                </Label>
+
+                                <Label title="Recupero sec">
+                                  <Input
+                                    value={exercise.recovery_seconds || ""}
+                                    onChange={(event) =>
+                                      updateExerciseField(
+                                        dayIndex,
+                                        exerciseIndex,
+                                        "recovery_seconds",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </Label>
+
+                                <Label title="RPE">
+                                  <Input
+                                    value={exercise.target_rpe || ""}
+                                    onChange={(event) =>
+                                      updateExerciseField(dayIndex, exerciseIndex, "target_rpe", event.target.value)
+                                    }
+                                  />
+                                </Label>
+
+                                <Label title="RIR">
+                                  <Input
+                                    value={exercise.target_rir || ""}
+                                    onChange={(event) =>
+                                      updateExerciseField(dayIndex, exerciseIndex, "target_rir", event.target.value)
+                                    }
+                                  />
+                                </Label>
+                              </div>
+
+                              <details className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                                <summary className="cursor-pointer text-sm font-black text-slate-700">
+                                  Dettagli opzionali, video, note e progressione
+                                </summary>
+
+                                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                  <Label title="Note esecuzione" className="md:col-span-2 xl:col-span-2">
+                                    <Input
+                                      value={exercise.notes || ""}
+                                      onChange={(event) =>
+                                        updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
+                                      }
+                                      placeholder="Cue tecnici, range, varianti..."
+                                    />
+                                  </Label>
+
+                                  <Label title="Video URL">
+                                    <Input
+                                      value={exercise.video_url || ""}
+                                      onChange={(event) =>
+                                        updateExerciseField(dayIndex, exerciseIndex, "video_url", event.target.value)
+                                      }
+                                    />
+                                  </Label>
+
+                                  <Label title="Immagine URL">
+                                    <Input
+                                      value={exercise.image_url || ""}
+                                      onChange={(event) =>
+                                        updateExerciseField(dayIndex, exerciseIndex, "image_url", event.target.value)
+                                      }
+                                    />
+                                  </Label>
+
+                                  <Label title="Media esercizio" className="md:col-span-2">
+                                    <Select
+                                      value={exercise.exercise_media_id || ""}
+                                      onChange={(event) =>
+                                        updateExerciseField(
+                                          dayIndex,
+                                          exerciseIndex,
+                                          "exercise_media_id",
+                                          event.currentTarget.value
+                                        )
+                                      }
+                                    >
+                                      <option value="">Immagine auto/opzionale</option>
+                                      {exerciseMedia.map((media) => (
+                                        <option key={media.id} value={media.id}>
+                                          {media.name}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </Label>
+
+                                  <label className="flex items-center gap-3 rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800 md:col-span-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(exercise.has_weekly_progression)}
+                                      onChange={(event) =>
+                                        toggleExerciseProgression(
+                                          dayIndex,
+                                          exerciseIndex,
+                                          event.target.checked
+                                        )
+                                      }
+                                    />
+                                    Progressione settimanale su questo esercizio
+                                  </label>
+                                </div>
+
+                                {exercise.has_weekly_progression && (
+                                  <div className="mt-4 space-y-2">
+                                    {(exercise.progressions || []).map((progression, progressionIndex) => (
+                                      <div
+                                        key={progression.temp_id || progressionIndex}
+                                        className="grid gap-2 rounded-2xl border border-teal-100 bg-teal-50/60 p-3 md:grid-cols-2 xl:grid-cols-[80px_repeat(6,minmax(0,1fr))]"
+                                      >
+                                        <div className="flex items-end">
+                                          <Pill className="bg-teal-300 text-slate-950">
+                                            W{progression.week_number || progressionIndex + 1}
+                                          </Pill>
+                                        </div>
+
+                                        {[
+                                          ["target_sets", "Serie"],
+                                          ["target_reps", "Reps"],
+                                          ["target_load_text", "Kg/target"],
+                                          ["target_rpe", "RPE"],
+                                          ["target_rir", "RIR"],
+                                          ["recovery_seconds", "Recupero"]
+                                        ].map(([field, label]) => (
+                                          <Label key={field} title={label}>
+                                            <Input
+                                              value={progression[field] || ""}
+                                              onChange={(event) =>
+                                                updateProgressionField(
+                                                  dayIndex,
+                                                  exerciseIndex,
+                                                  progressionIndex,
+                                                  field,
+                                                  event.target.value
+                                                )
+                                              }
+                                            />
+                                          </Label>
+                                        ))}
+
+                                        <Label title="Note" className="md:col-span-2 xl:col-span-7">
+                                          <Input
+                                            value={progression.notes || ""}
+                                            onChange={(event) =>
+                                              updateProgressionField(
+                                                dayIndex,
+                                                exerciseIndex,
+                                                progressionIndex,
+                                                "notes",
+                                                event.target.value
+                                              )
+                                            }
+                                          />
+                                        </Label>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </details>
+                            </div>
+                          ))}
                         </div>
-                      </div>
+                      </Card>
                     ))}
-                    </div>
+                  </div>
 
-                    <div id="builder-progressions" className="scroll-mt-32 rounded-[1.6rem] border border-dashed border-teal-200 bg-teal-50/60 p-4">
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-                            Step progressioni
-                          </p>
-                          <p className="mt-1 text-sm font-bold text-slate-600">
-                            Le progressioni restano dentro ogni esercizio: attiva la spunta “progressione” solo sugli esercizi chiave.
-                          </p>
-                        </div>
-                        <Pill className="bg-teal-300 text-slate-950">
-                          {builderStats.totalProgressions} progressioni attive
-                        </Pill>
+                  <div className="grid gap-4 xl:grid-cols-[1fr_.9fr]">
+                    <details className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
+                      <summary className="cursor-pointer text-sm font-black text-slate-800">
+                        Anteprima cliente
+                      </summary>
+                      <div className="mt-4">
+                        <ClientProgramPreviewPanel
+                          builder={builder}
+                          selectedClient={selectedClient}
+                        />
+                      </div>
+                    </details>
+
+                    <details className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
+                      <summary className="cursor-pointer text-sm font-black text-slate-800">
+                        Controllo qualità e avvisi
+                      </summary>
+                      <div className="mt-4">
+                        <BuilderQualityPanel
+                          builder={builder}
+                          quality={builderQuality}
+                          selectedClient={selectedClient}
+                          stats={builderStats}
+                          savingPlan={savingPlan}
+                          editingProgramId={editingProgramId}
+                        />
+                      </div>
+                    </details>
+                  </div>
+
+                  <Card className="sticky bottom-4 z-20 border-2 border-[#07111f]/10 bg-white/95 p-3 shadow-xl backdrop-blur">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <p className="text-sm font-bold text-slate-500">
+                        {builderStats.totalDays} giorni · {builderStats.totalExercises} esercizi · {builderQuality.statusLabel}
+                      </p>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          onClick={addWorkoutDay}
+                          className="border border-slate-200 bg-white text-slate-900"
+                        >
+                          + Giorno
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={savingPlan || builderQuality.warnings.length > 0}
+                          className="bg-[#07111f] text-white"
+                        >
+                          {savingPlan
+                            ? "Salvataggio..."
+                            : editingProgramId
+                            ? "Aggiorna programma"
+                            : "Salva programma"}
+                        </Button>
                       </div>
                     </div>
-
-                    <div id="builder-summary" className="scroll-mt-32">
-                      <BuilderQualityPanel
-                        builder={builder}
-                        quality={builderQuality}
-                        selectedClient={selectedClient}
-                        stats={builderStats}
-                        savingPlan={savingPlan}
-                        editingProgramId={editingProgramId}
-                      />
-                    </div>
-                  </form>
-                </Card>
+                  </Card>
+                </form>
               )}
 
               {programPanel === "templates" && (
@@ -8430,6 +8262,263 @@ function WorkoutPlayerModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function CoachMonitorPanel({
+  selectedClient,
+  checkins = [],
+  logs = [],
+  photos = [],
+  openStorageFile
+}) {
+  const clientId = selectedClient?.id ? String(selectedClient.id) : null;
+  const visibleCheckins = clientId
+    ? checkins.filter((item) => String(item.client_id) === clientId)
+    : checkins;
+  const visibleLogs = clientId
+    ? logs.filter((item) => String(item.client_id) === clientId)
+    : logs;
+  const visiblePhotos = clientId
+    ? photos.filter((item) => String(item.client_id) === clientId)
+    : photos;
+
+  function formatDate(value) {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    return date.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit"
+    });
+  }
+
+  function daysFrom(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  function getCheckinAlerts(checkin) {
+    if (!checkin) return [];
+    const alerts = [];
+
+    if (Number(checkin.energy_level) > 0 && Number(checkin.energy_level) <= 4) {
+      alerts.push({ label: "Energia bassa", text: `${checkin.energy_level}/10`, tone: "red" });
+    }
+
+    if (Number(checkin.sleep_quality) > 0 && Number(checkin.sleep_quality) <= 4) {
+      alerts.push({ label: "Sonno basso", text: `${checkin.sleep_quality}/10`, tone: "red" });
+    }
+
+    if (Number(checkin.stress_level) >= 8) {
+      alerts.push({ label: "Stress alto", text: `${checkin.stress_level}/10`, tone: "red" });
+    }
+
+    if (Number(checkin.diet_adherence) > 0 && Number(checkin.diet_adherence) <= 5) {
+      alerts.push({ label: "Aderenza dieta bassa", text: `${checkin.diet_adherence}/10`, tone: "amber" });
+    }
+
+    if (Number(checkin.training_adherence) > 0 && Number(checkin.training_adherence) <= 5) {
+      alerts.push({ label: "Aderenza allenamento bassa", text: `${checkin.training_adherence}/10`, tone: "amber" });
+    }
+
+    return alerts;
+  }
+
+  const latestCheckin = visibleCheckins[0] || null;
+  const latestPhoto = visiblePhotos[0] || null;
+  const latestLog = visibleLogs[0] || null;
+  const latestCheckinDays = daysFrom(latestCheckin?.checkin_date || latestCheckin?.created_at);
+  const latestPhotoDays = daysFrom(latestPhoto?.photo_date || latestPhoto?.created_at);
+  const latestLogDays = daysFrom(latestLog?.created_at || latestLog?.session_date);
+  const alerts = getCheckinAlerts(latestCheckin);
+
+  const kpis = [
+    {
+      label: "Ultimo check-in",
+      value: latestCheckinDays === null ? "—" : `${latestCheckinDays}g fa`,
+      text: latestCheckin ? formatDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Non presente"
+    },
+    {
+      label: "Serie registrate",
+      value: visibleLogs.length,
+      text: latestLog ? `Ultima: ${formatDate(latestLog.created_at || latestLog.session_date)}` : "Nessun log"
+    },
+    {
+      label: "Foto progressi",
+      value: visiblePhotos.length,
+      text: latestPhotoDays === null ? "Non presenti" : `Ultima ${latestPhotoDays}g fa`
+    }
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+              Monitor
+            </p>
+            <h2 className="mt-1 text-2xl font-black text-slate-950">
+              {selectedClient ? fullName(selectedClient) : "Monitor clienti"}
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              Check-in, allenamenti e foto in una schermata pulita. Niente overlay blu.
+            </p>
+          </div>
+
+          <Pill className={alerts.length ? "bg-red-100 text-red-700" : "bg-teal-100 text-teal-700"}>
+            {alerts.length ? `${alerts.length} alert` : "Tutto ok"}
+          </Pill>
+        </div>
+      </Card>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        {kpis.map((item) => (
+          <Card key={item.label} className="border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+              {item.label}
+            </p>
+            <p className="mt-2 text-3xl font-black text-slate-950">{item.value}</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">{item.text}</p>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-lg font-black text-slate-950">Alert check-in</h3>
+          <Pill className="bg-slate-100 text-slate-700">
+            Ultimo check-in
+          </Pill>
+        </div>
+
+        {alerts.length > 0 ? (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {alerts.map((alert) => (
+              <div
+                key={`${alert.label}-${alert.text}`}
+                className={`rounded-2xl border p-3 ${
+                  alert.tone === "red"
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+                }`}
+              >
+                <p className="text-sm font-black">{alert.label}</p>
+                <p className="mt-1 text-xs font-bold">{alert.text}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty
+            title="Nessun alert critico"
+            text="L’ultimo check-in non mostra segnali critici evidenti."
+          />
+        )}
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="text-lg font-black text-slate-950">Check-in recenti</h3>
+          <div className="mt-3 space-y-2">
+            {visibleCheckins.slice(0, 6).map((checkin) => (
+              <div key={checkin.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-black text-slate-950">
+                    {formatDate(checkin.checkin_date || checkin.created_at)}
+                  </p>
+                  <Pill className="bg-white text-slate-700">
+                    Peso {checkin.weight_kg || "—"} kg
+                  </Pill>
+                </div>
+                <p className="mt-2 text-sm font-bold text-slate-600">
+                  Energia {checkin.energy_level || "—"}/10 · Sonno {checkin.sleep_quality || "—"}/10 · Stress {checkin.stress_level || "—"}/10
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-500">
+                  Dieta {checkin.diet_adherence || "—"}/10 · Allenamento {checkin.training_adherence || "—"}/10
+                </p>
+                {checkin.notes && (
+                  <p className="mt-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">
+                    {checkin.notes}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {visibleCheckins.length === 0 && (
+              <Empty title="Nessun check-in" text="Non ci sono check-in da visualizzare." />
+            )}
+          </div>
+        </Card>
+
+        <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="text-lg font-black text-slate-950">Allenamenti recenti</h3>
+          <div className="mt-3 space-y-2">
+            {visibleLogs.slice(0, 8).map((log) => (
+              <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-black text-slate-950">
+                    {log.workout_exercises?.exercise_name || "Esercizio"}
+                  </p>
+                  <Pill className="bg-white text-slate-700">
+                    {formatDate(log.created_at || log.session_date)}
+                  </Pill>
+                </div>
+                <p className="mt-2 text-sm font-bold text-slate-600">
+                  {log.load_kg || "—"} kg · {log.reps_done || "—"} reps · RPE {log.rpe || "—"} · RIR {log.rir || "—"}
+                </p>
+                {log.notes && (
+                  <p className="mt-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">
+                    {log.notes}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {visibleLogs.length === 0 && (
+              <Empty title="Nessun allenamento" text="Non ci sono serie registrate." />
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-lg font-black text-slate-950">Foto progressi</h3>
+          <Pill className="bg-slate-100 text-slate-700">{visiblePhotos.length} foto</Pill>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {visiblePhotos.slice(0, 8).map((photo) => (
+            <div key={photo.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <p className="font-black text-slate-950">
+                {formatDate(photo.photo_date || photo.created_at)}
+              </p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                {photo.photo_type || photo.file_name || "Foto progressi"}
+              </p>
+              {photo.file_path && (
+                <Button
+                  type="button"
+                  onClick={() => openStorageFile("progress-photos", photo.file_path)}
+                  className="mt-3 w-full border border-slate-200 bg-white text-slate-700"
+                >
+                  Apri
+                </Button>
+              )}
+            </div>
+          ))}
+
+          {visiblePhotos.length === 0 && (
+            <Empty title="Nessuna foto" text="Non ci sono foto progressi." />
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
