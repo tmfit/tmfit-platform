@@ -733,7 +733,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
           {prominent && (
             <div className="rounded-2xl bg-white/10 px-3 py-2 text-center">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
-                Suono
+                Avviso
               </p>
               <p className="mt-1 text-xs font-black text-white">
                 {soundEnabled ? "ON" : "OFF"}
@@ -8014,7 +8014,7 @@ function WorkoutPlayerModal({
             <div className="space-y-4">
               <Card className="border-none bg-[#07111f] p-4 text-white shadow-md">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-300">
                       Sessione live
                     </p>
@@ -8030,42 +8030,32 @@ function WorkoutPlayerModal({
                     <p className="text-[9px] font-black uppercase tracking-wider">Serie eserc.</p>
                   </div>
                 </div>
-              </Card>
 
-              <Card className="border-none bg-white p-4 shadow-md">
-                <div className="flex items-center justify-between gap-3">
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-white/10 px-3 py-3">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                      Modalità allenamento
-                    </p>
-                    <h4 className="mt-1 text-base font-black text-slate-950">
-                      Schermo sempre attivo
-                    </h4>
-                    <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                      Prova a non far spegnere lo schermo durante la seduta. Su iPhone/Android dipende dal browser.
+                    <p className="text-xs font-black text-white">Schermo attivo</p>
+                    <p className="mt-0.5 truncate text-[11px] font-bold text-slate-300">
+                      {wakeLockStatus === "active"
+                        ? "Attivo durante la seduta"
+                        : wakeLockStatus === "unsupported"
+                        ? "Non supportato dal dispositivo"
+                        : wakeLockStatus === "released"
+                        ? "Sospeso, riattivalo"
+                        : "Opzionale su iPhone/Android"}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setKeepAwake((current) => !current)}
-                    className={`shrink-0 rounded-2xl px-4 py-3 text-xs font-black active:scale-[.96] ${
+                    className={`shrink-0 rounded-2xl px-4 py-2.5 text-xs font-black active:scale-[.96] ${
                       keepAwake
                         ? "bg-teal-300 text-slate-950"
-                        : "bg-slate-100 text-slate-700"
+                        : "bg-white/10 text-white"
                     }`}
                   >
                     {keepAwake ? "ON" : "OFF"}
                   </button>
                 </div>
-                <p className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-                  {wakeLockStatus === "active"
-                    ? "Schermo attivo: resta in questa schermata durante l’allenamento."
-                    : wakeLockStatus === "unsupported"
-                    ? "Se il telefono lo blocca comunque, tieni la luminosità attiva dalle impostazioni."
-                    : wakeLockStatus === "released"
-                    ? "Schermo attivo sospeso: riapri l’app o riattiva il toggle."
-                    : "Attivalo quando inizi la seduta."}
-                </p>
               </Card>
 
               <Card className="overflow-hidden border-none shadow-md">
@@ -8146,7 +8136,7 @@ function WorkoutPlayerModal({
               <Card className="overflow-hidden border-none shadow-md">
                 <div className="bg-white p-5">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-lg font-black text-red-700">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-lg font-black text-teal-700">
                       {exerciseLetter}.
                     </div>
                     <div className="min-w-0 flex-1">
@@ -8225,7 +8215,7 @@ function WorkoutPlayerModal({
                       Serie {setIndex + 1} di {plannedSets.length}
                     </h4>
                     <p className="mt-1 text-xs font-bold text-slate-500">
-                      Inserisci solo peso e ripetizioni. RPE/RIR compaiono solo se previsti dal coach.
+                      Inserisci peso e ripetizioni. RPE/RIR compaiono solo se previsti dal coach.
                     </p>
                   </div>
                   <Pill
@@ -8622,7 +8612,7 @@ function WorkoutPlayerModal({
                   onClick={goNext}
                   className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
                 >
-                  Salta
+                  Avanti
                 </button>
                 <button
                   type="button"
