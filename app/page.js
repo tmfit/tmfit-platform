@@ -610,6 +610,14 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
     if (typeof window === "undefined") return;
 
     try {
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate([250, 120, 250]);
+      }
+    } catch (error) {
+      console.warn("Timer vibration unavailable", error?.message || error);
+    }
+
+    try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
 
@@ -713,7 +721,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
               >
                 {completed
                   ? soundEnabled
-                    ? "Recupero finito: suono inviato."
+                    ? "Recupero finito: avviso inviato."
                     : "Recupero finito."
                   : running
                   ? "Timer in corso"
@@ -780,7 +788,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
                 : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
             }
           >
-            {soundEnabled ? "Suono ON" : "Suono OFF"}
+            {soundEnabled ? "Avviso ON" : "Avviso OFF"}
           </button>
         </div>
 
@@ -7235,6 +7243,8 @@ function WorkoutPlayerModal({
   });
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [keepAwake, setKeepAwake] = useState(false);
+  const [wakeLockStatus, setWakeLockStatus] = useState("off");
 
   const open = player?.open;
   const plan = player?.plan;
@@ -7251,6 +7261,8 @@ function WorkoutPlayerModal({
       setFeedback({ difficulty: "", feeling: "", notes: "" });
       setSessionStartedAt(Date.now());
       setElapsedSeconds(0);
+      setKeepAwake(false);
+      setWakeLockStatus("off");
     }
   }, [open, plan?.id, day?.id]);
 
@@ -7263,6 +7275,51 @@ function WorkoutPlayerModal({
 
     return () => window.clearInterval(interval);
   }, [open, sessionStartedAt]);
+
+  useEffect(() => {
+    if (!open || typeof window === "undefined") return;
+
+    let wakeLock = null;
+    let cancelled = false;
+
+    async function requestWakeLock() {
+      if (!keepAwake) {
+        setWakeLockStatus("off");
+        return;
+      }
+
+      if (!navigator?.wakeLock?.request) {
+        setWakeLockStatus("unsupported");
+        return;
+      }
+
+      try {
+        wakeLock = await navigator.wakeLock.request("screen");
+        if (!cancelled) setWakeLockStatus("active");
+
+        wakeLock.addEventListener("release", () => {
+          if (!cancelled && keepAwake) setWakeLockStatus("released");
+        });
+      } catch (error) {
+        if (!cancelled) setWakeLockStatus("unsupported");
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible" && keepAwake) {
+        requestWakeLock();
+      }
+    }
+
+    requestWakeLock();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (wakeLock) wakeLock.release().catch(() => {});
+    };
+  }, [open, keepAwake]);
 
   if (!open || !plan || !day) return null;
 
@@ -7973,6 +8030,42 @@ function WorkoutPlayerModal({
                     <p className="text-[9px] font-black uppercase tracking-wider">Serie eserc.</p>
                   </div>
                 </div>
+              </Card>
+
+              <Card className="border-none bg-white p-4 shadow-md">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                      Modalità allenamento
+                    </p>
+                    <h4 className="mt-1 text-base font-black text-slate-950">
+                      Schermo sempre attivo
+                    </h4>
+                    <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                      Prova a non far spegnere lo schermo durante la seduta. Su iPhone/Android dipende dal browser.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setKeepAwake((current) => !current)}
+                    className={`shrink-0 rounded-2xl px-4 py-3 text-xs font-black active:scale-[.96] ${
+                      keepAwake
+                        ? "bg-teal-300 text-slate-950"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {keepAwake ? "ON" : "OFF"}
+                  </button>
+                </div>
+                <p className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+                  {wakeLockStatus === "active"
+                    ? "Schermo attivo: resta in questa schermata durante l’allenamento."
+                    : wakeLockStatus === "unsupported"
+                    ? "Se il telefono lo blocca comunque, tieni la luminosità attiva dalle impostazioni."
+                    : wakeLockStatus === "released"
+                    ? "Schermo attivo sospeso: riapri l’app o riattiva il toggle."
+                    : "Attivalo quando inizi la seduta."}
+                </p>
               </Card>
 
               <Card className="overflow-hidden border-none shadow-md">
