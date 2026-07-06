@@ -9284,7 +9284,7 @@ function getExerciseHistory(exercise) {
                           {item.priority}
                         </p>
                       </div>
-                      <ChevronRight size={16} className="shrink-0 text-slate-400" />
+                      <span className="shrink-0 text-lg font-black leading-none text-slate-400">›</span>
                     </button>
                   ))
                 ) : (
