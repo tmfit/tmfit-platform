@@ -1299,8 +1299,63 @@ function dietIsPdf(diet) {
   return fileName.endsWith(".pdf") || filePath.includes(".pdf");
 }
 
+const DIET_EXTRACT_START = "TMFIT_DIET_EXTRACT_START";
+const DIET_EXTRACT_END = "TMFIT_DIET_EXTRACT_END";
+const DIET_DAY_NAMES = [
+  "Lunedì",
+  "Martedì",
+  "Mercoledì",
+  "Giovedì",
+  "Venerdì",
+  "Sabato",
+  "Domenica"
+];
+const DIET_MEAL_BASES = ["COLAZIONE", "PRANZO", "MERENDA", "CENA"];
+
+function stripDietExtractBlock(value) {
+  const raw = String(value || "");
+  const startIndex = raw.indexOf(DIET_EXTRACT_START);
+  const endIndex = raw.indexOf(DIET_EXTRACT_END);
+
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    return raw.trim();
+  }
+
+  return `${raw.slice(0, startIndex)}${raw.slice(endIndex + DIET_EXTRACT_END.length)}`.trim();
+}
+
+function dietExtractedInfo(diet) {
+  const raw = String(diet?.notes || "");
+  const startIndex = raw.indexOf(DIET_EXTRACT_START);
+  const endIndex = raw.indexOf(DIET_EXTRACT_END);
+
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    return null;
+  }
+
+  const jsonText = raw
+    .slice(startIndex + DIET_EXTRACT_START.length, endIndex)
+    .trim();
+
+  if (!jsonText) return null;
+
+  try {
+    const parsed = JSON.parse(jsonText);
+    const hasDailyCards = Array.isArray(parsed.days) && parsed.days.length > 0;
+    const hasOptionCards =
+      Array.isArray(parsed.optionGroups) && parsed.optionGroups.length > 0;
+
+    if (!hasDailyCards && !hasOptionCards) return null;
+
+    return parsed;
+  } catch (error) {
+    console.warn("TMFIT dieta: estrazione PDF non leggibile", error?.message || error);
+    return null;
+  }
+}
+
 function dietStructuredInfo(diet) {
-  const rawNotes = String(diet?.notes || "").trim();
+  const rawNotes = stripDietExtractBlock(diet?.notes || "");
   const info = {
     calorieTarget: "",
     summary: "",
@@ -1348,6 +1403,347 @@ function dietStructuredInfo(diet) {
   return info;
 }
 
+function normalizeDietToken(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function cleanDietPdfLine(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
+}
+
+function dietMealLabel(value) {
+  const normalized = normalizeDietToken(value);
+
+  if (normalized.startsWith("COLAZIONE")) return "Colazione";
+  if (normalized.startsWith("PRANZO")) return "Pranzo";
+  if (normalized.startsWith("MERENDA")) return "Merenda";
+  if (normalized.startsWith("CENA")) return "Cena";
+
+  return value || "Pasto";
+}
+
+function detectDietDayLine(line) {
+  const normalized = normalizeDietToken(line);
+  return DIET_DAY_NAMES.find((day) => normalizeDietToken(day) === normalized) || null;
+}
+
+function detectDailyMealHeading(line) {
+  const normalized = normalizeDietToken(line);
+  return DIET_MEAL_BASES.includes(normalized) ? dietMealLabel(normalized) : null;
+}
+
+function detectOptionMealHeading(line) {
+  const clean = cleanDietPdfLine(line);
+  const normalized = normalizeDietToken(clean);
+
+  if (clean.length > 42) return null;
+
+  const base = DIET_MEAL_BASES.find((meal) => {
+    return normalized === meal || normalized.startsWith(`${meal} `) || normalized.startsWith(`${meal} -`);
+  });
+
+  if (!base) return null;
+
+  return {
+    base: dietMealLabel(base),
+    title: clean
+  };
+}
+
+function compactDietItems(lines = []) {
+  const ignoredStarts = [
+    "PIANO ALIMENTARE",
+    "ALLENAMENTO",
+    "TM FIT",
+    "TMFIT",
+    "LISTA GIORNALIERA",
+    "WEEK 1 - ALIMENTI"
+  ];
+
+  return lines
+    .map(cleanDietPdfLine)
+    .filter(Boolean)
+    .filter((line) => {
+      const normalized = normalizeDietToken(line);
+      return !ignoredStarts.some((start) => normalized.startsWith(start));
+    })
+    .slice(0, 80);
+}
+
+function pushDietMeal(target, meal) {
+  if (!meal) return;
+
+  const items = compactDietItems(meal.items || []);
+  if (items.length === 0) return;
+
+  target.push({
+    name: meal.name,
+    title: meal.title || meal.name,
+    items
+  });
+}
+
+function cutDietLinesForDaily(lines) {
+  const startIndex = lines.findIndex((line) =>
+    normalizeDietToken(line).startsWith("LISTA GIORNALIERA")
+  );
+  const safeStart = startIndex >= 0 ? startIndex + 1 : 0;
+
+  const nextListIndex = lines.findIndex((line, index) => {
+    if (index <= safeStart + 20) return false;
+    return normalizeDietToken(line).startsWith("LISTA GIORNALIERA");
+  });
+
+  return lines.slice(safeStart, nextListIndex > safeStart ? nextListIndex : undefined);
+}
+
+function cutDietLinesForOptions(lines) {
+  const weekStart = lines.findIndex((line) =>
+    normalizeDietToken(line).startsWith("WEEK 1 - ALIMENTI")
+  );
+  const safeStart = weekStart >= 0 ? weekStart + 1 : 0;
+
+  const endIndex = lines.findIndex((line, index) => {
+    if (index <= safeStart + 20) return false;
+    return normalizeDietToken(line) === "WEEK 1" || normalizeDietToken(line) === "ALTRO";
+  });
+
+  return lines.slice(safeStart, endIndex > safeStart ? endIndex : undefined);
+}
+
+function parseDailyDietLines(lines, sourceName) {
+  const scopedLines = cutDietLinesForDaily(lines);
+  const days = [];
+  let currentDay = null;
+  let currentMeal = null;
+
+  scopedLines.forEach((line) => {
+    const dayName = detectDietDayLine(line);
+
+    if (dayName) {
+      if (currentDay) {
+        pushDietMeal(currentDay.meals, currentMeal);
+        days.push(currentDay);
+      }
+
+      currentDay = {
+        day: dayName,
+        meals: []
+      };
+      currentMeal = null;
+      return;
+    }
+
+    if (!currentDay) return;
+
+    const mealName = detectDailyMealHeading(line);
+
+    if (mealName) {
+      pushDietMeal(currentDay.meals, currentMeal);
+      currentMeal = {
+        name: mealName,
+        items: []
+      };
+      return;
+    }
+
+    if (currentMeal) {
+      currentMeal.items.push(line);
+    }
+  });
+
+  if (currentDay) {
+    pushDietMeal(currentDay.meals, currentMeal);
+    days.push(currentDay);
+  }
+
+  return {
+    version: 1,
+    format: "daily_pdf",
+    sourceName,
+    extractedAt: new Date().toISOString(),
+    days: days.filter((day) => day.meals.length > 0),
+    optionGroups: [],
+    warnings: days.length === 0 ? ["Nessun giorno riconosciuto nel PDF."] : []
+  };
+}
+
+function parseOptionsDietLines(lines, sourceName) {
+  const scopedLines = cutDietLinesForOptions(lines);
+  const groupsMap = new Map();
+  let currentOption = null;
+
+  function pushCurrentOption() {
+    if (!currentOption) return;
+
+    const items = compactDietItems(currentOption.items || []);
+    if (items.length === 0) {
+      currentOption = null;
+      return;
+    }
+
+    if (!groupsMap.has(currentOption.base)) {
+      groupsMap.set(currentOption.base, []);
+    }
+
+    groupsMap.get(currentOption.base).push({
+      title: currentOption.title,
+      items
+    });
+
+    currentOption = null;
+  }
+
+  scopedLines.forEach((line) => {
+    const heading = detectOptionMealHeading(line);
+
+    if (heading) {
+      pushCurrentOption();
+      currentOption = {
+        base: heading.base,
+        title: heading.title,
+        items: []
+      };
+      return;
+    }
+
+    if (currentOption) {
+      currentOption.items.push(line);
+    }
+  });
+
+  pushCurrentOption();
+
+  const optionGroups = DIET_MEAL_BASES.map(dietMealLabel)
+    .map((meal) => ({
+      meal,
+      options: groupsMap.get(meal) || []
+    }))
+    .filter((group) => group.options.length > 0);
+
+  return {
+    version: 1,
+    format: "options_pdf",
+    sourceName,
+    extractedAt: new Date().toISOString(),
+    days: [],
+    optionGroups,
+    warnings: optionGroups.length === 0 ? ["Nessuna opzione riconosciuta nel PDF."] : []
+  };
+}
+
+async function loadPdfJsForDietExtraction() {
+  if (typeof window === "undefined") {
+    throw new Error("Lettura PDF disponibile solo nel browser.");
+  }
+
+  if (window.pdfjsLib) {
+    return window.pdfjsLib;
+  }
+
+  await new Promise((resolve, reject) => {
+    const existingScript = document.querySelector("script[data-tmfit-pdfjs='true']");
+
+    if (existingScript) {
+      existingScript.addEventListener("load", resolve, { once: true });
+      existingScript.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.async = true;
+    script.dataset.tmfitPdfjs = "true";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Impossibile caricare il lettore PDF automatico."));
+    document.head.appendChild(script);
+  });
+
+  if (!window.pdfjsLib) {
+    throw new Error("Lettore PDF automatico non disponibile.");
+  }
+
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  return window.pdfjsLib;
+}
+
+function pdfTextItemsToLines(items = []) {
+  const rows = [];
+
+  items.forEach((item) => {
+    const text = cleanDietPdfLine(item?.str || "");
+    if (!text) return;
+
+    const transform = item?.transform || [];
+    const x = Number(transform[4] || 0);
+    const y = Number(transform[5] || 0);
+    const existing = rows.find((row) => Math.abs(row.y - y) < 3);
+
+    if (existing) {
+      existing.items.push({ x, text });
+    } else {
+      rows.push({ y, items: [{ x, text }] });
+    }
+  });
+
+  return rows
+    .sort((a, b) => b.y - a.y)
+    .map((row) =>
+      row.items
+        .sort((a, b) => a.x - b.x)
+        .map((item) => item.text)
+        .join(" ")
+        .trim()
+    )
+    .filter(Boolean);
+}
+
+async function extractDietTextFromPdfFile(file) {
+  const pdfjsLib = await loadPdfJsForDietExtraction();
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const pages = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(...pdfTextItemsToLines(content.items || []));
+  }
+
+  return pages.map(cleanDietPdfLine).filter(Boolean);
+}
+
+async function extractDietPdfForApp(file, dietType) {
+  const lines = await extractDietTextFromPdfFile(file);
+
+  if (dietType === "options_pdf") {
+    return parseOptionsDietLines(lines, file.name);
+  }
+
+  return parseDailyDietLines(lines, file.name);
+}
+
+function dietExtractToNotesBlock(extractedDiet) {
+  if (!extractedDiet) return null;
+
+  const hasDailyCards = Array.isArray(extractedDiet.days) && extractedDiet.days.length > 0;
+  const hasOptionCards =
+    Array.isArray(extractedDiet.optionGroups) && extractedDiet.optionGroups.length > 0;
+
+  if (!hasDailyCards && !hasOptionCards) return null;
+
+  return `${DIET_EXTRACT_START}\n${JSON.stringify(extractedDiet)}\n${DIET_EXTRACT_END}`;
+}
 function DietInfoGrid({ diet, compact = false }) {
   const info = dietStructuredInfo(diet);
   const cardClass = compact
@@ -1436,6 +1832,179 @@ function DietSummaryBox({ diet }) {
       <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-7 text-slate-700">
         {info.summary}
       </p>
+    </div>
+  );
+}
+
+
+function DietFoodLines({ items = [] }) {
+  return (
+    <div className="mt-3 space-y-2">
+      {items.map((item, index) => {
+        const normalized = normalizeDietToken(item);
+        const isNote = normalized.startsWith("NOTE AL PASTO") || normalized.startsWith("NOTA");
+        const isAlternative = normalized.startsWith("OPPURE") || normalized.startsWith("O ");
+
+        return (
+          <div
+            key={`${item}-${index}`}
+            className={`rounded-xl px-3 py-2 text-sm font-semibold leading-6 ${
+              isNote
+                ? "bg-amber-50 text-amber-800"
+                : isAlternative
+                ? "bg-slate-50 text-slate-600"
+                : "bg-white text-slate-700"
+            }`}
+          >
+            {item}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DietExtractedPlan({ diet, compact = false }) {
+  const extracted = dietExtractedInfo(diet);
+
+  if (!extracted) return null;
+
+  const isOptions =
+    extracted.format === "options_pdf" ||
+    (Array.isArray(extracted.optionGroups) && extracted.optionGroups.length > 0);
+
+  const sourceLabel = extracted.sourceName || diet?.file_name || "PDF dieta";
+  const dailyDays = Array.isArray(extracted.days) ? extracted.days : [];
+  const optionGroups = Array.isArray(extracted.optionGroups)
+    ? extracted.optionGroups
+    : [];
+  const visibleDays = compact ? dailyDays.slice(0, 2) : dailyDays;
+  const visibleOptionGroups = compact ? optionGroups.slice(0, 2) : optionGroups;
+  const totalMeals = dailyDays.reduce(
+    (sum, day) => sum + (day.meals?.length || 0),
+    0
+  );
+  const totalOptions = optionGroups.reduce(
+    (sum, group) => sum + (group.options?.length || 0),
+    0
+  );
+
+  return (
+    <div className="rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+            Lettura automatica PDF
+          </p>
+          <h3 className="mt-1 text-lg font-black text-slate-950">
+            {isOptions ? "Opzioni alimentari lette dal PDF" : "Pasti giornalieri letti dal PDF"}
+          </h3>
+          <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+            Da {sourceLabel}. Controlla sempre il PDF originale in caso di dubbi.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-center md:min-w-[220px]">
+          <div className="rounded-2xl bg-white p-3">
+            <p className="text-lg font-black text-slate-950">
+              {isOptions ? optionGroups.length : dailyDays.length}
+            </p>
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              {isOptions ? "Categorie" : "Giorni"}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white p-3">
+            <p className="text-lg font-black text-slate-950">
+              {isOptions ? totalOptions : totalMeals}
+            </p>
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              {isOptions ? "Opzioni" : "Pasti"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {!isOptions && (
+        <div className="mt-4 space-y-3">
+          {visibleDays.map((day, dayIndex) => (
+            <details
+              key={day.day}
+              open={!compact && dayIndex === 0}
+              className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
+                <div>
+                  <p className="font-black text-slate-950">{day.day}</p>
+                  <p className="mt-0.5 text-xs font-bold text-slate-500">
+                    {day.meals?.length || 0} pasti riconosciuti
+                  </p>
+                </div>
+                <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                  Apri
+                </span>
+              </summary>
+
+              <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                {(day.meals || []).map((meal) => (
+                  <div key={`${day.day}-${meal.name}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                      {meal.name}
+                    </p>
+                    <DietFoodLines items={meal.items || []} />
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+
+          {compact && dailyDays.length > visibleDays.length && (
+            <p className="text-center text-xs font-bold text-slate-500">
+              Altri {dailyDays.length - visibleDays.length} giorni visibili lato cliente nella sezione Pasti.
+            </p>
+          )}
+        </div>
+      )}
+
+      {isOptions && (
+        <div className="mt-4 space-y-3">
+          {visibleOptionGroups.map((group, groupIndex) => (
+            <details
+              key={group.meal}
+              open={!compact && groupIndex === 0}
+              className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
+                <div>
+                  <p className="font-black text-slate-950">{group.meal}</p>
+                  <p className="mt-0.5 text-xs font-bold text-slate-500">
+                    {group.options?.length || 0} opzioni disponibili
+                  </p>
+                </div>
+                <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                  Apri
+                </span>
+              </summary>
+
+              <div className="space-y-3 border-t border-slate-200 bg-slate-50 p-3">
+                {(group.options || []).map((option) => (
+                  <div key={`${group.meal}-${option.title}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                      {option.title}
+                    </p>
+                    <DietFoodLines items={option.items || []} />
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+
+          {compact && optionGroups.length > visibleOptionGroups.length && (
+            <p className="text-center text-xs font-bold text-slate-500">
+              Altre {optionGroups.length - visibleOptionGroups.length} categorie visibili lato cliente nella sezione Pasti.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1850,6 +2419,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     notes: ""
   });
   const [dietFile, setDietFile] = useState(null);
+  const [extractingDietPdf, setExtractingDietPdf] = useState(false);
   const [dietPreview, setDietPreview] = useState({
     dietId: "",
     url: "",
@@ -3370,6 +3940,26 @@ try {
       return;
     }
 
+    if (!String(dietFile.name || "").toLowerCase().endsWith(".pdf")) {
+      alert("Carica un file PDF generato da SIFA Dieta.");
+      return;
+    }
+
+    let extractedDiet = null;
+
+    setExtractingDietPdf(true);
+
+    try {
+      extractedDiet = await extractDietPdfForApp(
+        dietFile,
+        dietForm.diet_type || "daily_pdf"
+      );
+    } catch (error) {
+      console.warn("TMFIT dieta: estrazione automatica non completata", error?.message || error);
+    } finally {
+      setExtractingDietPdf(false);
+    }
+
     const safeName = dietFile.name.replaceAll(" ", "-");
     const path = `${selectedClient.id}/${Date.now()}-${safeName}`;
 
@@ -3382,10 +3972,13 @@ try {
       return;
     }
 
+    const extractBlock = dietExtractToNotesBlock(extractedDiet);
+
     const richNotes = [
       dietForm.calorie_target ? `Target kcal: ${dietForm.calorie_target}` : null,
       dietForm.summary ? `Riepilogo: ${dietForm.summary}` : null,
-      dietForm.notes ? `Note coach: ${dietForm.notes}` : null
+      dietForm.notes ? `Note coach: ${dietForm.notes}` : null,
+      extractBlock
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -6350,6 +6943,9 @@ const builderQuality = getBuilderQualityReport();
                             </option>
                           ))}
                         </Select>
+                        <p className="mt-2 text-[11px] font-bold leading-5 text-slate-500">
+                          Formato 1: giorni Lun-Dom. Formato 2: opzioni tipo Colazione 1, Pranzo 2, Cena 3.
+                        </p>
                       </Label>
 
                       <Label title="Target kcal / nota calorie">
@@ -6426,6 +7022,9 @@ const builderQuality = getBuilderQualityReport();
                         <p className="mt-1 truncate text-sm font-black text-slate-950">
                           {dietFile.name}
                         </p>
+                        <p className="mt-2 text-xs font-bold leading-5 text-teal-900">
+                          Al caricamento proverò a leggere automaticamente il PDF e a creare le card pasti dentro l’app.
+                        </p>
                       </div>
                     )}
 
@@ -6444,11 +7043,11 @@ const builderQuality = getBuilderQualityReport();
 
                     <Button
                       type="submit"
-                      disabled={!selectedClient || !dietFile}
+                      disabled={!selectedClient || !dietFile || extractingDietPdf}
                       className="w-full bg-[#07111f] text-white hover:bg-slate-800"
                     >
                       <Upload size={17} className="mr-2" />
-                      Carica PDF dieta
+                      {extractingDietPdf ? "Lettura PDF in corso..." : "Carica PDF dieta"}
                     </Button>
                   </form>
                 </Card>
@@ -6489,6 +7088,7 @@ const builderQuality = getBuilderQualityReport();
                               <div className="mt-4 space-y-3">
                                 <DietSummaryBox diet={diets[0]} />
                                 <DietInfoGrid diet={diets[0]} compact />
+                                <DietExtractedPlan diet={diets[0]} compact />
                                 <DietCoachNoteBox diet={diets[0]} emptyTitle="Nessuna nota coach" />
                               </div>
                             </div>
@@ -11739,25 +12339,32 @@ function getExerciseHistory(exercise) {
                   </div>
                 </Card>
 
-                <div className="grid grid-cols-3 gap-2 rounded-[1.4rem] border border-slate-200 bg-white p-1 shadow-sm">
+                <div
+                  className={`grid ${
+                    dietExtractedInfo(latestDiet) ? "grid-cols-4" : "grid-cols-3"
+                  } gap-2 rounded-[1.4rem] border border-slate-200 bg-white p-1 shadow-sm`}
+                >
                   {[
                     { id: "summary", label: "Riepilogo" },
+                    dietExtractedInfo(latestDiet) ? { id: "meals", label: "Pasti" } : null,
                     { id: "pdf", label: "PDF" },
                     { id: "history", label: "Storico" }
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setDietView(item.id)}
-                      className={`rounded-[1rem] px-2 py-3 text-xs font-black transition ${
-                        dietView === item.id
-                          ? "bg-[#07111f] text-white"
-                          : "text-slate-500 hover:bg-slate-50"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
+                  ]
+                    .filter(Boolean)
+                    .map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setDietView(item.id)}
+                        className={`rounded-[1rem] px-2 py-3 text-[11px] font-black transition sm:text-xs ${
+                          dietView === item.id
+                            ? "bg-[#07111f] text-white"
+                            : "text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
                 </div>
 
                 {dietView === "summary" && (
@@ -11775,6 +12382,7 @@ function getExerciseHistory(exercise) {
                       <div className="space-y-4 p-5">
                         <DietSummaryBox diet={latestDiet} />
                         <DietInfoGrid diet={latestDiet} />
+                        <DietExtractedPlan diet={latestDiet} compact />
                         <DietCoachNoteBox diet={latestDiet} />
 
                         <div className="grid gap-3 sm:grid-cols-3">
@@ -11853,6 +12461,26 @@ function getExerciseHistory(exercise) {
                       </div>
                     </Card>
                   </div>
+                )}
+
+                {dietView === "meals" && (
+                  <Card className="overflow-hidden">
+                    <div className="border-b border-slate-200 bg-white px-5 py-4">
+                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                        Piano letto dal PDF
+                      </p>
+                      <h3 className="mt-1 text-xl font-black text-slate-950">
+                        Card pasti
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                        Versione rapida generata automaticamente dal PDF originale. Per i dettagli completi resta valido il PDF.
+                      </p>
+                    </div>
+
+                    <div className="p-4 md:p-5">
+                      <DietExtractedPlan diet={latestDiet} />
+                    </div>
+                  </Card>
                 )}
 
                 {dietView === "pdf" && (
