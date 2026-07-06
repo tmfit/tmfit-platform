@@ -1467,6 +1467,17 @@ function dietMealLabel(value) {
   return titleCaseDietLabel(value) || "Pasto";
 }
 
+function detectDynamicDietSectionBase(line) {
+  const normalized = normalizeDietToken(line);
+  const match = normalized.match(
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO)(?:\s+\d+)?(?:\s*[-:]\s*.+)?$/
+  );
+
+  if (!match) return null;
+
+  return dietMealLabel(match[1]);
+}
+
 function isDietFoodStart(value) {
   return /^\d+[,.]?\d*\s*(g|gr|kg|ml|l|kcal|cal)\b/i.test(String(value || "").trim());
 }
@@ -1487,6 +1498,9 @@ function isDietNoteLine(value) {
 }
 
 function findDietSectionBase(line) {
+  const dynamicBase = detectDynamicDietSectionBase(line);
+  if (dynamicBase) return dynamicBase;
+
   const normalized = normalizeDietToken(line);
 
   const base = DIET_SECTION_BASES
@@ -1666,6 +1680,16 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
         expanded.push(rest);
         return;
       }
+    }
+
+    const dynamicHeading = normalized.match(
+      /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO)(?:\s+\d+)?\s+(.+)$/
+    );
+
+    if (dynamicHeading && isDietFoodStart(dynamicHeading[2])) {
+      expanded.push(dietMealLabel(dynamicHeading[1]));
+      expanded.push(clean.slice(clean.toUpperCase().indexOf(dynamicHeading[2])).trim());
+      return;
     }
 
     expanded.push(clean);
@@ -1954,38 +1978,83 @@ async function extractDietTextFromPdfFile(file) {
   return pages.map(cleanDietPdfLine).filter(Boolean);
 }
 
+function scoreDietExtraction(extractedDiet) {
+  if (!extractedDiet) return 0;
+
+  const days = Array.isArray(extractedDiet.days) ? extractedDiet.days : [];
+  const optionGroups = Array.isArray(extractedDiet.optionGroups)
+    ? extractedDiet.optionGroups
+    : [];
+  const dailyMeals = days.reduce(
+    (sum, day) => sum + ((day.meals || day.sections || []).length || 0),
+    0
+  );
+  const optionCount = optionGroups.reduce(
+    (sum, group) => sum + ((group.options || []).length || 0),
+    0
+  );
+  const foodRows = [
+    ...days.flatMap((day) => day.meals || day.sections || []),
+    ...optionGroups.flatMap((group) => group.options || [])
+  ].reduce((sum, section) => sum + ((section.items || []).length || 0), 0);
+
+  return days.length * 25 + dailyMeals * 8 + optionGroups.length * 18 + optionCount * 8 + Math.min(foodRows, 120);
+}
+
 async function extractDietPdfForApp(file, dietType) {
   const lines = await extractDietTextFromPdfFile(file);
+  const daily = parseDailyDietLines(lines, file.name);
+  const options = parseOptionsDietLines(lines, file.name);
   const wantsOptions = dietType === "options_pdf";
-  const primary = wantsOptions
-    ? parseOptionsDietLines(lines, file.name)
-    : parseDailyDietLines(lines, file.name);
+  const primary = wantsOptions ? options : daily;
+  const fallback = wantsOptions ? daily : options;
+  const primaryScore = scoreDietExtraction(primary);
+  const fallbackScore = scoreDietExtraction(fallback);
 
-  if (extractionHasCards(primary)) {
-    return primary;
+  if (primaryScore > 0 && primaryScore >= fallbackScore * 0.72) {
+    return {
+      ...primary,
+      parseScore: primaryScore,
+      alternativeScore: fallbackScore
+    };
   }
 
-  const fallback = wantsOptions
-    ? parseDailyDietLines(lines, file.name)
-    : parseOptionsDietLines(lines, file.name);
-
-  if (extractionHasCards(fallback)) {
+  if (fallbackScore > 0) {
     return {
       ...fallback,
+      parseScore: fallbackScore,
+      alternativeScore: primaryScore,
       warnings: [
         ...(fallback.warnings || []),
-        "Formato selezionato non riconosciuto perfettamente: TMFIT ha usato il parsing alternativo."
+        "Formato selezionato non riconosciuto perfettamente: TMFIT ha usato il parsing alternativo più leggibile."
       ]
     };
   }
 
   return {
     ...primary,
+    parseScore: primaryScore,
+    alternativeScore: fallbackScore,
     warnings: [
       ...(primary.warnings || []),
       "PDF letto, ma non sono state riconosciute card pasti. Verifica che il PDF sia esportato come testo e non come immagine."
     ]
   };
+}
+
+async function extractDietPdfFromUrlForApp(url, sourceName, dietType) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error("Non riesco a scaricare il PDF per l’analisi automatica.");
+  }
+
+  const blob = await response.blob();
+  const file = new File([blob], sourceName || "dieta.pdf", {
+    type: blob.type || "application/pdf"
+  });
+
+  return extractDietPdfForApp(file, dietType);
 }
 
 function dietExtractToNotesBlock(extractedDiet) {
@@ -2968,6 +3037,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   });
   const [dietFile, setDietFile] = useState(null);
   const [extractingDietPdf, setExtractingDietPdf] = useState(false);
+  const [analyzingDietId, setAnalyzingDietId] = useState("");
   const [dietPreview, setDietPreview] = useState({
     dietId: "",
     url: "",
@@ -4562,6 +4632,61 @@ try {
     setDietFile(null);
 
     await loadClientBundle(selectedClient.id);
+  }
+
+  async function analyzeDietPdfToCards(diet) {
+    if (!selectedClient || !diet?.file_path) {
+      alert("Seleziona una dieta PDF valida.");
+      return;
+    }
+
+    setAnalyzingDietId(String(diet.id));
+
+    try {
+      const { data, error } = await supabase.storage
+        .from("diets")
+        .createSignedUrl(diet.file_path, 3600);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      const extractedDiet = await extractDietPdfFromUrlForApp(
+        data.signedUrl,
+        diet.file_name || diet.title || "dieta.pdf",
+        diet.diet_type || "daily_pdf"
+      );
+      const extractBlock = dietExtractToNotesBlock(extractedDiet);
+
+      if (!extractBlock) {
+        alert(
+          "PDF letto, ma non ho trovato abbastanza dati per creare card pasti. Il PDF resta consultabile come documento completo."
+        );
+        return;
+      }
+
+      const cleanNotes = stripDietExtractBlock(diet.notes || "");
+      const nextNotes = [cleanNotes, extractBlock].filter(Boolean).join("\n\n");
+
+      const { error: updateError } = await supabase
+        .from("diets")
+        .update({ notes: nextNotes || null })
+        .eq("id", diet.id);
+
+      if (updateError) {
+        alert(updateError.message);
+        return;
+      }
+
+      await loadClientBundle(selectedClient.id);
+
+      alert("Card pasti generate e salvate. Ora il cliente le vede nel tab Pasti.");
+    } catch (error) {
+      alert(error.message || "Errore durante l’analisi del PDF dieta.");
+    } finally {
+      setAnalyzingDietId("");
+    }
   }
 async function savePrivateNote(event) {
   event.preventDefault();
@@ -7571,10 +7696,24 @@ const builderQuality = getBuilderQualityReport();
                           {dietFile.name}
                         </p>
                         <p className="mt-2 text-xs font-bold leading-5 text-teal-900">
-                          Al caricamento proverò a leggere automaticamente il PDF e a creare le card pasti dentro l’app.
+                          Al caricamento proverò a leggere automaticamente tutte le pagine del PDF e a generare card dinamiche. Se il risultato va rifinito, potrai rigenerarle dallo storico.
                         </p>
                       </div>
                     )}
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                        Comandi parser
+                      </p>
+                      <div className="mt-3 grid gap-2 text-xs font-bold leading-5 text-slate-600 sm:grid-cols-3">
+                        <div className="rounded-xl bg-white p-3">1. Carica PDF</div>
+                        <div className="rounded-xl bg-white p-3">2. Genera card</div>
+                        <div className="rounded-xl bg-white p-3">3. Controlla in Pasti</div>
+                      </div>
+                      <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
+                        Il parser è dinamico: non forza Colazione/Pranzo/Cena. Legge le sezioni reali del PDF, anche se una dieta ha otto colazioni, nessuna merenda o blocchi extra come post workout/pre nanna.
+                      </p>
+                    </div>
 
                     <Label title="Note coach">
                       <Textarea
@@ -7653,6 +7792,17 @@ const builderQuality = getBuilderQualityReport();
                                 className="bg-[#07111f] text-white"
                               >
                                 Schermo interno
+                              </Button>
+                              <Button
+                                onClick={() => analyzeDietPdfToCards(diets[0])}
+                                disabled={analyzingDietId === String(diets[0].id)}
+                                className="border border-teal-200 bg-white text-teal-700"
+                              >
+                                {analyzingDietId === String(diets[0].id)
+                                  ? "Analisi..."
+                                  : dietExtractedInfo(diets[0])
+                                  ? "Rigenera card"
+                                  : "Analizza PDF"}
                               </Button>
                               <Button
                                 onClick={() => openStorageFile("diets", diets[0].file_path)}
@@ -7767,12 +7917,23 @@ const builderQuality = getBuilderQualityReport();
                           </p>
                         </div>
 
-                        <div className="flex shrink-0 gap-2">
+                        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
                           <Button
                             onClick={() => previewDietInApp(diet)}
                             className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
                           >
                             In app
+                          </Button>
+                          <Button
+                            onClick={() => analyzeDietPdfToCards(diet)}
+                            disabled={analyzingDietId === String(diet.id)}
+                            className="border border-teal-200 bg-white px-3 py-2 text-xs text-teal-700"
+                          >
+                            {analyzingDietId === String(diet.id)
+                              ? "Analisi"
+                              : dietExtractedInfo(diet)
+                              ? "Rigenera"
+                              : "Analizza"}
                           </Button>
                           <Button
                             onClick={() => openStorageFile("diets", diet.file_path)}
