@@ -8533,6 +8533,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [checkins, setCheckins] = useState([]);
   const [photos, setPhotos] = useState([]);
   const [loadHistory, setLoadHistory] = useState([]);
+  const [loadHistoryLoaded, setLoadHistoryLoaded] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
   const [workoutPlayer, setWorkoutPlayer] = useState({
@@ -8654,20 +8655,6 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
-    const { data: historyData, error: historyError } = await supabase
-  .from("workout_set_logs")
-  .select(
-    "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
-  )
-  .eq("workout_sessions.client_id", numericClientId)
-  .order("created_at", { ascending: false })
-  .limit(500);
-
-if (historyError) {
-  console.warn(historyError.message);
-} else {
-  setLoadHistory(historyData || []);
-}
   }
 
   function currentWeekNumber(plan) {
@@ -8714,6 +8701,41 @@ function getExerciseHistory(exercise) {
     .filter((log) => log.load_kg || log.reps_done)
     .slice(0, 12);
 }
+
+  async function loadWorkoutHistoryIfNeeded() {
+    if (!client || loadHistoryLoaded) return true;
+
+    const { data: historyData, error: historyError } = await supabase
+      .from("workout_set_logs")
+      .select(
+        "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
+      )
+      .eq("workout_sessions.client_id", Number(client.id))
+      .order("created_at", { ascending: false })
+      .limit(250);
+
+    if (historyError) {
+      console.warn(historyError.message);
+      return false;
+    }
+
+    setLoadHistory(historyData || []);
+    setLoadHistoryLoaded(true);
+    return true;
+  }
+
+  async function openWorkoutPlayer(plan, day) {
+    if (!day) return;
+
+    await loadWorkoutHistoryIfNeeded();
+
+    setWorkoutPlayer({
+      open: true,
+      plan,
+      day
+    });
+  }
+
   function updateDraft(key, field, value) {
     setDrafts((prev) => ({
       ...prev,
@@ -9287,6 +9309,38 @@ function getExerciseHistory(exercise) {
               </div>
             </Card>
 
+            <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.28em] text-slate-400">
+                    Azioni rapide
+                  </p>
+                  <h3 className="mt-1 text-lg font-black text-slate-950">
+                    Apri subito quello che ti serve
+                  </h3>
+                </div>
+                <Pill className="bg-slate-100 text-slate-700">Smart</Pill>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                {[
+                  { id: "training", label: "Scheda", icon: <Dumbbell size={16} /> },
+                  { id: "checkin", label: "Check-in", icon: <ClipboardCheck size={16} /> },
+                  { id: "diet", label: "Dieta", icon: <FileText size={16} /> }
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    className="tmfit-tap flex min-h-[70px] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-black text-slate-800 transition active:scale-[.98]"
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </Card>
+
             <Card className="overflow-hidden border-none shadow-lg">
               <div className="bg-white p-4 md:p-6">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -9408,14 +9462,7 @@ function getExerciseHistory(exercise) {
                         <Button
                           type="button"
                           disabled={!nextDay}
-                          onClick={() =>
-                            nextDay &&
-                            setWorkoutPlayer({
-                              open: true,
-                              plan,
-                              day: nextDay
-                            })
-                          }
+                          onClick={() => openWorkoutPlayer(plan, nextDay)}
                           className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
                         >
                           <Dumbbell size={17} className="mr-2" />
@@ -9484,13 +9531,7 @@ function getExerciseHistory(exercise) {
 
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setWorkoutPlayer({
-                                      open: true,
-                                      plan,
-                                      day
-                                    })
-                                  }
+                                  onClick={() => openWorkoutPlayer(plan, day)}
                                   className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.98]"
                                 >
                                   Inizia
