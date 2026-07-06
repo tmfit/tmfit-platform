@@ -3932,37 +3932,82 @@ const builderQuality = getBuilderQualityReport();
 
           {activeTab === "clients" && (
             <div className="space-y-5">
-              <Card className="p-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-                      Area clienti
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Scheda cliente stile CRM: stato percorso, segnali operativi e azioni rapide.
-                    </p>
-                  </div>
+              <Card className="overflow-hidden border border-slate-300 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.05)]">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-4 md:px-5">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                          Area clienti
+                        </p>
 
-                  <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
-                    {[
-                      { id: "overview", label: "Panoramica" },
-                      { id: "new", label: "Nuovo" },
-                      { id: "notes", label: "Note" }
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setClientPanel(item.id)}
-                        className={`rounded-xl px-3 py-2 text-xs font-black transition ${
-                          clientPanel === item.id
-                            ? "bg-[#07111f] text-white shadow-sm"
-                            : "text-slate-500 hover:bg-white"
+                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-black text-slate-500">
+                          CRM professionista
+                        </span>
+                      </div>
+
+                      <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+                        Gestione clienti
+                      </h2>
+
+                      <p className="mt-1 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+                        Tieni sotto controllo profilo, percorso, note interne e azioni principali senza appesantire la schermata.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-3 xl:w-[520px]">
+                      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Clienti
+                        </p>
+                        <p className="mt-1 text-lg font-black text-slate-950">{clients.length}</p>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Selezionato
+                        </p>
+                        <p className="mt-1 truncate text-sm font-black text-slate-950">
+                          {selectedClient ? fullName(selectedClient) : "Nessuno"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Note
+                        </p>
+                        <p className="mt-1 text-lg font-black text-slate-950">{privateNotes.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 p-3">
+                  {[
+                    { id: "overview", label: "Panoramica", helper: "Stato e azioni" },
+                    { id: "new", label: "Nuovo", helper: "Crea accesso" },
+                    { id: "notes", label: "Note", helper: "Solo coach" }
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setClientPanel(item.id)}
+                      className={`rounded-2xl border px-2 py-3 text-center transition ${
+                        clientPanel === item.id
+                          ? "border-[#07111f] bg-[#07111f] text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-500 hover:border-teal-200 hover:bg-teal-50"
+                      }`}
+                    >
+                      <span className="block text-xs font-black">{item.label}</span>
+                      <span
+                        className={`mt-0.5 hidden text-[10px] font-bold sm:block ${
+                          clientPanel === item.id ? "text-slate-300" : "text-slate-400"
                         }`}
                       >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                        {item.helper}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </Card>
 
@@ -3992,229 +4037,324 @@ const builderQuality = getBuilderQualityReport();
               )}
 
               {clientPanel === "new" && (
-                <Card className="p-5">
-                  <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-center gap-2">
-                      <UserPlus className="text-teal-600" />
-                      <h2 className="text-xl font-black">Nuovo cliente</h2>
-                    </div>
+                <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                            <UserPlus size={20} />
+                          </div>
 
-                    <Pill className="bg-slate-100 text-slate-700">
-                      Login automatico cliente
-                    </Pill>
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-700">
+                              Nuovo profilo
+                            </p>
+                            <h2 className="mt-0.5 text-xl font-black text-slate-950">
+                              Crea cliente
+                            </h2>
+                          </div>
+                        </div>
+
+                        <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+                          Inserisci solo i dati essenziali. Le credenziali cliente vengono generate dopo il salvataggio.
+                        </p>
+                      </div>
+
+                      <Pill className="bg-[#07111f] text-white">
+                        Login automatico
+                      </Pill>
+                    </div>
                   </div>
 
-                  {clientError && (
-                    <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
-                      {clientError}
-                    </div>
-                  )}
+                  <div className="p-5">
+                    {clientError && (
+                      <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                        {clientError}
+                      </div>
+                    )}
 
-                  {credentials && (
-                    <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4">
-                      <p className="text-sm font-black text-teal-800">
-                        Credenziali create
-                      </p>
+                    {credentials && (
+                      <div className="mb-4 rounded-3xl border border-teal-200 bg-teal-50 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950">
+                            <Check size={18} />
+                          </div>
 
-                      <p className="mt-2 text-sm font-bold">
-                        Email: {credentials.email}
-                      </p>
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-teal-800">
+                              Credenziali create
+                            </p>
 
-                      <p className="text-sm font-bold">
-                        Password: {credentials.password}
-                      </p>
-                    </div>
-                  )}
+                            <p className="mt-2 break-all text-sm font-bold text-slate-800">
+                              Email: {credentials.email}
+                            </p>
 
-                  <form onSubmit={createClient} className="space-y-3">
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <Input
-                        required
-                        placeholder="Nome"
-                        value={newClient.first_name}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            first_name: event.target.value
-                          })
-                        }
-                      />
+                            <p className="text-sm font-bold text-slate-800">
+                              Password: {credentials.password}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-                      <Input
-                        required
-                        placeholder="Cognome"
-                        value={newClient.last_name}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            last_name: event.target.value
-                          })
-                        }
-                      />
-                    </div>
+                    <form onSubmit={createClient} className="space-y-4">
+                      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+                          Anagrafica
+                        </p>
 
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <Input
-                        type="email"
-                        placeholder="Email cliente opzionale"
-                        value={newClient.email}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            email: event.target.value
-                          })
-                        }
-                      />
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <Label title="Nome" labelClassName="text-slate-500">
+                            <Input
+                              required
+                              placeholder="Nome"
+                              value={newClient.first_name}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  first_name: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
 
-                      <Input
-                        placeholder="Telefono"
-                        value={newClient.phone}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            phone: event.target.value
-                          })
-                        }
-                      />
-                    </div>
+                          <Label title="Cognome" labelClassName="text-slate-500">
+                            <Input
+                              required
+                              placeholder="Cognome"
+                              value={newClient.last_name}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  last_name: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+                        </div>
+                      </div>
 
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Select
-                        value={newClient.gender}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            gender: event.target.value
-                          })
-                        }
-                      >
-                        <option value="uomo">Uomo</option>
-                        <option value="donna">Donna</option>
-                        <option value="altro">Altro</option>
-                      </Select>
+                      <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                        <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+                          Contatti e dati base
+                        </p>
 
-                      <Input
-                        type="date"
-                        value={newClient.birth_date}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            birth_date: event.target.value
-                          })
-                        }
-                      />
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <Label title="Email" labelClassName="text-slate-500">
+                            <Input
+                              type="email"
+                              placeholder="Email cliente opzionale"
+                              value={newClient.email}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  email: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
 
-                      <Input
-                        type="number"
-                        placeholder="Altezza cm"
-                        value={newClient.height_cm}
-                        onChange={(event) =>
-                          setNewClient({
-                            ...newClient,
-                            height_cm: event.target.value
-                          })
-                        }
-                      />
-                    </div>
+                          <Label title="Telefono" labelClassName="text-slate-500">
+                            <Input
+                              placeholder="Telefono"
+                              value={newClient.phone}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  phone: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+                        </div>
 
-                    <Input
-                      placeholder="Obiettivo"
-                      value={newClient.goal}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          goal: event.target.value
-                        })
-                      }
-                    />
+                        <div className="mt-3 grid gap-3 md:grid-cols-3">
+                          <Label title="Genere" labelClassName="text-slate-500">
+                            <Select
+                              value={newClient.gender}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  gender: event.target.value
+                                })
+                              }
+                            >
+                              <option value="uomo">Uomo</option>
+                              <option value="donna">Donna</option>
+                              <option value="altro">Altro</option>
+                            </Select>
+                          </Label>
 
-                    <Textarea
-                      placeholder="Note interne"
-                      value={newClient.notes}
-                      onChange={(event) =>
-                        setNewClient({
-                          ...newClient,
-                          notes: event.target.value
-                        })
-                      }
-                    />
+                          <Label title="Data nascita" labelClassName="text-slate-500">
+                            <Input
+                              type="date"
+                              value={newClient.birth_date}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  birth_date: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
 
-                    <Button
-                      type="submit"
-                      disabled={creatingClient}
-                      className="w-full bg-[#07111f] text-white"
-                    >
-                      {creatingClient ? "Creazione..." : "Crea cliente e login"}
-                    </Button>
-                  </form>
+                          <Label title="Altezza" labelClassName="text-slate-500">
+                            <Input
+                              type="number"
+                              placeholder="cm"
+                              value={newClient.height_cm}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  height_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                        <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+                          Percorso
+                        </p>
+
+                        <div className="grid gap-3">
+                          <Label title="Obiettivo" labelClassName="text-slate-500">
+                            <Input
+                              placeholder="Esempio: ricomposizione, dimagrimento, forza..."
+                              value={newClient.goal}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  goal: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Note interne" labelClassName="text-slate-500">
+                            <Textarea
+                              placeholder="Note interne visibili solo al professionista"
+                              value={newClient.notes}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  notes: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
+                        <p className="text-xs font-bold leading-5 text-slate-500">
+                          Dopo la creazione, copia le credenziali generate e consegnale al cliente.
+                        </p>
+
+                        <Button
+                          type="submit"
+                          disabled={creatingClient}
+                          className="w-full bg-[#07111f] text-white md:w-auto"
+                        >
+                          {creatingClient ? "Creazione..." : "Crea cliente e login"}
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
                 </Card>
               )}
 
               {clientPanel === "notes" && (
-                <Card className="p-5">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <h2 className="text-xl font-black">Note private coach</h2>
-                      <p className="text-sm font-semibold text-slate-500">
-                        Visibili solo al professionista. Il cliente non le vede.
-                      </p>
-                    </div>
+                <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-700">
+                          Area riservata coach
+                        </p>
 
-                    <Pill className="bg-slate-100 text-slate-700">
-                      {privateNotes.length} note
-                    </Pill>
+                        <h2 className="mt-2 text-xl font-black text-slate-950">
+                          Note private
+                        </h2>
+
+                        <p className="mt-1 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+                          Appunti interni sul cliente: preferenze, feedback, criticità o promemoria. Il cliente non le vede.
+                        </p>
+                      </div>
+
+                      <Pill className="bg-slate-100 text-slate-700">
+                        {privateNotes.length} note
+                      </Pill>
+                    </div>
                   </div>
 
-                  <form onSubmit={savePrivateNote} className="mt-4 space-y-3">
-                    <Textarea
-                      placeholder="Esempio: preferenze allenamento, fastidi, feedback visita, note anamnestiche..."
-                      value={privateNoteText}
-                      onChange={(event) => setPrivateNoteText(event.target.value)}
-                    />
-
-                    <Button
-                      type="submit"
-                      disabled={savingPrivateNote}
-                      className="bg-[#07111f] text-white"
+                  <div className="p-5">
+                    <form
+                      onSubmit={savePrivateNote}
+                      className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
                     >
-                      <Save size={17} className="mr-2" />
-                      {savingPrivateNote ? "Salvataggio..." : "Salva nota privata"}
-                    </Button>
-                  </form>
+                      <Label title="Nuova nota" labelClassName="text-slate-500">
+                        <Textarea
+                          placeholder="Esempio: preferenze allenamento, fastidi, feedback visita, note anamnestiche..."
+                          value={privateNoteText}
+                          onChange={(event) => setPrivateNoteText(event.target.value)}
+                          className="bg-white"
+                        />
+                      </Label>
 
-                  <div className="mt-5 space-y-3">
-                    {privateNotes.map((note) => (
-                      <div
-                        key={note.id}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold leading-6 text-slate-700">
-                              {note.note}
-                            </p>
+                      <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <p className="text-xs font-bold leading-5 text-slate-500">
+                          Usa note brevi e operative, così restano facili da consultare durante i check.
+                        </p>
 
-                            <p className="mt-2 text-xs font-bold text-slate-400">
-                              {new Date(note.created_at).toLocaleString("it-IT")}
-                            </p>
-                          </div>
-
-                          <Button
-                            onClick={() => deletePrivateNote(note)}
-                            className="border border-red-200 bg-red-50 px-3 py-2 text-red-700"
-                          >
-                            <Trash2 size={15} />
-                          </Button>
-                        </div>
+                        <Button
+                          type="submit"
+                          disabled={savingPrivateNote}
+                          className="w-full bg-[#07111f] text-white md:w-auto"
+                        >
+                          <Save size={17} className="mr-2" />
+                          {savingPrivateNote ? "Salvataggio..." : "Salva nota"}
+                        </Button>
                       </div>
-                    ))}
+                    </form>
 
-                    {privateNotes.length === 0 && (
-                      <Empty
-                        title="Nessuna nota privata"
-                        text="Aggiungi appunti interni sul cliente."
-                      />
-                    )}
+                    <div className="mt-5 space-y-3">
+                      {privateNotes.map((note) => (
+                        <div
+                          key={note.id}
+                          className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold leading-6 text-slate-700">
+                                {note.note}
+                              </p>
+
+                              <p className="mt-3 text-xs font-bold text-slate-400">
+                                {new Date(note.created_at).toLocaleString("it-IT")}
+                              </p>
+                            </div>
+
+                            <Button
+                              onClick={() => deletePrivateNote(note)}
+                              className="shrink-0 border border-red-200 bg-red-50 px-3 py-2 text-red-700 hover:bg-red-100"
+                            >
+                              <Trash2 size={15} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {privateNotes.length === 0 && (
+                        <Empty
+                          title="Nessuna nota privata"
+                          text="Aggiungi appunti interni sul cliente selezionato."
+                        />
+                      )}
+                    </div>
                   </div>
                 </Card>
               )}
