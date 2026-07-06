@@ -1370,7 +1370,14 @@ function dietExtractedInfo(diet) {
 
     if (!hasDailyCards && !hasOptionCards) return null;
 
-    return parsed;
+    const sanitized = sanitizeExtractedDietForMeals(parsed);
+    const hasSanitizedDailyCards = Array.isArray(sanitized?.days) && sanitized.days.length > 0;
+    const hasSanitizedOptionCards =
+      Array.isArray(sanitized?.optionGroups) && sanitized.optionGroups.length > 0;
+
+    if (!hasSanitizedDailyCards && !hasSanitizedOptionCards) return null;
+
+    return sanitized;
   } catch (error) {
     console.warn("TMFIT dieta: estrazione PDF non leggibile", error?.message || error);
     return null;
@@ -1523,32 +1530,183 @@ function findDietSectionBase(line) {
   return dietMealLabel(cleanBase);
 }
 
+function isDietNonMealHeading(line) {
+  const normalized = normalizeDietToken(line);
+
+  if (!normalized) return true;
+
+  const blockedStarts = [
+    "PIANO ALIMENTARE",
+    "ALLENAMENTO",
+    "TM FIT",
+    "TMFIT",
+    "LINEE GUIDA",
+    "IDRATAZIONE",
+    "REGOLE GENERALI",
+    "FRUTTA E VERDURA",
+    "CONDIMENTI",
+    "BEVANDE",
+    "TABELLA STAGIONALITA",
+    "TABELLA STAGIONALITA'",
+    "TABELLA STAGIONALITA’",
+    "RIPARTIZIONE CALORICA",
+    "GRASSI",
+    "CARBOIDRATI",
+    "PROTEINE",
+    "INTEGRAZIONE",
+    "NOTE GENERALI",
+    "PESO:",
+    "DURATA PROGRAMMA",
+    "STRUTTURATO SU",
+    "OBIETTIVO:",
+    "LISTA DELLA SPESA",
+    "LISTA ALIMENTI",
+    "ALTRO",
+    "BEVANDE ANALCOLICHE",
+    "CARNE",
+    "CEREALI E TUBERI",
+    "DOLCI",
+    "FARINE",
+    "FRUTTA",
+    "FRUTTA SECCA",
+    "GRASSI E CONDIMENTI",
+    "LATTE E DERIVATI",
+    "LEGUMI",
+    "ORTAGGI E VERDURE",
+    "PESCE",
+    "UOVA"
+  ];
+
+  return blockedStarts.some((item) => normalized.startsWith(normalizeDietToken(item)));
+}
+
+function dietLineLooksLikeMealFood(line) {
+  const normalized = normalizeDietToken(line);
+
+  if (!normalized) return false;
+  if (isDietFoodStart(line)) return true;
+  if (isDietAlternativeLine(line) && /\d+[,.]?\d*\s*(G|GR|KG|ML|L|KCAL|CAL)\b/.test(normalized)) return true;
+  if (/\d+[,.]?\d*\s*(G|GR|KG|ML|L|KCAL|CAL)\b/.test(normalized)) return true;
+
+  const foodWords = [
+    "YOGURT",
+    "PANE",
+    "PASTA",
+    "RISO",
+    "COUS COUS",
+    "PATATE",
+    "GALLETTE",
+    "WASA",
+    "UOVA",
+    "ALBUME",
+    "POLLO",
+    "TACCHINO",
+    "TONNO",
+    "MERLUZZO",
+    "NASELLO",
+    "SALMONE",
+    "BRESAOLA",
+    "FESA",
+    "PROSCIUTTO",
+    "RICOTTA",
+    "LATTE",
+    "FRUTTA",
+    "VERDURE",
+    "ORTAGGI",
+    "OLIO",
+    "PARMIGIANO",
+    "PIADINA",
+    "GNOCCHI",
+    "FIOCCHI",
+    "MUESLI",
+    "AVENA",
+    "QUINOA",
+    "FARRO",
+    "CECI",
+    "FAGIOLI",
+    "LENTICCHIE",
+    "MOZZARELLA",
+    "FIOCCHI DI LATTE"
+  ];
+
+  return foodWords.some((word) => normalized.includes(word));
+}
+
+function dietSectionHasMealFood(items = []) {
+  return (items || []).some((item) => dietLineLooksLikeMealFood(item));
+}
+
+function sanitizeExtractedDietForMeals(parsed) {
+  if (!parsed || typeof parsed !== "object") return parsed;
+
+  const cloned = { ...parsed };
+  const hiddenWarnings = [];
+
+  const days = Array.isArray(cloned.days) ? cloned.days : [];
+  cloned.days = days
+    .map((day) => {
+      const sections = day.meals || day.sections || [];
+      const cleanSections = sections.filter((section) => {
+        const title = section.name || section.title || "";
+        if (isDietNonMealHeading(title)) return false;
+        return dietSectionHasMealFood(section.items || []);
+      });
+
+      return {
+        ...day,
+        meals: cleanSections,
+        sections: cleanSections
+      };
+    })
+    .filter((day) => (day.meals || day.sections || []).length > 0);
+
+  const optionGroups = Array.isArray(cloned.optionGroups) ? cloned.optionGroups : [];
+  cloned.optionGroups = optionGroups
+    .map((group) => {
+      const title = group.meal || group.title || "";
+      if (isDietNonMealHeading(title)) {
+        hiddenWarnings.push(`Sezione non pasto esclusa: ${title}`);
+        return null;
+      }
+
+      const cleanOptions = (group.options || []).filter((option) => {
+        const optionTitle = option.title || "";
+        if (isDietNonMealHeading(optionTitle)) return false;
+        return dietSectionHasMealFood(option.items || []);
+      });
+
+      if (cleanOptions.length === 0) return null;
+
+      return {
+        ...group,
+        options: cleanOptions
+      };
+    })
+    .filter(Boolean);
+
+  cloned.warnings = [
+    ...(Array.isArray(cloned.warnings) ? cloned.warnings : []),
+    ...hiddenWarnings
+  ].filter(Boolean);
+
+  return cloned;
+}
+
 function detectDietGenericHeading(line) {
   const clean = cleanDietPdfLine(line);
-  const normalized = normalizeDietToken(clean);
 
   if (!clean) return null;
-  if (clean.length > 58) return null;
+  if (clean.length > 72) return null;
+  if (isDietNonMealHeading(clean)) return null;
   if (isDietFoodStart(clean) || isDietAlternativeLine(clean) || isDietNoteLine(clean)) return null;
   if (/\d+\s*(g|gr|kg|ml|l)\b/i.test(clean)) return null;
 
   const base = findDietSectionBase(clean);
 
-  if (base) {
-    return {
-      base,
-      title: clean
-    };
-  }
-
-  const letters = clean.replace(/[^A-Za-zÀ-ÿ]/g, "");
-  const upperLetters = clean.replace(/[^A-ZÀ-Ý]/g, "");
-  const looksUpper = letters.length >= 4 && upperLetters.length / letters.length > 0.75;
-
-  if (!looksUpper) return null;
+  if (!base) return null;
 
   return {
-    base: titleCaseDietLabel(clean),
+    base,
     title: clean
   };
 }
@@ -1592,6 +1750,7 @@ function compactDietItems(lines = []) {
     .filter(Boolean)
     .filter((line) => {
       const normalized = normalizeDietToken(line);
+      if (isDietNonMealHeading(line)) return false;
       return !ignoredStarts.some((start) => normalized.startsWith(start));
     })
     .slice(0, 80);
@@ -1602,6 +1761,8 @@ function pushDietMeal(target, meal) {
 
   const items = compactDietItems(meal.items || []);
   if (items.length === 0) return;
+  if (isDietNonMealHeading(meal.name || meal.title || "")) return;
+  if (!dietSectionHasMealFood(items)) return;
 
   target.push({
     name: meal.name,
@@ -1777,7 +1938,11 @@ function parseOptionsDietLines(lines, sourceName) {
     if (!currentOption) return;
 
     const items = compactDietItems(currentOption.items || []);
-    if (items.length === 0) {
+    if (
+      items.length === 0 ||
+      isDietNonMealHeading(currentOption.base || currentOption.title || "") ||
+      !dietSectionHasMealFood(items)
+    ) {
       currentOption = null;
       return;
     }
@@ -2023,8 +2188,8 @@ async function extractDietPdfForApp(file, dietType) {
       ? `pagine ${textExtraction.parseStartPage}-${textExtraction.pageCount}`
       : "intero PDF"
   };
-  const daily = parseDailyDietLines(lines, file.name);
-  const options = parseOptionsDietLines(lines, file.name);
+  const daily = sanitizeExtractedDietForMeals(parseDailyDietLines(lines, file.name));
+  const options = sanitizeExtractedDietForMeals(parseOptionsDietLines(lines, file.name));
   const wantsOptions = dietType === "options_pdf";
   const primary = wantsOptions ? options : daily;
   const fallback = wantsOptions ? daily : options;
