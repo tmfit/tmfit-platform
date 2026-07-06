@@ -4223,40 +4223,96 @@ const builderQuality = getBuilderQualityReport();
 
           {activeTab === "programs" && (
             <div className="space-y-5">
-              <Card className="border border-slate-300 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-                      Programmi
-                    </p>
-                    <h2 className="mt-1 text-xl font-black text-slate-950">
-                      Builder snello
-                    </h2>
-                    <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Meno schermate, più compilazione: dati base, giorni, esercizi e salvataggio.
-                    </p>
-                  </div>
+              <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                          Programmi
+                        </p>
 
-                  <div className="grid grid-cols-3 gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 shadow-inner">
-                    {[
-                      { id: "builder", label: "Crea" },
-                      { id: "saved", label: `Salvati ${plans.length}` },
-                      { id: "templates", label: `Template ${templates.length}` }
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setProgramPanel(item.id)}
-                        className={`rounded-xl px-3 py-2 text-xs font-black transition ${
+                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-black text-slate-500">
+                          Area professionista
+                        </span>
+                      </div>
+
+                      <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+                        Builder schede
+                      </h2>
+
+                      <p className="mt-1 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+                        Crea, assegna e riutilizza programmi senza appesantire la schermata.
+                        I pannelli restano separati per lavorare più velocemente.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm lg:text-right">
+                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                        Cliente attivo
+                      </p>
+                      <p className="mt-1 max-w-[240px] truncate text-sm font-black text-slate-950">
+                        {selectedClient ? fullName(selectedClient) : "Nessun cliente"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 p-3 md:grid-cols-3">
+                  {[
+                    {
+                      id: "builder",
+                      label: "Crea",
+                      meta: "Compila scheda",
+                      count: builderStats.totalExercises
+                    },
+                    {
+                      id: "saved",
+                      label: "Salvati",
+                      meta: "Schede cliente",
+                      count: plans.length
+                    },
+                    {
+                      id: "templates",
+                      label: "Template",
+                      meta: "Modelli rapidi",
+                      count: templates.length
+                    }
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setProgramPanel(item.id)}
+                      className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition active:scale-[.99] ${
+                        programPanel === item.id
+                          ? "border-[#07111f] bg-[#07111f] text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-black">
+                          {item.label}
+                        </span>
+                        <span
+                          className={`mt-0.5 block truncate text-[11px] font-bold ${
+                            programPanel === item.id ? "text-slate-300" : "text-slate-400"
+                          }`}
+                        >
+                          {item.meta}
+                        </span>
+                      </span>
+
+                      <span
+                        className={`flex h-8 min-w-8 shrink-0 items-center justify-center rounded-xl px-2 text-xs font-black ${
                           programPanel === item.id
-                            ? "bg-[#07111f] text-white shadow-sm"
-                            : "text-slate-600 hover:bg-white"
+                            ? "bg-teal-300 text-slate-950"
+                            : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                        {item.count}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </Card>
 
