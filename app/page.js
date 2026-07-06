@@ -4343,10 +4343,66 @@ const builderQuality = getBuilderQualityReport();
               </Card>
 
               {!selectedClient && programPanel === "builder" && (
-                <Empty
-                  title="Seleziona un cliente"
-                  text="Scegli un cliente e poi crea la scheda."
-                />
+                <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-4">
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                      Prima azione
+                    </p>
+                    <h3 className="mt-1 text-xl font-black text-slate-950">
+                      {clients.length === 0
+                        ? "Crea prima un cliente"
+                        : "Seleziona un cliente per iniziare"}
+                    </h3>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                      {clients.length === 0
+                        ? "Per assegnare una scheda serve almeno un cliente registrato nella piattaforma."
+                        : "Il builder è pronto: scegli il cliente e poi compila dati base, giorni ed esercizi."}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.6fr)]">
+                    <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm font-black text-slate-950">
+                        {clients.length === 0 ? "Nessun cliente disponibile" : "Cliente da assegnare"}
+                      </p>
+
+                      <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                        {clients.length === 0
+                          ? "Vai nella sezione Clienti, crea il profilo e poi torna qui per costruire la scheda."
+                          : "Puoi cambiare cliente anche dal box in alto senza uscire dalla sezione Programmi."}
+                      </p>
+
+                      {clients.length > 0 && (
+                        <div className="mt-3">
+                          <Select
+                            value={selectedClientId || ""}
+                            onChange={(event) => setSelectedClientId(event.target.value)}
+                            className="border-slate-300 bg-white text-slate-950"
+                          >
+                            <option value="">Seleziona cliente</option>
+                            {clients.map((client) => (
+                              <option key={client.id} value={String(client.id)}>
+                                {fullName(client)}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-[1.4rem] border border-teal-100 bg-teal-50 p-4">
+                      <p className="text-sm font-black text-teal-900">
+                        Flusso consigliato
+                      </p>
+
+                      <div className="mt-3 space-y-2 text-xs font-bold text-teal-800">
+                        <p>1. Seleziona cliente.</p>
+                        <p>2. Inserisci dati base e durata.</p>
+                        <p>3. Compila giorni, esercizi e recuperi.</p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
               )}
 
               {selectedClient && programPanel === "builder" && (
@@ -4416,6 +4472,34 @@ const builderQuality = getBuilderQualityReport();
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
                         {builderQuality.warnings[0]}
                         {builderQuality.warnings.length > 1 ? ` +${builderQuality.warnings.length - 1} avvisi` : ""}
+                      </div>
+                    )}
+
+                    {builderStats.totalExercises === 0 && (
+                      <div className="mt-3 grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
+                        {[
+                          ["1", "Dati base", "Titolo, obiettivo, durata"],
+                          ["2", "Giorni", "Aggiungi sedute ordinate"],
+                          ["3", "Esercizi", "Serie, reps, recuperi"]
+                        ].map(([step, title, text]) => (
+                          <div
+                            key={step}
+                            className="flex items-start gap-2 rounded-xl bg-slate-50 p-3"
+                          >
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#07111f] text-[11px] font-black text-white">
+                              {step}
+                            </span>
+
+                            <span>
+                              <span className="block text-xs font-black text-slate-950">
+                                {title}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] font-bold leading-4 text-slate-500">
+                                {text}
+                              </span>
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </Card>
