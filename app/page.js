@@ -1299,6 +1299,147 @@ function dietIsPdf(diet) {
   return fileName.endsWith(".pdf") || filePath.includes(".pdf");
 }
 
+function dietStructuredInfo(diet) {
+  const rawNotes = String(diet?.notes || "").trim();
+  const info = {
+    calorieTarget: "",
+    summary: "",
+    coachNotes: "",
+    extraNotes: "",
+    rawNotes
+  };
+
+  if (!rawNotes) return info;
+
+  const chunks = rawNotes
+    .split(/\n\s*\n/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+
+  const extra = [];
+
+  chunks.forEach((chunk) => {
+    const normalized = chunk.toLowerCase();
+
+    if (normalized.startsWith("target kcal:")) {
+      info.calorieTarget = chunk.replace(/^target kcal:\s*/i, "").trim();
+      return;
+    }
+
+    if (normalized.startsWith("riepilogo:")) {
+      info.summary = chunk.replace(/^riepilogo:\s*/i, "").trim();
+      return;
+    }
+
+    if (normalized.startsWith("note coach:")) {
+      info.coachNotes = chunk.replace(/^note coach:\s*/i, "").trim();
+      return;
+    }
+
+    extra.push(chunk);
+  });
+
+  info.extraNotes = extra.join("\n\n");
+
+  if (!info.coachNotes && !info.summary && !info.calorieTarget && rawNotes) {
+    info.coachNotes = rawNotes;
+  }
+
+  return info;
+}
+
+function DietInfoGrid({ diet, compact = false }) {
+  const info = dietStructuredInfo(diet);
+  const cardClass = compact
+    ? "rounded-2xl border border-slate-200 bg-white p-3"
+    : "rounded-2xl border border-slate-200 bg-white p-4";
+
+  const items = [
+    {
+      label: "Formato",
+      value: dietTypeLabel(diet?.diet_type),
+      helper: dietIsPdf(diet) ? "PDF consultabile" : "File allegato"
+    },
+    {
+      label: "Kcal",
+      value: info.calorieTarget || "Nel PDF",
+      helper: info.calorieTarget ? "Target indicato" : "Leggi piano completo"
+    },
+    {
+      label: "Periodo",
+      value: dietPeriodLabel(diet),
+      helper: diet?.created_at
+        ? `Caricata ${new Date(diet.created_at).toLocaleDateString("it-IT")}`
+        : "Dieta attiva"
+    },
+    {
+      label: "File",
+      value: diet?.file_name || "PDF dieta",
+      helper: "Originale SIFA"
+    }
+  ];
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {items.map((item) => (
+        <div key={item.label} className={cardClass}>
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+            {item.label}
+          </p>
+          <p className="mt-1 truncate text-sm font-black text-slate-950">
+            {item.value}
+          </p>
+          <p className="mt-1 truncate text-[11px] font-bold text-slate-500">
+            {item.helper}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DietCoachNoteBox({ diet, emptyTitle = "Nessuna nota aggiuntiva" }) {
+  const info = dietStructuredInfo(diet);
+  const coachText = info.coachNotes || info.extraNotes;
+
+  if (!coachText) {
+    return (
+      <Empty
+        title={emptyTitle}
+        text="Consulta il PDF completo per tutti i dettagli del piano."
+      />
+    );
+  }
+
+  return (
+    <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-700">
+        Note coach
+      </p>
+      <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-7 text-slate-600">
+        {coachText}
+      </p>
+    </div>
+  );
+}
+
+function DietSummaryBox({ diet }) {
+  const info = dietStructuredInfo(diet);
+
+  if (!info.summary) return null;
+
+  return (
+    <div className="rounded-[1.5rem] border border-teal-100 bg-teal-50 p-5">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-700">
+        Riepilogo piano
+      </p>
+      <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-7 text-slate-700">
+        {info.summary}
+      </p>
+    </div>
+  );
+}
+
 
 function pdfViewerSrc(url) {
   if (!url) return "";
@@ -6345,11 +6486,11 @@ const builderQuality = getBuilderQualityReport();
                                 {dietPeriodLabel(diets[0])}
                               </p>
 
-                              {diets[0].notes && (
-                                <p className="mt-4 whitespace-pre-line rounded-2xl bg-white p-4 text-sm font-semibold leading-6 text-slate-600">
-                                  {diets[0].notes}
-                                </p>
-                              )}
+                              <div className="mt-4 space-y-3">
+                                <DietSummaryBox diet={diets[0]} />
+                                <DietInfoGrid diet={diets[0]} compact />
+                                <DietCoachNoteBox diet={diets[0]} emptyTitle="Nessuna nota coach" />
+                              </div>
                             </div>
 
                             <div className="flex shrink-0 flex-col gap-2 sm:min-w-40">
@@ -6472,7 +6613,9 @@ const builderQuality = getBuilderQualityReport();
                             {diet.file_name || "PDF dieta"}
                           </p>
                           <p className="mt-1 text-xs font-bold text-slate-400">
-                            {dietTypeLabel(diet.diet_type)} · {dietPeriodLabel(diet)}
+
+                            {dietTypeLabel(diet.diet_type)} · {dietStructuredInfo(diet).calorieTarget || dietPeriodLabel(diet)}
+
                           </p>
                         </div>
 
@@ -6508,106 +6651,253 @@ const builderQuality = getBuilderQualityReport();
           )}
 
           {activeTab === "posts" && (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Nuovo messaggio bacheca</h2>
-
-                <form onSubmit={savePost} className="mt-4 space-y-3">
-                  <Input
-                    required
-                    placeholder="Titolo"
-                    value={postForm.title}
-                    onChange={(event) =>
-                      setPostForm({
-                        ...postForm,
-                        title: event.target.value
-                      })
-                    }
-                  />
-
-                  <Select
-                    value={postForm.client_scope}
-                    onChange={(event) =>
-                      setPostForm({
-                        ...postForm,
-                        client_scope: event.target.value
-                      })
-                    }
-                  >
-                    <option value="selected">Solo cliente selezionato</option>
-                    <option value="all">Tutti i clienti</option>
-                  </Select>
-
-                  <Textarea
-                    placeholder="Testo messaggio"
-                    value={postForm.body}
-                    onChange={(event) =>
-                      setPostForm({
-                        ...postForm,
-                        body: event.target.value
-                      })
-                    }
-                  />
-
-                  <label className="flex items-center gap-2 text-sm font-bold">
-                    <input
-                      type="checkbox"
-                      checked={postForm.is_pinned}
-                      onChange={(event) =>
-                        setPostForm({
-                          ...postForm,
-                          is_pinned: event.target.checked
-                        })
-                      }
-                    />
-                    Messaggio fissato
-                  </label>
-
-                  <Button type="submit" className="w-full bg-[#07111f] text-white">
-                    Pubblica
-                  </Button>
-                </form>
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Messaggi pubblicati</h2>
-
-                <div className="mt-4 space-y-3">
-                  {posts.map((post) => (
-                    <div
-                      key={post.id}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    >
-                      <div className="flex items-center gap-2">
-                        <p className="font-black">{post.title}</p>
-
-                        {post.is_pinned && (
-                          <Pill className="bg-teal-100 text-teal-700">
-                            Fissato
-                          </Pill>
-                        )}
-                      </div>
-
-                      <p className="mt-2 text-sm font-semibold text-slate-600">
-                        {post.body}
+            <div className="space-y-5">
+              <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+                <div className="bg-[#07111f] p-5 text-white md:p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-300">
+                        Comunicazioni
                       </p>
 
-                      <p className="mt-2 text-xs font-bold text-slate-400">
-                        {post.client_id ? "Cliente specifico" : "Tutti i clienti"}
+                      <h2 className="mt-2 text-2xl font-black tracking-tight md:text-3xl">
+                        Bacheca coach
+                      </h2>
+
+                      <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-300">
+                        Pubblica aggiornamenti, promemoria o comunicazioni per tutti i clienti oppure solo per il cliente selezionato.
                       </p>
                     </div>
-                  ))}
 
-                  {posts.length === 0 && (
-                    <Empty
-                      title="Nessun messaggio"
-                      text="Pubblica il primo messaggio."
-                    />
-                  )}
+                    <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[360px]">
+                      <div className="rounded-2xl bg-white/10 px-3 py-3">
+                        <p className="text-lg font-black text-white">{posts.length}</p>
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Totali
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-white/10 px-3 py-3">
+                        <p className="text-lg font-black text-white">
+                          {posts.filter((post) => post.is_pinned).length}
+                        </p>
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Fissati
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-teal-300 px-3 py-3 text-slate-950">
+                        <p className="text-lg font-black">
+                          {posts.filter((post) => !post.client_id).length}
+                        </p>
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em]">
+                          Globali
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </Card>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-200 bg-slate-50 p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
+                          Nuovo post
+                        </p>
+
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          Nuovo messaggio bacheca
+                        </h3>
+
+                        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                          Scrivi un messaggio breve, chiaro e leggibile anche da mobile.
+                        </p>
+                      </div>
+
+                      <div className="hidden rounded-2xl bg-white px-3 py-2 text-center shadow-sm sm:block">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Target
+                        </p>
+                        <p className="mt-1 text-xs font-black text-slate-800">
+                          {postForm.client_scope === "all" ? "Tutti" : selectedClient ? fullName(selectedClient) : "Cliente"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <form onSubmit={savePost} className="space-y-4 p-5">
+                    <Label title="Titolo comunicazione">
+                      <Input
+                        required
+                        placeholder="Es. Aggiornamento dieta, check-in, promemoria"
+                        value={postForm.title}
+                        onChange={(event) =>
+                          setPostForm({
+                            ...postForm,
+                            title: event.target.value
+                          })
+                        }
+                      />
+                    </Label>
+
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                      <Label title="Destinatari">
+                        <Select
+                          value={postForm.client_scope}
+                          onChange={(event) =>
+                            setPostForm({
+                              ...postForm,
+                              client_scope: event.target.value
+                            })
+                          }
+                        >
+                          <option value="selected">Solo cliente selezionato</option>
+                          <option value="all">Tutti i clienti</option>
+                        </Select>
+                      </Label>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          Cliente selezionato
+                        </p>
+                        <p className="mt-1 max-w-[220px] truncate text-sm font-black text-slate-800">
+                          {selectedClient ? fullName(selectedClient) : "Nessun cliente"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <Label title="Testo messaggio">
+                      <Textarea
+                        placeholder="Scrivi il messaggio che il cliente vedrà nella sua area Bacheca."
+                        value={postForm.body}
+                        onChange={(event) =>
+                          setPostForm({
+                            ...postForm,
+                            body: event.target.value
+                          })
+                        }
+                        className="min-h-40"
+                      />
+                    </Label>
+
+                    <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <input
+                        type="checkbox"
+                        checked={postForm.is_pinned}
+                        onChange={(event) =>
+                          setPostForm({
+                            ...postForm,
+                            is_pinned: event.target.checked
+                          })
+                        }
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="block text-sm font-black text-slate-800">
+                          Messaggio fissato
+                        </span>
+                        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
+                          Utile per comunicazioni importanti che devono restare in evidenza nella bacheca cliente.
+                        </span>
+                      </span>
+                    </label>
+
+                    <Button type="submit" className="w-full bg-[#07111f] text-white hover:bg-slate-800">
+                      <Megaphone size={17} className="mr-2" />
+                      Pubblica messaggio
+                    </Button>
+                  </form>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-200 bg-white p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
+                          Storico
+                        </p>
+
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          Messaggi pubblicati
+                        </h3>
+                      </div>
+
+                      <Pill className="bg-slate-100 text-slate-700">
+                        {posts.length} messaggi
+                      </Pill>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 p-5">
+                    {posts.map((post) => (
+                      <article
+                        key={post.id}
+                        className={`rounded-[1.35rem] border p-4 transition ${
+                          post.is_pinned
+                            ? "border-teal-200 bg-teal-50"
+                            : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="text-base font-black text-slate-950">
+                                {post.title}
+                              </h4>
+
+                              {post.is_pinned && (
+                                <Pill className="bg-teal-300 text-slate-950">
+                                  Fissato
+                                </Pill>
+                              )}
+                            </div>
+
+                            <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-slate-600">
+                              {post.body || "Nessun testo inserito."}
+                            </p>
+                          </div>
+
+                          <div className="shrink-0 rounded-2xl bg-slate-100 px-3 py-2 text-left sm:text-right">
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                              Visibilità
+                            </p>
+                            <p className="mt-1 text-xs font-black text-slate-700">
+                              {post.client_id ? "Cliente specifico" : "Tutti i clienti"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-400">
+                          <span>
+                            {post.created_at
+                              ? new Intl.DateTimeFormat("it-IT", {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  year: "numeric"
+                                }).format(new Date(post.created_at))
+                              : "Data non disponibile"}
+                          </span>
+                          <span>•</span>
+                          <span>{post.client_id ? "Messaggio mirato" : "Messaggio globale"}</span>
+                        </div>
+                      </article>
+                    ))}
+
+                    {posts.length === 0 && (
+                      <Empty
+                        title="Nessun messaggio"
+                        text="Pubblica il primo messaggio per iniziare a usare la bacheca clienti."
+                      />
+                    )}
+                  </div>
+                </Card>
+              </div>
             </div>
           )}
+
         </section>
             </main>
 
@@ -9258,7 +9548,7 @@ function WorkoutPlayerModal({
                       <p className="text-[10px] font-black uppercase text-slate-400">Reps</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-2xl font-black text-slate-950">{recoverySeconds}\"</p>
+                      <p className="text-2xl font-black text-slate-950">{recoverySeconds}"</p>
                       <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
                     </div>
                   </div>
@@ -9371,7 +9661,7 @@ function WorkoutPlayerModal({
                       <p className="text-[10px] font-black uppercase text-slate-400">Carico</p>
                     </div>
                     <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                      <p className="text-base font-black text-slate-950">{recoverySeconds}\"</p>
+                      <p className="text-base font-black text-slate-950">{recoverySeconds}"</p>
                       <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
                     </div>
                   </div>
@@ -11430,10 +11720,10 @@ function getExerciseHistory(exercise) {
                         </div>
                         <div className="rounded-2xl bg-white/10 p-3">
                           <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                            File
+                            Kcal
                           </p>
-                          <p className="mt-1 text-sm font-black text-white">
-                            {dietIsPdf(latestDiet) ? "PDF" : "File"}
+                          <p className="mt-1 truncate text-sm font-black text-white">
+                            {dietStructuredInfo(latestDiet).calorieTarget || "Nel PDF"}
                           </p>
                         </div>
                         <div className="rounded-2xl bg-teal-300 p-3 text-slate-950">
@@ -11483,16 +11773,9 @@ function getExerciseHistory(exercise) {
                       </div>
 
                       <div className="space-y-4 p-5">
-                        {latestDiet.notes ? (
-                          <div className="whitespace-pre-line rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 text-sm font-semibold leading-7 text-slate-600">
-                            {latestDiet.notes}
-                          </div>
-                        ) : (
-                          <Empty
-                            title="Nessuna nota aggiuntiva"
-                            text="Consulta il PDF completo per tutti i dettagli del piano."
-                          />
-                        )}
+                        <DietSummaryBox diet={latestDiet} />
+                        <DietInfoGrid diet={latestDiet} />
+                        <DietCoachNoteBox diet={latestDiet} />
 
                         <div className="grid gap-3 sm:grid-cols-3">
                           <div className="rounded-2xl border border-teal-100 bg-teal-50 p-4">
@@ -11628,14 +11911,22 @@ function getExerciseHistory(exercise) {
                             Anteprima pronta
                           </p>
                           <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                            Tocca il pulsante per caricare il PDF direttamente qui.
+                            Tocca il pulsante per caricare il PDF qui oppure aprilo in modalità lettura interna, più comoda su smartphone.
                           </p>
-                          <Button
-                            onClick={() => previewDietInApp(latestDiet)}
-                            className="mt-4 bg-teal-300 text-slate-950"
-                          >
-                            Carica PDF
-                          </Button>
+                          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                            <Button
+                              onClick={() => previewDietInApp(latestDiet)}
+                              className="bg-teal-300 text-slate-950"
+                            >
+                              Carica PDF
+                            </Button>
+                            <Button
+                              onClick={() => openDietFullscreen(latestDiet)}
+                              className="bg-[#07111f] text-white"
+                            >
+                              Schermo interno
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -11677,7 +11968,9 @@ function getExerciseHistory(exercise) {
                                 {diet.file_name || "PDF dieta"}
                               </p>
                               <p className="mt-1 text-xs font-bold text-slate-400">
-                                {dietTypeLabel(diet.diet_type)} · {dietPeriodLabel(diet)}
+
+                                {dietTypeLabel(diet.diet_type)} · {dietStructuredInfo(diet).calorieTarget || dietPeriodLabel(diet)}
+
                               </p>
                             </div>
 
