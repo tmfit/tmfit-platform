@@ -1301,6 +1301,7 @@ function dietIsPdf(diet) {
 
 const DIET_EXTRACT_START = "TMFIT_DIET_EXTRACT_START";
 const DIET_EXTRACT_END = "TMFIT_DIET_EXTRACT_END";
+const DIET_PARSER_SKIP_INTRO_PAGES = 6;
 const DIET_DAY_NAMES = [
   "Lunedì",
   "Martedì",
@@ -1963,19 +1964,29 @@ function pdfTextItemsToLines(items = []) {
     .filter(Boolean);
 }
 
-async function extractDietTextFromPdfFile(file) {
+async function extractDietTextFromPdfFile(file, options = {}) {
   const pdfjsLib = await loadPdfJsForDietExtraction();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const pageCount = Number(pdf.numPages || 0);
+  const skipIntroPages = Number.isFinite(Number(options.skipIntroPages))
+    ? Math.max(0, Number(options.skipIntroPages))
+    : DIET_PARSER_SKIP_INTRO_PAGES;
+  const parseStartPage = pageCount > skipIntroPages ? skipIntroPages + 1 : 1;
   const pages = [];
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+  for (let pageNumber = parseStartPage; pageNumber <= pageCount; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
     pages.push(...pdfTextItemsToLines(content.items || []));
   }
 
-  return pages.map(cleanDietPdfLine).filter(Boolean);
+  return {
+    lines: pages.map(cleanDietPdfLine).filter(Boolean),
+    pageCount,
+    parseStartPage,
+    skippedIntroPages: Math.max(0, parseStartPage - 1)
+  };
 }
 
 function scoreDietExtraction(extractedDiet) {
@@ -2002,7 +2013,16 @@ function scoreDietExtraction(extractedDiet) {
 }
 
 async function extractDietPdfForApp(file, dietType) {
-  const lines = await extractDietTextFromPdfFile(file);
+  const textExtraction = await extractDietTextFromPdfFile(file);
+  const lines = textExtraction.lines || [];
+  const extractionMeta = {
+    pageCount: textExtraction.pageCount || 0,
+    parseStartPage: textExtraction.parseStartPage || 1,
+    skippedIntroPages: textExtraction.skippedIntroPages || 0,
+    parseScope: textExtraction.skippedIntroPages > 0
+      ? `pagine ${textExtraction.parseStartPage}-${textExtraction.pageCount}`
+      : "intero PDF"
+  };
   const daily = parseDailyDietLines(lines, file.name);
   const options = parseOptionsDietLines(lines, file.name);
   const wantsOptions = dietType === "options_pdf";
@@ -2014,6 +2034,7 @@ async function extractDietPdfForApp(file, dietType) {
   if (primaryScore > 0 && primaryScore >= fallbackScore * 0.72) {
     return {
       ...primary,
+      ...extractionMeta,
       parseScore: primaryScore,
       alternativeScore: fallbackScore
     };
@@ -2022,6 +2043,7 @@ async function extractDietPdfForApp(file, dietType) {
   if (fallbackScore > 0) {
     return {
       ...fallback,
+      ...extractionMeta,
       parseScore: fallbackScore,
       alternativeScore: primaryScore,
       warnings: [
@@ -2033,6 +2055,7 @@ async function extractDietPdfForApp(file, dietType) {
 
   return {
     ...primary,
+    ...extractionMeta,
     parseScore: primaryScore,
     alternativeScore: fallbackScore,
     warnings: [
@@ -2444,7 +2467,8 @@ function dietExtractionStats(diet) {
       warnings: diet?.file_path
         ? ["Premi Analizza PDF o Rigenera card per creare la visualizzazione pasti."]
         : ["Nessun PDF collegato a questa dieta."],
-      confidence: 0
+      confidence: 0,
+      parserScopeLabel: "Prime 6 pagine escluse dal parsing Pasti"
     };
   }
 
@@ -2493,6 +2517,12 @@ function dietExtractionStats(diet) {
       : rawConfidence;
   const totalCards = isOptions ? totalOptions : totalMeals;
   const totalItems = isOptions ? totalOptionItems : totalDailyItems;
+  const skippedIntroPages = Number(extracted.skippedIntroPages || 0);
+  const parseStartPage = Number(extracted.parseStartPage || 1);
+  const pageCount = Number(extracted.pageCount || 0);
+  const parserScopeLabel = skippedIntroPages > 0
+    ? `Pasti letti da pagina ${parseStartPage}${pageCount ? ` a ${pageCount}` : ""}. Prime ${skippedIntroPages} pagine escluse.`
+    : "Pasti letti dall’intero PDF.";
 
   let statusLabel = "Card pronte";
   let statusText = "La dieta ha card generate e consultabili nel tab Pasti.";
@@ -2521,7 +2551,8 @@ function dietExtractionStats(diet) {
     secondaryLabel: isOptions ? "Opzioni" : "Pasti",
     totalItems,
     warnings,
-    confidence
+    confidence,
+    parserScopeLabel
   };
 }
 
@@ -2595,6 +2626,17 @@ function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = fa
           </div>
         )}
       </div>
+
+      {!compact && stats.parserScopeLabel && (
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+            Parsing Pasti
+          </p>
+          <p className="mt-1 text-xs font-bold leading-5 text-slate-600">
+            {stats.parserScopeLabel}
+          </p>
+        </div>
+      )}
 
       {stats.warnings.length > 0 && !compact && (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
