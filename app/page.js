@@ -565,25 +565,25 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
         </div>
       </div>
 
-      <div className={`fixed bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pt-2 shadow-2xl backdrop-blur-xl tmfit-safe-bottom md:hidden ${
+      <div className={`fixed bottom-0 z-50 bg-transparent px-3 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-0 md:hidden ${
           contained
             ? "left-1/2 w-full max-w-[480px] -translate-x-1/2"
             : "left-0 right-0"
         }`}
       >
-        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.7rem] bg-slate-100 p-1`}>
+        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.35rem] border border-slate-200 bg-white/95 p-1 shadow-[0_-6px_22px_rgba(15,23,42,0.10)] backdrop-blur-xl`}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center rounded-[1.3rem] px-1 py-2 text-[10px] font-black transition active:scale-[.96] ${
+              className={`flex h-11 min-w-0 flex-col items-center justify-center rounded-[1rem] px-0.5 text-[8.5px] font-black leading-none transition active:scale-[.96] ${
                 active === tab.id
                   ? "bg-[#07111f] text-white"
                   : "text-slate-500"
               }`}
             >
-              <span className="mb-1">{tab.icon}</span>
+              <span className="mb-0.5 scale-[.82]">{tab.icon}</span>
               <span className="max-w-full truncate">{tab.label}</span>
             </button>
           ))}
@@ -8533,6 +8533,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [checkins, setCheckins] = useState([]);
   const [photos, setPhotos] = useState([]);
   const [loadHistory, setLoadHistory] = useState([]);
+  const [loadHistoryLoaded, setLoadHistoryLoaded] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
   const [workoutPlayer, setWorkoutPlayer] = useState({
@@ -8654,20 +8655,6 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
-    const { data: historyData, error: historyError } = await supabase
-  .from("workout_set_logs")
-  .select(
-    "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
-  )
-  .eq("workout_sessions.client_id", numericClientId)
-  .order("created_at", { ascending: false })
-  .limit(500);
-
-if (historyError) {
-  console.warn(historyError.message);
-} else {
-  setLoadHistory(historyData || []);
-}
   }
 
   function currentWeekNumber(plan) {
@@ -8714,6 +8701,41 @@ function getExerciseHistory(exercise) {
     .filter((log) => log.load_kg || log.reps_done)
     .slice(0, 12);
 }
+
+  async function loadWorkoutHistoryIfNeeded() {
+    if (!client || loadHistoryLoaded) return true;
+
+    const { data: historyData, error: historyError } = await supabase
+      .from("workout_set_logs")
+      .select(
+        "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
+      )
+      .eq("workout_sessions.client_id", Number(client.id))
+      .order("created_at", { ascending: false })
+      .limit(250);
+
+    if (historyError) {
+      console.warn(historyError.message);
+      return false;
+    }
+
+    setLoadHistory(historyData || []);
+    setLoadHistoryLoaded(true);
+    return true;
+  }
+
+  async function openWorkoutPlayer(plan, day) {
+    if (!day) return;
+
+    await loadWorkoutHistoryIfNeeded();
+
+    setWorkoutPlayer({
+      open: true,
+      plan,
+      day
+    });
+  }
+
   function updateDraft(key, field, value) {
     setDrafts((prev) => ({
       ...prev,
@@ -9157,7 +9179,7 @@ function getExerciseHistory(exercise) {
         }
       `}</style>
       <div className="tmfit-client-shell mx-auto min-h-[100dvh] w-full max-w-[480px] overflow-x-hidden bg-[#f5f7fb] shadow-2xl">
-      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-3 text-white shadow-xl md:relative md:px-6 md:py-4">
+      <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-2.5 text-white shadow-xl md:relative md:px-6 md:py-4">
         <div className="mx-auto flex w-full max-w-[480px] items-center justify-between gap-4">
           <button
             type="button"
@@ -9171,16 +9193,16 @@ function getExerciseHistory(exercise) {
             className="min-w-0 rounded-2xl px-1 py-1 text-left transition hover:bg-white/5 active:scale-[.98]"
             aria-label="Vai alla Home"
           >
-            <p className="text-2xl font-black leading-none tracking-tight text-white">TMFIT</p>
-            <p className="mt-1 max-w-[220px] truncate text-sm font-black text-slate-300 md:max-w-none">
-              Area cliente
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">Benvenuto</p>
+            <p className="mt-0.5 max-w-[220px] truncate text-xl font-black leading-none tracking-tight text-white md:max-w-none">
+              {client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
             </p>
           </button>
 
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="tmfit-tap flex shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+            className="tmfit-tap flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
           >
             <span className="block h-0.5 w-6 rounded bg-white" />
             <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
@@ -9201,132 +9223,75 @@ function getExerciseHistory(exercise) {
   userProfile={userProfile}
   side="right"
 />
-      <main className="mx-auto w-full max-w-[480px] space-y-5 overflow-x-hidden p-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:p-5">
+      <main className="mx-auto w-full max-w-[480px] space-y-4 overflow-x-hidden p-4 pb-[calc(3.7rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
-          <div className="space-y-5">
-            <Card className="overflow-hidden border-none bg-transparent shadow-none">
-              <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
-                <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
-                  OGGI
-                </p>
-
-                <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
-                  {client ? fullName(client) : "Cliente"}
-                </h2>
-
-                <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
-                  Apri l’app, guarda la prossima azione e completa il percorso senza schermate confuse.
-                </p>
-              </div>
-            </Card>
-
-            <Card className="overflow-hidden border-2 border-[#07111f]/10 shadow-lg">
-              <div className="bg-white p-4 md:p-6">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
-                        Prossima azione
-                      </p>
-                      <h3 className="mt-2 text-2xl font-black text-slate-950">
-                        {primaryClientReminder?.title || "Tutto aggiornato"}
-                      </h3>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                        {primaryClientReminder?.text || "Non hai azioni urgenti da completare in questo momento."}
-                      </p>
-                    </div>
-
-                    {primaryClientReminder && (
-                      <Button
-                        onClick={primaryClientReminder.onAction}
-                        className="shrink-0 bg-[#07111f] text-white"
-                      >
-                        {primaryClientReminder.actionLabel}
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Prossimo workout
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {nextWorkoutTitle}
-                      </p>
-                    </div>
-
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Allenamenti registrati
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {clientCompletedWorkoutCount}
-                      </p>
-                    </div>
-
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Ultimo check-in
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {latestCheckin ? formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Mai inviato"}
-                      </p>
-                    </div>
-
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Dieta attiva
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {latestDiet ? latestDiet.title || "Disponibile" : "Non caricata"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="overflow-hidden border-none shadow-lg">
-              <div className="bg-white p-4 md:p-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
-                      Promemoria
-                    </p>
-
-                    <h3 className="mt-2 text-2xl font-black text-slate-950">
-                      Cose da fare oggi
-                    </h3>
-                  </div>
-
-                  <Pill className="bg-teal-100 text-teal-700">
-                    {clientReminderItems.length} attivi
-                  </Pill>
-                </div>
-
-                <div className="mt-5 grid gap-3">
-                  {clientReminderItems.map((item) => (
-                    <ClientReminderCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-5">
+          <div className="space-y-3">
+            <Card className="border-none bg-[#07111f] p-4 text-white shadow-sm">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
-                    Installa app
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
+                    Oggi
                   </p>
-                  <h3 className="mt-2 text-xl font-black text-slate-950">
-                    Usa TMFIT dalla schermata Home
-                  </h3>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                    iPhone: Safari → Condividi → Aggiungi alla schermata Home. Android: Chrome → Menu → Installa app.
+                  <h2 className="mt-2 line-clamp-2 text-xl font-black leading-tight">
+                    {primaryClientReminder?.title || "Tutto aggiornato"}
+                  </h2>
+                  <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-300">
+                    {primaryClientReminder?.text || "Non hai azioni urgenti da completare."}
                   </p>
                 </div>
-                <Pill className="bg-[#07111f] text-white">PWA</Pill>
+
+                {primaryClientReminder && (
+                  <button
+                    type="button"
+                    onClick={primaryClientReminder.onAction}
+                    className="shrink-0 rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-950 active:scale-[.96]"
+                  >
+                    Apri
+                  </button>
+                )}
+              </div>
+            </Card>
+
+            <Card className="border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                    Promemoria
+                  </p>
+                  <h3 className="mt-0.5 text-base font-black text-slate-950">
+                    Essenziali
+                  </h3>
+                </div>
+                <Pill className="bg-slate-100 px-2 py-1 text-[10px] text-slate-700">
+                  {clientReminderItems.length}
+                </Pill>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {clientReminderItems.length > 0 ? (
+                  clientReminderItems.slice(0, 2).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={item.onAction}
+                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left active:scale-[.98]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-slate-950">
+                          {item.title}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs font-bold text-slate-500">
+                          {item.priority}
+                        </p>
+                      </div>
+                      <ChevronRight size={16} className="shrink-0 text-slate-400" />
+                    </button>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-500">
+                    Nessun promemoria urgente.
+                  </div>
+                )}
               </div>
             </Card>
           </div>
@@ -9408,14 +9373,7 @@ function getExerciseHistory(exercise) {
                         <Button
                           type="button"
                           disabled={!nextDay}
-                          onClick={() =>
-                            nextDay &&
-                            setWorkoutPlayer({
-                              open: true,
-                              plan,
-                              day: nextDay
-                            })
-                          }
+                          onClick={() => openWorkoutPlayer(plan, nextDay)}
                           className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
                         >
                           <Dumbbell size={17} className="mr-2" />
@@ -9484,13 +9442,7 @@ function getExerciseHistory(exercise) {
 
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setWorkoutPlayer({
-                                      open: true,
-                                      plan,
-                                      day
-                                    })
-                                  }
+                                  onClick={() => openWorkoutPlayer(plan, day)}
                                   className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.98]"
                                 >
                                   Inizia
