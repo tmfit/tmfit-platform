@@ -3357,23 +3357,23 @@ async function savePrivateNote(event) {
           : "bg-slate-100 text-slate-700";
 
       return (
-        <Card className="p-4">
+        <Card className="p-4 md:p-5">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+            <div className="min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
                 {title}
               </p>
 
-              <p className="mt-2 text-3xl font-black text-slate-950">
+              <p className="mt-2 text-3xl font-black leading-none text-slate-950 md:text-4xl">
                 {value}
               </p>
 
-              <p className="mt-1 text-sm font-semibold text-slate-500">
+              <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
                 {text}
               </p>
             </div>
 
-            <div className={`rounded-2xl p-3 ${toneClass}`}>{icon}</div>
+            <div className={`shrink-0 rounded-2xl p-3 ${toneClass}`}>{icon}</div>
           </div>
         </Card>
       );
@@ -3381,19 +3381,19 @@ async function savePrivateNote(event) {
 
     function ActionRow({ clientId, title, text, tag, actionLabel, onAction }) {
       return (
-        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-teal-200 hover:shadow-sm md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate font-black text-slate-950">{title}</p>
               <Pill className="bg-amber-100 text-amber-700">{tag}</Pill>
             </div>
 
-            <p className="mt-1 text-sm font-semibold text-slate-500">{text}</p>
+            <p className="mt-1 text-sm font-semibold leading-5 text-slate-500">{text}</p>
           </div>
 
           <Button
             onClick={onAction || (() => openClient(clientId))}
-            className="shrink-0 bg-[#07111f] text-white"
+            className="w-full shrink-0 bg-[#07111f] text-white md:w-auto"
           >
             {actionLabel || "Apri cliente"}
           </Button>
@@ -3412,7 +3412,7 @@ async function savePrivateNote(event) {
           : "bg-slate-100 text-slate-700";
 
       return (
-        <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200 hover:shadow-md md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${toneClass}`}>
@@ -3427,7 +3427,7 @@ async function savePrivateNote(event) {
             </p>
           </div>
 
-          <Button onClick={item.onAction} className="shrink-0 bg-[#07111f] text-white">
+          <Button onClick={item.onAction} className="w-full shrink-0 bg-[#07111f] text-white md:w-auto">
             {item.actionLabel}
           </Button>
         </div>
@@ -3438,23 +3438,46 @@ async function savePrivateNote(event) {
       <div className="space-y-5">
         <Card className="overflow-hidden border-none bg-[#07111f] text-white shadow-xl">
           <div className="p-5 md:p-7">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-              <div>
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.35em] text-teal-300">
                   Dashboard professionista
                 </p>
 
-                <h2 className="mt-3 text-3xl font-black md:text-5xl">
+                <h2 className="mt-3 text-3xl font-black leading-tight md:text-5xl">
                   Oggi su TMFIT Pro
                 </h2>
 
                 <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-300 md:text-base">
-                  Vista operativa per capire subito chi seguire, cosa manca e
-                  quali attività sono arrivate negli ultimi 7 giorni.
+                  Vista operativa per capire subito priorità, nuovi check-in e
+                  clienti da seguire negli ultimi 7 giorni.
                 </p>
+
+                <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                      Clienti
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-white">{clients.length}</p>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                      Da fare
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-teal-300">{reminderItems.length}</p>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                      Urgenti
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-red-200">{urgentReminderCount}</p>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[330px]">
                 <Button
                   onClick={() => {
                     setActiveTab("clients");
@@ -3513,7 +3536,7 @@ async function savePrivateNote(event) {
         <Card className="overflow-hidden border-none shadow-lg">
           <div className="bg-white p-5 md:p-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
                   Centro promemoria
                 </p>
@@ -3523,8 +3546,8 @@ async function savePrivateNote(event) {
                 </h3>
 
                 <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
-                  Promemoria interni generati dai dati già presenti: clienti da
-                  programmare, diete mancanti, check-in recenti e aderenza da controllare.
+                  Priorità generate dai dati già presenti: programmi, diete,
+                  check-in recenti e aderenza da controllare.
                 </p>
               </div>
 
@@ -3655,7 +3678,10 @@ async function savePrivateNote(event) {
         <div className="grid gap-5 xl:grid-cols-3">
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black">Ultimi check-in</h3>
+              <div>
+                <h3 className="text-lg font-black">Ultimi check-in</h3>
+                <p className="text-xs font-bold text-slate-400">Aggiornamenti clienti</p>
+              </div>
               <ClipboardCheck size={18} className="text-teal-600" />
             </div>
 
@@ -3684,7 +3710,10 @@ async function savePrivateNote(event) {
 
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black">Ultimi allenamenti</h3>
+              <div>
+                <h3 className="text-lg font-black">Ultimi allenamenti</h3>
+                <p className="text-xs font-bold text-slate-400">Sessioni completate</p>
+              </div>
               <Dumbbell size={18} className="text-teal-600" />
             </div>
 
@@ -3713,7 +3742,10 @@ async function savePrivateNote(event) {
 
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black">Foto progressi</h3>
+              <div>
+                <h3 className="text-lg font-black">Foto progressi</h3>
+                <p className="text-xs font-bold text-slate-400">Materiale recente</p>
+              </div>
               <Camera size={18} className="text-teal-600" />
             </div>
 
