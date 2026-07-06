@@ -1299,6 +1299,181 @@ function dietIsPdf(diet) {
   return fileName.endsWith(".pdf") || filePath.includes(".pdf");
 }
 
+
+function pdfViewerSrc(url) {
+  if (!url) return "";
+  return `${url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
+}
+
+function DietPdfInlineViewer({ url, title = "PDF dieta", onOpenFull, onOpenExternal }) {
+  const viewerUrl = pdfViewerSrc(url);
+
+  return (
+    <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+            Lettura integrata
+          </p>
+          <p className="mt-1 truncate text-sm font-black text-slate-950">
+            {title}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+          <button
+            type="button"
+            onClick={onOpenFull}
+            className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white active:scale-[.98]"
+          >
+            Schermo interno
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenExternal}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 active:scale-[.98]"
+          >
+            Apri PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="block border-b border-slate-200 bg-teal-50 px-4 py-3 md:hidden">
+        <p className="text-xs font-bold leading-5 text-teal-900">
+          Su smartphone usa “Schermo interno” per leggere il PDF a pieno schermo dentro l’app.
+        </p>
+      </div>
+
+      <iframe
+        src={viewerUrl}
+        title={title}
+        className="h-[62dvh] min-h-[420px] w-full bg-white md:h-[78vh] md:min-h-[640px]"
+      />
+    </div>
+  );
+}
+
+function DietPdfFullscreenModal({
+  open,
+  title = "Piano alimentare",
+  fileName = "PDF dieta",
+  preview,
+  onClose,
+  onOpenExternal
+}) {
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  const viewerUrl = pdfViewerSrc(preview?.url || "");
+
+  return (
+    <div className="fixed inset-0 z-[140] flex h-[100dvh] flex-col bg-[#07111f] text-white">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 bg-[#07111f] px-4 py-4 pt-[calc(1rem+env(safe-area-inset-top))] md:px-6">
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-teal-300">
+            Modalità lettura
+          </p>
+          <h2 className="mt-1 truncate text-lg font-black leading-tight md:text-2xl">
+            {title}
+          </h2>
+          <p className="mt-1 truncate text-xs font-semibold text-slate-400 md:text-sm">
+            {fileName}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {preview?.url && (
+            <button
+              type="button"
+              onClick={onOpenExternal}
+              className="hidden rounded-2xl bg-white/10 px-4 py-3 text-xs font-black text-white md:inline-flex"
+            >
+              Apri esterno
+            </button>
+          )}
+
+          <button
+            type="button"
+            aria-label="Chiudi PDF"
+            onClick={onClose}
+            className="rounded-2xl bg-white/10 p-3 text-white active:scale-[.98]"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 bg-slate-950 p-2 md:p-4">
+        {preview?.loading && (
+          <div className="grid h-full place-items-center rounded-[1.5rem] border border-white/10 bg-white/5 text-sm font-black text-slate-300">
+            Caricamento PDF...
+          </div>
+        )}
+
+        {!preview?.loading && preview?.error && (
+          <div className="m-3 rounded-2xl border border-red-300/30 bg-red-500/10 p-4 text-sm font-bold leading-6 text-red-100">
+            {preview.error}
+          </div>
+        )}
+
+        {!preview?.loading && preview?.url && (
+          <div className="h-full overflow-hidden rounded-[1.4rem] bg-white shadow-2xl">
+            <iframe
+              src={viewerUrl}
+              title={title}
+              className="h-full w-full bg-white"
+            />
+          </div>
+        )}
+
+        {!preview?.loading && !preview?.url && !preview?.error && (
+          <div className="grid h-full place-items-center rounded-[1.5rem] border border-white/10 bg-white/5 p-6 text-center">
+            <div>
+              <FileText className="mx-auto text-teal-300" size={34} />
+              <p className="mt-3 font-black text-white">
+                PDF non ancora caricato nel viewer.
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-6 text-slate-400">
+                Chiudi e riapri la modalità lettura dalla card dieta.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-white/10 bg-[#07111f] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:hidden">
+        <button
+          type="button"
+          onClick={onOpenExternal}
+          disabled={!preview?.url}
+          className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black text-white disabled:opacity-40"
+        >
+          Apri esterno
+        </button>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-2xl bg-teal-300 px-3 py-3 text-xs font-black text-slate-950"
+        >
+          Chiudi
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -1540,6 +1715,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     loading: false,
     error: ""
   });
+  const [dietFullscreenOpen, setDietFullscreenOpen] = useState(false);
 
   const [measurementForm, setMeasurementForm] = useState({
     measurement_date: today(),
@@ -1567,6 +1743,10 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
 
   const selectedClient =
     clients.find((client) => String(client.id) === String(selectedClientId)) ||
+    null;
+  const previewDietForModal =
+    diets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
+    diets[0] ||
     null;
 
   const filteredClients = useMemo(() => {
@@ -3230,6 +3410,16 @@ async function savePrivateNote(event) {
       loading: false,
       error: ""
     });
+  }
+
+  function openDietFullscreen(diet) {
+    setDietFullscreenOpen(true);
+
+    if (!diet?.file_path) return;
+
+    if (dietPreview.dietId === String(diet.id) && dietPreview.url) return;
+
+    previewDietInApp(diet);
   }
 
   function CoachTodayDashboard() {
@@ -5910,6 +6100,19 @@ const builderQuality = getBuilderQualityReport();
 
           {activeTab === "diets" && (
             <div className="space-y-5">
+              <DietPdfFullscreenModal
+                open={dietFullscreenOpen}
+                title={dietDisplayTitle(previewDietForModal)}
+                fileName={previewDietForModal?.file_name || "PDF dieta"}
+                preview={dietPreview}
+                onClose={() => setDietFullscreenOpen(false)}
+                onOpenExternal={() => {
+                  if (previewDietForModal?.file_path) {
+                    openStorageFile("diets", previewDietForModal.file_path);
+                  }
+                }}
+              />
+
               <Card className="overflow-hidden border-slate-200">
                 <div className="bg-[#07111f] p-5 text-white md:p-6">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -6154,7 +6357,13 @@ const builderQuality = getBuilderQualityReport();
                                 onClick={() => previewDietInApp(diets[0])}
                                 className="bg-teal-300 text-slate-950 hover:bg-teal-200"
                               >
-                                Visualizza in app
+                                Visualizza sotto
+                              </Button>
+                              <Button
+                                onClick={() => openDietFullscreen(diets[0])}
+                                className="bg-[#07111f] text-white"
+                              >
+                                Schermo interno
                               </Button>
                               <Button
                                 onClick={() => openStorageFile("diets", diets[0].file_path)}
@@ -6198,13 +6407,16 @@ const builderQuality = getBuilderQualityReport();
                       )}
 
                       {!dietPreview.loading && dietPreview.url && (
-                        <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-slate-100">
-                          <iframe
-                            src={dietPreview.url}
-                            title="Anteprima PDF dieta"
-                            className="h-[68vh] w-full bg-white"
-                          />
-                        </div>
+                        <DietPdfInlineViewer
+                          url={dietPreview.url}
+                          title={previewDietForModal?.file_name || "Anteprima PDF dieta"}
+                          onOpenFull={() => setDietFullscreenOpen(true)}
+                          onOpenExternal={() => {
+                            if (previewDietForModal?.file_path) {
+                              openStorageFile("diets", previewDietForModal.file_path);
+                            }
+                          }}
+                        />
                       )}
 
                       {!dietPreview.loading && !dietPreview.url && !dietPreview.error && (
@@ -9832,6 +10044,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     loading: false,
     error: ""
   });
+  const [dietFullscreenOpen, setDietFullscreenOpen] = useState(false);
 
   const clientTabs = [
     { id: "home", label: "Home", icon: <HomeIcon size={17} /> },
@@ -10236,6 +10449,16 @@ function getExerciseHistory(exercise) {
     });
   }
 
+  function openDietFullscreen(diet) {
+    setDietFullscreenOpen(true);
+
+    if (!diet?.file_path) return;
+
+    if (dietPreview.dietId === String(diet.id) && dietPreview.url) return;
+
+    previewDietInApp(diet);
+  }
+
   function clientDate(value) {
     if (!value) return null;
     const date = new Date(value);
@@ -10260,6 +10483,10 @@ function getExerciseHistory(exercise) {
 
   const activePlan = plans[0] || null;
   const latestDiet = diets[0] || null;
+  const previewDietForModal =
+    diets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
+    latestDiet ||
+    null;
   const latestCheckin = checkins[0] || null;
   const latestPhoto = photos[0] || null;
   const latestCheckinDays = daysSince(latestCheckin?.checkin_date || latestCheckin?.created_at);
@@ -11162,6 +11389,19 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "diet" && (
           <div className="space-y-5">
+            <DietPdfFullscreenModal
+              open={dietFullscreenOpen}
+              title={dietDisplayTitle(previewDietForModal)}
+              fileName={previewDietForModal?.file_name || "PDF dieta"}
+              preview={dietPreview}
+              onClose={() => setDietFullscreenOpen(false)}
+              onOpenExternal={() => {
+                if (previewDietForModal?.file_path) {
+                  openStorageFile("diets", previewDietForModal.file_path);
+                }
+              }}
+            />
+
             {latestDiet ? (
               <>
                 <Card className="overflow-hidden border-slate-200">
@@ -11315,6 +11555,13 @@ function getExerciseHistory(exercise) {
                         </Button>
 
                         <Button
+                          onClick={() => openDietFullscreen(latestDiet)}
+                          className="w-full bg-[#07111f] text-white"
+                        >
+                          Modalità lettura interna
+                        </Button>
+
+                        <Button
                           onClick={() => openStorageFile("diets", latestDiet.file_path)}
                           className="w-full border border-slate-200 bg-white text-slate-950"
                         >
@@ -11336,12 +11583,20 @@ function getExerciseHistory(exercise) {
                           PDF dentro l’app
                         </h3>
                       </div>
-                      <Button
-                        onClick={() => openStorageFile("diets", latestDiet.file_path)}
-                        className="bg-[#07111f] text-white"
-                      >
-                        Apri a schermo intero
-                      </Button>
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+                        <Button
+                          onClick={() => openDietFullscreen(latestDiet)}
+                          className="bg-[#07111f] text-white"
+                        >
+                          Schermo interno
+                        </Button>
+                        <Button
+                          onClick={() => openStorageFile("diets", latestDiet.file_path)}
+                          className="border border-slate-200 bg-white text-slate-950"
+                        >
+                          Apri PDF
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="p-4 md:p-5">
@@ -11358,13 +11613,12 @@ function getExerciseHistory(exercise) {
                       )}
 
                       {!dietPreview.loading && dietPreview.url && (
-                        <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-slate-100 shadow-sm">
-                          <iframe
-                            src={dietPreview.url}
-                            title="PDF dieta cliente"
-                            className="h-[72vh] w-full bg-white"
-                          />
-                        </div>
+                        <DietPdfInlineViewer
+                          url={dietPreview.url}
+                          title={latestDiet.file_name || "PDF dieta cliente"}
+                          onOpenFull={() => setDietFullscreenOpen(true)}
+                          onOpenExternal={() => openStorageFile("diets", latestDiet.file_path)}
+                        />
                       )}
 
                       {!dietPreview.loading && !dietPreview.url && !dietPreview.error && (
