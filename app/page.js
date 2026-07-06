@@ -1311,6 +1311,28 @@ const DIET_DAY_NAMES = [
   "Domenica"
 ];
 const DIET_MEAL_BASES = ["COLAZIONE", "PRANZO", "MERENDA", "CENA"];
+const DIET_SECTION_BASES = [
+  "COLAZIONE",
+  "COLAZIONE 1",
+  "COLAZIONE 2",
+  "COLAZIONE 3",
+  "PRANZO",
+  "PRANZO 1",
+  "PRANZO 2",
+  "MERENDA",
+  "SPUNTINO",
+  "SPUNTINO 1",
+  "SPUNTINO 2",
+  "PRE WORKOUT",
+  "POST WORKOUT",
+  "INTRA WORKOUT",
+  "PRE NANNA",
+  "CENA",
+  "CENA 1",
+  "CENA 2",
+  "CENA 3",
+  "PASTO LIBERO"
+];
 
 function stripDietExtractBlock(value) {
   const raw = String(value || "");
@@ -1419,15 +1441,101 @@ function cleanDietPdfLine(value) {
     .trim();
 }
 
+function titleCaseDietLabel(value) {
+  return String(value || "")
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function dietMealLabel(value) {
   const normalized = normalizeDietToken(value);
 
   if (normalized.startsWith("COLAZIONE")) return "Colazione";
   if (normalized.startsWith("PRANZO")) return "Pranzo";
   if (normalized.startsWith("MERENDA")) return "Merenda";
+  if (normalized.startsWith("SPUNTINO")) return "Spuntino";
+  if (normalized.startsWith("PRE WORKOUT")) return "Pre workout";
+  if (normalized.startsWith("POST WORKOUT")) return "Post workout";
+  if (normalized.startsWith("INTRA WORKOUT")) return "Intra workout";
+  if (normalized.startsWith("PRE NANNA")) return "Pre nanna";
   if (normalized.startsWith("CENA")) return "Cena";
+  if (normalized.startsWith("PASTO LIBERO")) return "Pasto libero";
 
-  return value || "Pasto";
+  return titleCaseDietLabel(value) || "Pasto";
+}
+
+function isDietFoodStart(value) {
+  return /^\d+[,.]?\d*\s*(g|gr|kg|ml|l|kcal|cal)\b/i.test(String(value || "").trim());
+}
+
+function isDietAlternativeLine(value) {
+  const normalized = normalizeDietToken(value);
+  return normalized.startsWith("OPPURE") || normalized.startsWith("O ");
+}
+
+function isDietNoteLine(value) {
+  const normalized = normalizeDietToken(value);
+  return (
+    normalized.startsWith("NOTE AL PASTO") ||
+    normalized.startsWith("NOTA AL PASTO") ||
+    normalized.startsWith("NOTE") ||
+    normalized.startsWith("NOTA")
+  );
+}
+
+function findDietSectionBase(line) {
+  const normalized = normalizeDietToken(line);
+
+  const base = DIET_SECTION_BASES
+    .slice()
+    .sort((a, b) => b.length - a.length)
+    .find((item) => {
+      const token = normalizeDietToken(item);
+      return (
+        normalized === token ||
+        normalized.startsWith(`${token} `) ||
+        normalized.startsWith(`${token} -`) ||
+        normalized.startsWith(`${token}:`)
+      );
+    });
+
+  if (!base) return null;
+
+  const cleanBase = normalizeDietToken(base).replace(/\s+\d+$/, "");
+  return dietMealLabel(cleanBase);
+}
+
+function detectDietGenericHeading(line) {
+  const clean = cleanDietPdfLine(line);
+  const normalized = normalizeDietToken(clean);
+
+  if (!clean) return null;
+  if (clean.length > 58) return null;
+  if (isDietFoodStart(clean) || isDietAlternativeLine(clean) || isDietNoteLine(clean)) return null;
+  if (/\d+\s*(g|gr|kg|ml|l)\b/i.test(clean)) return null;
+
+  const base = findDietSectionBase(clean);
+
+  if (base) {
+    return {
+      base,
+      title: clean
+    };
+  }
+
+  const letters = clean.replace(/[^A-Za-zÀ-ÿ]/g, "");
+  const upperLetters = clean.replace(/[^A-ZÀ-Ý]/g, "");
+  const looksUpper = letters.length >= 4 && upperLetters.length / letters.length > 0.75;
+
+  if (!looksUpper) return null;
+
+  return {
+    base: titleCaseDietLabel(clean),
+    title: clean
+  };
 }
 
 function detectDietDayLine(line) {
@@ -1436,26 +1544,22 @@ function detectDietDayLine(line) {
 }
 
 function detectDailyMealHeading(line) {
-  const normalized = normalizeDietToken(line);
-  return DIET_MEAL_BASES.includes(normalized) ? dietMealLabel(normalized) : null;
+  const heading = detectDietGenericHeading(line);
+  return heading?.title ? dietMealLabel(heading.title) : null;
 }
 
 function detectOptionMealHeading(line) {
+  return detectDietGenericHeading(line);
+}
+
+function detectDietOptionMarker(line) {
   const clean = cleanDietPdfLine(line);
   const normalized = normalizeDietToken(clean);
 
-  if (clean.length > 42) return null;
+  if (/^OPZIONE\s+\d+/i.test(clean)) return clean;
+  if (normalized === "OPZIONE" || normalized.startsWith("OPZIONE ")) return clean;
 
-  const base = DIET_MEAL_BASES.find((meal) => {
-    return normalized === meal || normalized.startsWith(`${meal} `) || normalized.startsWith(`${meal} -`);
-  });
-
-  if (!base) return null;
-
-  return {
-    base: dietMealLabel(base),
-    title: clean
-  };
+  return null;
 }
 
 function compactDietItems(lines = []) {
@@ -1549,18 +1653,18 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
 
     if (handled) return;
 
-    if (mode === "daily") {
-      const mealBase = DIET_MEAL_BASES.find((meal) =>
-        normalized.startsWith(`${meal} `)
-      );
+    const headingBase = DIET_SECTION_BASES
+      .slice()
+      .sort((a, b) => b.length - a.length)
+      .find((meal) => normalized.startsWith(`${normalizeDietToken(meal)} `));
 
-      if (mealBase) {
-        const rest = clean.slice(mealBase.length).trim();
-        if (rest && !/^\d+$/.test(rest)) {
-          expanded.push(dietMealLabel(mealBase));
-          expanded.push(rest);
-          return;
-        }
+    if (headingBase) {
+      const rest = clean.slice(headingBase.length).trim();
+
+      if (rest && isDietFoodStart(rest)) {
+        expanded.push(dietMealLabel(headingBase));
+        expanded.push(rest);
+        return;
       }
     }
 
@@ -1666,6 +1770,25 @@ function parseOptionsDietLines(lines, sourceName) {
   }
 
   scopedLines.forEach((line) => {
+    const optionMarker = detectDietOptionMarker(line);
+
+    if (optionMarker && currentOption) {
+      const base = currentOption.base;
+
+      if ((currentOption.items || []).length > 0) {
+        pushCurrentOption();
+      } else {
+        currentOption = null;
+      }
+
+      currentOption = {
+        base,
+        title: optionMarker,
+        items: []
+      };
+      return;
+    }
+
     const heading = detectOptionMealHeading(line);
 
     if (heading) {
@@ -1685,10 +1808,10 @@ function parseOptionsDietLines(lines, sourceName) {
 
   pushCurrentOption();
 
-  const optionGroups = DIET_MEAL_BASES.map(dietMealLabel)
-    .map((meal) => ({
+  const optionGroups = Array.from(groupsMap.entries())
+    .map(([meal, options]) => ({
       meal,
-      options: groupsMap.get(meal) || []
+      options
     }))
     .filter((group) => group.options.length > 0);
 
@@ -1969,29 +2092,78 @@ function DietSummaryBox({ diet }) {
 }
 
 
-function DietFoodLines({ items = [] }) {
-  return (
-    <div className="mt-3 space-y-2">
-      {items.map((item, index) => {
-        const normalized = normalizeDietToken(item);
-        const isNote = normalized.startsWith("NOTE AL PASTO") || normalized.startsWith("NOTA");
-        const isAlternative = normalized.startsWith("OPPURE") || normalized.startsWith("O ");
+function buildDietFoodGroups(items = []) {
+  const groups = [];
+  const notes = [];
 
-        return (
-          <div
-            key={`${item}-${index}`}
-            className={`rounded-xl px-3 py-2 text-sm font-semibold leading-6 ${
-              isNote
-                ? "bg-amber-50 text-amber-800"
-                : isAlternative
-                ? "bg-slate-50 text-slate-600"
-                : "bg-white text-slate-700"
-            }`}
-          >
-            {item}
+  items.map(cleanDietPdfLine).filter(Boolean).forEach((line) => {
+    if (isDietNoteLine(line)) {
+      notes.push(line);
+      return;
+    }
+
+    if (isDietAlternativeLine(line) && groups.length > 0) {
+      groups[groups.length - 1].alternatives.push(line);
+      return;
+    }
+
+    groups.push({
+      text: line,
+      alternatives: []
+    });
+  });
+
+  return { groups, notes };
+}
+
+function DietFoodLines({ items = [] }) {
+  const { groups, notes } = buildDietFoodGroups(items);
+
+  if (groups.length === 0 && notes.length === 0) {
+    return (
+      <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold text-slate-400">
+        Nessuna riga alimentare riconosciuta.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-2.5">
+      {groups.map((group, index) => (
+        <div
+          key={`${group.text}-${index}`}
+          className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm"
+        >
+          <div className="flex gap-2.5">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-500" />
+            <p className="text-sm font-black leading-6 text-slate-800">
+              {group.text}
+            </p>
           </div>
-        );
-      })}
+
+          {group.alternatives.length > 0 && (
+            <div className="mt-2 space-y-1.5 border-l-2 border-slate-200 pl-4">
+              {group.alternatives.map((alternative, altIndex) => (
+                <p
+                  key={`${alternative}-${altIndex}`}
+                  className="text-xs font-bold leading-5 text-slate-500"
+                >
+                  {alternative}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {notes.map((note, index) => (
+        <div
+          key={`${note}-${index}`}
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs font-bold leading-5 text-amber-800"
+        >
+          {note}
+        </div>
+      ))}
     </div>
   );
 }
@@ -2001,19 +2173,20 @@ function DietExtractedPlan({ diet, compact = false }) {
 
   if (!extracted) return null;
 
-  const isOptions =
-    extracted.format === "options_pdf" ||
-    (Array.isArray(extracted.optionGroups) && extracted.optionGroups.length > 0);
-
-  const sourceLabel = extracted.sourceName || diet?.file_name || "PDF dieta";
   const dailyDays = Array.isArray(extracted.days) ? extracted.days : [];
   const optionGroups = Array.isArray(extracted.optionGroups)
     ? extracted.optionGroups
     : [];
+  const isOptions =
+    extracted.format === "options_pdf" ||
+    (optionGroups.length > 0 && dailyDays.length === 0);
+
+  const sourceLabel = extracted.sourceName || diet?.file_name || "PDF dieta";
   const visibleDays = compact ? dailyDays.slice(0, 2) : dailyDays;
-  const visibleOptionGroups = compact ? optionGroups.slice(0, 2) : optionGroups;
+  const visibleOptionGroups = compact ? optionGroups.slice(0, 3) : optionGroups;
+  const warnings = Array.isArray(extracted.warnings) ? extracted.warnings.filter(Boolean) : [];
   const totalMeals = dailyDays.reduce(
-    (sum, day) => sum + (day.meals?.length || 0),
+    (sum, day) => sum + (day.meals?.length || day.sections?.length || 0),
     0
   );
   const totalOptions = optionGroups.reduce(
@@ -2026,13 +2199,13 @@ function DietExtractedPlan({ diet, compact = false }) {
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
-            Lettura automatica PDF
+            Diet Card Engine
           </p>
           <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni alimentari lette dal PDF" : "Pasti giornalieri letti dal PDF"}
+            {isOptions ? "Sezioni e opzioni lette dal PDF" : "Giorni e pasti letti dal PDF"}
           </h3>
           <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-            Da {sourceLabel}. Controlla sempre il PDF originale in caso di dubbi.
+            Da {sourceLabel}. Le card sono dinamiche: se un PDF ha 8 colazioni, nessuna merenda o sezioni extra, vengono mostrate solo quelle riconosciute.
           </p>
         </div>
 
@@ -2042,7 +2215,7 @@ function DietExtractedPlan({ diet, compact = false }) {
               {isOptions ? optionGroups.length : dailyDays.length}
             </p>
             <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-              {isOptions ? "Categorie" : "Giorni"}
+              {isOptions ? "Sezioni" : "Giorni"}
             </p>
           </div>
           <div className="rounded-2xl bg-white p-3">
@@ -2050,44 +2223,78 @@ function DietExtractedPlan({ diet, compact = false }) {
               {isOptions ? totalOptions : totalMeals}
             </p>
             <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-              {isOptions ? "Opzioni" : "Pasti"}
+              {isOptions ? "Opzioni" : "Card pasti"}
             </p>
           </div>
         </div>
       </div>
 
+      {warnings.length > 0 && !compact && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+            Da controllare
+          </p>
+          <div className="mt-2 space-y-1">
+            {warnings.slice(0, 4).map((warning, index) => (
+              <p key={`${warning}-${index}`} className="text-xs font-bold leading-5 text-amber-800">
+                • {warning}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!isOptions && (
         <div className="mt-4 space-y-3">
-          {visibleDays.map((day, dayIndex) => (
-            <details
-              key={day.day}
-              open={!compact && dayIndex === 0}
-              className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
-                <div>
-                  <p className="font-black text-slate-950">{day.day}</p>
-                  <p className="mt-0.5 text-xs font-bold text-slate-500">
-                    {day.meals?.length || 0} pasti riconosciuti
-                  </p>
-                </div>
-                <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
-                  Apri
-                </span>
-              </summary>
+          {visibleDays.map((day, dayIndex) => {
+            const dayMeals = day.meals || day.sections || [];
 
-              <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
-                {(day.meals || []).map((meal) => (
-                  <div key={`${day.day}-${meal.name}`} className="rounded-2xl border border-slate-200 bg-white p-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
-                      {meal.name}
+            return (
+              <details
+                key={`${day.day || day.title}-${dayIndex}`}
+                open={!compact && dayIndex === 0}
+                className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
+                  <div>
+                    <p className="font-black text-slate-950">{day.day || day.title}</p>
+                    <p className="mt-0.5 text-xs font-bold text-slate-500">
+                      {dayMeals.length || 0} sezioni riconosciute
                     </p>
-                    <DietFoodLines items={meal.items || []} />
                   </div>
-                ))}
-              </div>
-            </details>
-          ))}
+                  <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                    Apri
+                  </span>
+                </summary>
+
+                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                  {dayMeals.length === 0 && (
+                    <Empty
+                      title="Nessun pasto riconosciuto"
+                      text="Consulta il PDF originale per verificare questa giornata."
+                    />
+                  )}
+
+                  {dayMeals.map((meal, mealIndex) => (
+                    <div
+                      key={`${day.day || day.title}-${meal.name || meal.title}-${mealIndex}`}
+                      className="rounded-2xl border border-slate-200 bg-white p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                          {meal.name || meal.title || "Pasto"}
+                        </p>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">
+                          {(meal.items || []).length} righe
+                        </span>
+                      </div>
+                      <DietFoodLines items={meal.items || []} />
+                    </div>
+                  ))}
+                </div>
+              </details>
+            );
+          })}
 
           {compact && dailyDays.length > visibleDays.length && (
             <p className="text-center text-xs font-bold text-slate-500">
@@ -2101,13 +2308,13 @@ function DietExtractedPlan({ diet, compact = false }) {
         <div className="mt-4 space-y-3">
           {visibleOptionGroups.map((group, groupIndex) => (
             <details
-              key={group.meal}
+              key={`${group.meal || group.title}-${groupIndex}`}
               open={!compact && groupIndex === 0}
               className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
                 <div>
-                  <p className="font-black text-slate-950">{group.meal}</p>
+                  <p className="font-black text-slate-950">{group.meal || group.title}</p>
                   <p className="mt-0.5 text-xs font-bold text-slate-500">
                     {group.options?.length || 0} opzioni disponibili
                   </p>
@@ -2118,11 +2325,19 @@ function DietExtractedPlan({ diet, compact = false }) {
               </summary>
 
               <div className="space-y-3 border-t border-slate-200 bg-slate-50 p-3">
-                {(group.options || []).map((option) => (
-                  <div key={`${group.meal}-${option.title}`} className="rounded-2xl border border-slate-200 bg-white p-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
-                      {option.title}
-                    </p>
+                {(group.options || []).map((option, optionIndex) => (
+                  <div
+                    key={`${group.meal || group.title}-${option.title}-${optionIndex}`}
+                    className="rounded-2xl border border-slate-200 bg-white p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                        {option.title || `Opzione ${optionIndex + 1}`}
+                      </p>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">
+                        {(option.items || []).length} righe
+                      </span>
+                    </div>
                     <DietFoodLines items={option.items || []} />
                   </div>
                 ))}
@@ -2132,7 +2347,7 @@ function DietExtractedPlan({ diet, compact = false }) {
 
           {compact && optionGroups.length > visibleOptionGroups.length && (
             <p className="text-center text-xs font-bold text-slate-500">
-              Altre {optionGroups.length - visibleOptionGroups.length} categorie visibili lato cliente nella sezione Pasti.
+              Altre {optionGroups.length - visibleOptionGroups.length} sezioni visibili lato cliente nella sezione Pasti.
             </p>
           )}
         </div>
@@ -2140,7 +2355,6 @@ function DietExtractedPlan({ diet, compact = false }) {
     </div>
   );
 }
-
 
 function pdfViewerSrc(url) {
   if (!url) return "";
