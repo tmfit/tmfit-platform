@@ -9225,73 +9225,48 @@ function getExerciseHistory(exercise) {
 />
       <main className="mx-auto w-full max-w-[480px] space-y-4 overflow-x-hidden p-4 pb-[calc(3.7rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
-          <div className="space-y-3">
-            <Card className="border-none bg-[#07111f] p-4 text-white shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
-                    Oggi
-                  </p>
-                  <h2 className="mt-2 line-clamp-2 text-xl font-black leading-tight">
-                    {primaryClientReminder?.title || "Tutto aggiornato"}
-                  </h2>
-                  <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-300">
-                    {primaryClientReminder?.text || "Non hai azioni urgenti da completare."}
-                  </p>
-                </div>
+          <div className="space-y-5">
+            <Card className="overflow-hidden border-none bg-transparent shadow-none">
+  <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
+    <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
+      BENVENUTO
+    </p>
 
-                {primaryClientReminder && (
-                  <button
-                    type="button"
-                    onClick={primaryClientReminder.onAction}
-                    className="shrink-0 rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-950 active:scale-[.96]"
-                  >
-                    Apri
-                  </button>
-                )}
-              </div>
-            </Card>
+    <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
+      {client ? fullName(client) : "Cliente"}
+    </h2>
 
-            <Card className="border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
-                    Promemoria
-                  </p>
-                  <h3 className="mt-0.5 text-base font-black text-slate-950">
-                    Essenziali
-                  </h3>
-                </div>
-                <Pill className="bg-slate-100 px-2 py-1 text-[10px] text-slate-700">
-                  {clientReminderItems.length}
-                </Pill>
-              </div>
+    <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
+      Scheda, timer, carichi, dieta, check-in e progressi.
+    </p>
+  </div>
+</Card>
 
-              <div className="mt-3 space-y-2">
-                {clientReminderItems.length > 0 ? (
-                  clientReminderItems.slice(0, 2).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={item.onAction}
-                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left active:scale-[.98]"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-slate-950">
-                          {item.title}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs font-bold text-slate-500">
-                          {item.priority}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-lg font-black leading-none text-slate-400">›</span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-500">
-                    Nessun promemoria urgente.
+            <Card className="overflow-hidden border-none shadow-lg">
+              <div className="bg-white p-4 md:p-6">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
+                      Promemoria
+                    </p>
+
+                    <h3 className="mt-2 text-2xl font-black text-slate-950">
+                      Cose da fare oggi
+                    </h3>
+
+                   
                   </div>
-                )}
+
+                  <Pill className="bg-teal-100 text-teal-700">
+                    {clientReminderItems.length} attivi
+                  </Pill>
+                </div>
+
+                <div className="mt-5 grid gap-3 md:grid-cols-2">
+                  {clientReminderItems.map((item) => (
+                    <ClientReminderCard key={item.id} item={item} />
+                  ))}
+                </div>
               </div>
             </Card>
           </div>
