@@ -4838,12 +4838,24 @@ const builderQuality = getBuilderQualityReport();
                     ))}
                   </div>
 
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <details className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
-                      <summary className="cursor-pointer text-sm font-black text-slate-800">
-                        Anteprima cliente
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    <details className="group rounded-[1.5rem] border border-slate-300 bg-white p-4 shadow-sm transition open:shadow-md">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-slate-950">
+                            Anteprima cliente
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-slate-500">
+                            Controlla come verrà letta la scheda lato cliente.
+                          </p>
+                        </div>
+
+                        <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-600 group-open:bg-[#07111f] group-open:text-white">
+                          Apri
+                        </span>
                       </summary>
-                      <div className="mt-4">
+
+                      <div className="mt-4 border-t border-slate-100 pt-4">
                         <ClientProgramPreviewPanel
                           builder={builder}
                           selectedClient={selectedClient}
@@ -4851,11 +4863,27 @@ const builderQuality = getBuilderQualityReport();
                       </div>
                     </details>
 
-                    <details className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
-                      <summary className="cursor-pointer text-sm font-black text-slate-800">
-                        Controllo qualità e avvisi
+                    <details className="group rounded-[1.5rem] border border-slate-300 bg-white p-4 shadow-sm transition open:shadow-md">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-slate-950">
+                            Controllo qualità
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-slate-500">
+                            {builderQuality.warnings.length > 0
+                              ? `${builderQuality.warnings.length} avviso/i da sistemare prima del salvataggio.`
+                              : builderQuality.suggestions.length > 0
+                              ? `${builderQuality.suggestions.length} consiglio/i di rifinitura.`
+                              : "Scheda pronta per il salvataggio."}
+                          </p>
+                        </div>
+
+                        <Pill className={builderQuality.statusClass}>
+                          {builderQuality.statusLabel}
+                        </Pill>
                       </summary>
-                      <div className="mt-4">
+
+                      <div className="mt-4 border-t border-slate-100 pt-4">
                         <BuilderQualityPanel
                           builder={builder}
                           quality={builderQuality}
@@ -4868,24 +4896,45 @@ const builderQuality = getBuilderQualityReport();
                     </details>
                   </div>
 
-                  <Card className="sticky bottom-3 z-20 border border-slate-300 bg-white/95 p-3 shadow-lg backdrop-blur">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <p className="text-sm font-black text-slate-700">
-                        {builderStats.totalDays} giorni · {builderStats.totalExercises} esercizi · {builderQuality.statusLabel}
-                      </p>
+                  <Card className="sticky bottom-3 z-20 border border-slate-300 bg-white/95 p-3 shadow-xl backdrop-blur">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+                            builderQuality.warnings.length > 0
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-teal-100 text-teal-700"
+                          }`}
+                        >
+                          {builderQuality.warnings.length > 0 ? "!" : <Check size={18} />}
+                        </span>
 
-                      <div className="flex flex-wrap gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-950">
+                            {builderStats.totalDays} giorni · {builderStats.totalExercises} esercizi · {builder.duration_weeks || 4} settimane
+                          </p>
+                          <p className="mt-0.5 text-xs font-bold text-slate-500">
+                            {builderQuality.warnings.length > 0
+                              ? builderQuality.warnings[0]
+                              : builderQuality.statusText}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <Button
                           type="button"
                           onClick={addWorkoutDay}
-                          className="border border-slate-200 bg-white text-slate-900"
+                          className="border border-slate-200 bg-white px-4 py-2.5 text-slate-900"
                         >
-                          + Giorno
+                          <Plus size={15} className="mr-2" />
+                          Giorno
                         </Button>
+
                         <Button
                           type="submit"
                           disabled={savingPlan || builderQuality.warnings.length > 0}
-                          className="bg-[#07111f] text-white"
+                          className="bg-[#07111f] px-5 py-2.5 text-white"
                         >
                           {savingPlan
                             ? "Salvataggio..."
@@ -5801,44 +5850,53 @@ function BuilderQualityPanel({
   const hasSuggestions = quality.suggestions.length > 0;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="bg-[#07111f] p-5 text-white md:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+    <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+      <div className="border-b border-slate-200 bg-slate-50 p-4 md:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
               Riepilogo finale
             </p>
-            <h3 className="mt-2 text-2xl font-black">
+            <h3 className="mt-1 truncate text-xl font-black text-slate-950">
               {builder.title || "Programma allenamento"}
             </h3>
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
-              Cliente: {selectedClient ? fullName(selectedClient) : "non selezionato"} · {stats.totalDays} allenamenti · {stats.totalExercises} esercizi · {builder.duration_weeks || 4} settimane
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+              {selectedClient ? fullName(selectedClient) : "Cliente non selezionato"} · {stats.totalDays} allenamenti · {stats.totalExercises} esercizi · {builder.duration_weeks || 4} settimane
             </p>
           </div>
 
-          <div className="rounded-3xl bg-white/10 px-5 py-4 text-center">
-            <p className="text-3xl font-black text-teal-300">{quality.score}</p>
-            <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-              score qualità
-            </p>
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="text-right">
+              <p className="text-2xl font-black text-slate-950">{quality.score}/100</p>
+              <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                qualità
+              </p>
+            </div>
+            <Pill className={quality.statusClass}>{quality.statusLabel}</Pill>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 p-5 lg:grid-cols-[1fr_1.2fr]">
-        <div className="space-y-3">
-          <h4 className="font-black text-slate-950">Checklist salvataggio</h4>
+      <div className="grid gap-4 p-4 lg:grid-cols-[0.9fr_1.1fr] md:p-5">
+        <div className="space-y-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h4 className="font-black text-slate-950">Checklist</h4>
+            <span className="text-xs font-black text-slate-400">
+              {quality.checks.filter((check) => check.done).length}/{quality.checks.length}
+            </span>
+          </div>
+
           {quality.checks.map((check) => (
             <div
               key={check.label}
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3"
+              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5"
             >
               <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                  check.done ? "bg-teal-300 text-slate-950" : "bg-slate-200 text-slate-500"
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                  check.done ? "bg-teal-300 text-slate-950" : "bg-amber-100 text-amber-700"
                 }`}
               >
-                {check.done ? <Check size={16} /> : "!"}
+                {check.done ? <Check size={15} /> : "!"}
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-black text-slate-950">{check.label}</p>
@@ -5852,53 +5910,45 @@ function BuilderQualityPanel({
 
         <div className="space-y-3">
           <div className="rounded-3xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <h4 className="font-black text-slate-950">Controllo qualità</h4>
+                <h4 className="font-black text-slate-950">Avvisi scheda</h4>
                 <p className="mt-1 text-xs font-bold text-slate-500">
-                  Avvisi obbligatori e consigli prima del salvataggio.
+                  Mostra solo ciò che serve prima di salvare.
                 </p>
               </div>
-              <Pill className={quality.statusClass}>{quality.statusLabel}</Pill>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-600">
+                {hasWarnings ? `${quality.warnings.length} avvisi` : hasSuggestions ? `${quality.suggestions.length} consigli` : "OK"}
+              </span>
             </div>
 
-            <div className="mt-4 space-y-3">
-              {hasWarnings && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-sm font-black text-amber-800">
-                    Da sistemare prima del lancio
-                  </p>
-                  <div className="mt-2 space-y-1">
-                    {quality.warnings.map((item) => (
-                      <p key={item} className="text-sm font-bold text-amber-800">
-                        • {item}
-                      </p>
-                    ))}
+            <div className="mt-4 space-y-2">
+              {hasWarnings &&
+                quality.warnings.map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold leading-6 text-amber-800"
+                  >
+                    {item}
                   </div>
-                </div>
-              )}
+                ))}
 
-              {hasSuggestions && (
-                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                  <p className="text-sm font-black text-sky-800">
-                    Ottimizzazioni consigliate
-                  </p>
-                  <div className="mt-2 space-y-1">
-                    {quality.suggestions.map((item) => (
-                      <p key={item} className="text-sm font-bold text-sky-800">
-                        • {item}
-                      </p>
-                    ))}
+              {!hasWarnings && hasSuggestions &&
+                quality.suggestions.map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm font-bold leading-6 text-sky-800"
+                  >
+                    {item}
                   </div>
-                </div>
-              )}
+                ))}
 
               {!hasWarnings && !hasSuggestions && (
-                <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4">
+                <div className="rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2.5">
                   <p className="text-sm font-black text-teal-800">
                     Scheda completa e ordinata.
                   </p>
-                  <p className="mt-1 text-sm font-bold text-teal-700">
+                  <p className="mt-0.5 text-sm font-bold text-teal-700">
                     Puoi salvarla e assegnarla al cliente.
                   </p>
                 </div>
