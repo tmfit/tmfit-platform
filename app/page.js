@@ -4338,104 +4338,182 @@ const builderQuality = getBuilderQualityReport();
                     )}
                   </Card>
 
-                  <Card className="border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                      <h3 className="text-lg font-black text-slate-950">Dati base</h3>
-                      <Pill className="bg-slate-100 text-slate-700">
-                        Setup
-                      </Pill>
+                  <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+                    <div className="border-b border-slate-200 bg-slate-50 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                            Setup programma
+                          </p>
+                          <h3 className="mt-1 text-lg font-black text-slate-950">
+                            Dati base
+                          </h3>
+                          <p className="mt-1 text-sm font-semibold text-slate-500">
+                            Compila le informazioni essenziali prima di costruire i giorni di allenamento.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Pill className="bg-white text-slate-700 ring-1 ring-slate-200">
+                            {builder.duration_weeks || 4} settimane
+                          </Pill>
+                          <Pill className="bg-[#07111f] text-white">
+                            {builderStats.totalDays} giorni
+                          </Pill>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                      <Label title="Titolo" className="xl:col-span-2">
-                        <Input
-                          value={builder.title}
-                          onChange={(event) =>
-                            setBuilder({
-                              ...builder,
-                              title: event.target.value
-                            })
-                          }
-                        />
-                      </Label>
+                    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.85fr)]">
+                      <div className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <Label title="Titolo programma">
+                            <Input
+                              value={builder.title}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  title: event.target.value
+                                })
+                              }
+                              placeholder="Programma allenamento"
+                            />
+                          </Label>
 
-                      <Label title="Obiettivo" className="xl:col-span-2">
-                        <Input
-                          value={builder.goal}
-                          onChange={(event) =>
-                            setBuilder({
-                              ...builder,
-                              goal: event.target.value
-                            })
-                          }
-                          placeholder="Ipertrofia, forza..."
-                        />
-                      </Label>
+                          <Label title="Obiettivo">
+                            <Input
+                              value={builder.goal}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  goal: event.target.value
+                                })
+                              }
+                              placeholder="Ipertrofia, forza, ricomposizione..."
+                            />
+                          </Label>
 
-                      <Label title="Settimane">
-                        <Input
-                          type="number"
-                          min="1"
-                          max="12"
-                          value={builder.duration_weeks}
-                          onChange={(event) => updateDurationWeeks(event.target.value)}
-                        />
-                      </Label>
+                          <Label title="Note generali" className="md:col-span-2">
+                            <Input
+                              value={builder.notes}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  notes: event.target.value
+                                })
+                              }
+                              placeholder="Indicazioni generali, gestione carichi, focus tecnico..."
+                            />
+                          </Label>
+                        </div>
+                      </div>
 
-                      <Label title="Luogo">
-                        <Select
-                          value={builder.location}
-                          onChange={(event) =>
-                            setBuilder({
-                              ...builder,
-                              location: event.target.value
-                            })
-                          }
-                        >
-                          <option value="palestra">Palestra</option>
-                          <option value="casa">Casa</option>
-                          <option value="ibrido">Ibrido</option>
-                        </Select>
-                      </Label>
+                      <div className="rounded-[1.4rem] border border-slate-900 bg-[#07111f] p-4 text-white shadow-sm">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+                              Parametri
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-400">
+                              Durata, livello, luogo e date.
+                            </p>
+                          </div>
+                          <Pill className="bg-teal-300 text-slate-950">
+                            Setup
+                          </Pill>
+                        </div>
 
-                      <Label title="Inizio">
-                        <Input
-                          type="date"
-                          value={builder.start_date}
-                          onChange={(event) =>
-                            setBuilder({
-                              ...builder,
-                              start_date: event.target.value
-                            })
-                          }
-                        />
-                      </Label>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Label
+                            title="Settimane"
+                            labelClassName="text-slate-300"
+                          >
+                            <Input
+                              type="number"
+                              min="1"
+                              max="12"
+                              value={builder.duration_weeks}
+                              onChange={(event) => updateDurationWeeks(event.target.value)}
+                              className="border-white/10 bg-white text-slate-950"
+                            />
+                          </Label>
 
-                      <Label title="Fine">
-                        <Input
-                          type="date"
-                          value={builder.end_date}
-                          onChange={(event) =>
-                            setBuilder({
-                              ...builder,
-                              end_date: event.target.value
-                            })
-                          }
-                        />
-                      </Label>
+                          <Label
+                            title="Livello"
+                            labelClassName="text-slate-300"
+                          >
+                            <Select
+                              value={builder.level}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  level: event.target.value
+                                })
+                              }
+                              className="border-white/10 bg-white text-slate-950"
+                            >
+                              <option value="principiante">Principiante</option>
+                              <option value="intermedio">Intermedio</option>
+                              <option value="avanzato">Avanzato</option>
+                            </Select>
+                          </Label>
 
-                      <Label title="Note generali" className="md:col-span-2 xl:col-span-4">
-                        <Input
-                          value={builder.notes}
-                          onChange={(event) =>
-                            setBuilder({
-                              ...builder,
-                              notes: event.target.value
-                            })
-                          }
-                          placeholder="Indicazioni generali, gestione carichi, focus tecnico..."
-                        />
-                      </Label>
+                          <Label
+                            title="Luogo"
+                            labelClassName="text-slate-300"
+                          >
+                            <Select
+                              value={builder.location}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  location: event.target.value
+                                })
+                              }
+                              className="border-white/10 bg-white text-slate-950"
+                            >
+                              <option value="palestra">Palestra</option>
+                              <option value="casa">Casa</option>
+                              <option value="ibrido">Ibrido</option>
+                            </Select>
+                          </Label>
+
+                          <Label
+                            title="Inizio"
+                            labelClassName="text-slate-300"
+                          >
+                            <Input
+                              type="date"
+                              value={builder.start_date}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  start_date: event.target.value
+                                })
+                              }
+                              className="border-white/10 bg-white text-slate-950"
+                            />
+                          </Label>
+
+                          <Label
+                            title="Fine"
+                            className="sm:col-span-2"
+                            labelClassName="text-slate-300"
+                          >
+                            <Input
+                              type="date"
+                              value={builder.end_date}
+                              onChange={(event) =>
+                                setBuilder({
+                                  ...builder,
+                                  end_date: event.target.value
+                                })
+                              }
+                              className="border-white/10 bg-white text-slate-950"
+                            />
+                          </Label>
+                        </div>
+                      </div>
                     </div>
                   </Card>
 
