@@ -4222,8 +4222,8 @@ const builderQuality = getBuilderQualityReport();
           )}
 
           {activeTab === "programs" && (
-            <div className="space-y-5">
-              <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
+            <div className="space-y-4 pb-6">
+              <Card className="overflow-hidden border border-slate-300 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
                 <div className="border-b border-slate-200 bg-slate-50 px-4 py-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
@@ -4284,7 +4284,7 @@ const builderQuality = getBuilderQualityReport();
                   </div>
                 </div>
 
-                <div className="grid gap-2 p-3 md:grid-cols-3">
+                <div className="grid gap-2.5 p-3 md:grid-cols-3">
                   {[
                     {
                       id: "builder",
@@ -4309,7 +4309,7 @@ const builderQuality = getBuilderQualityReport();
                       key={item.id}
                       type="button"
                       onClick={() => setProgramPanel(item.id)}
-                      className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition active:scale-[.99] ${
+                      className={`flex min-h-[74px] items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition active:scale-[.99] ${
                         programPanel === item.id
                           ? "border-[#07111f] bg-[#07111f] text-white shadow-sm"
                           : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
@@ -4406,8 +4406,8 @@ const builderQuality = getBuilderQualityReport();
               )}
 
               {selectedClient && programPanel === "builder" && (
-                <form onSubmit={saveWorkoutPlan} className="space-y-5">
-                  <Card className="border border-slate-300 bg-slate-50 p-4 shadow-sm">
+                <form onSubmit={saveWorkoutPlan} className="space-y-4 pb-20 md:pb-6">
+                  <Card className="border border-slate-300 bg-white p-3 shadow-sm sm:p-4">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0">
                         <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
@@ -4423,7 +4423,7 @@ const builderQuality = getBuilderQualityReport();
                         </p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end [&_button]:min-h-11">
                         {editingProgramId && (
                           <Button
                             type="button"
@@ -4505,7 +4505,7 @@ const builderQuality = getBuilderQualityReport();
                   </Card>
 
                   <Card className="overflow-hidden border border-slate-300 bg-white shadow-sm">
-                    <div className="border-b border-slate-200 bg-slate-50 p-4">
+                    <div className="border-b border-slate-200 bg-slate-50 p-3 sm:p-4">
                       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
@@ -4530,7 +4530,7 @@ const builderQuality = getBuilderQualityReport();
                       </div>
                     </div>
 
-                    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.85fr)]">
+                    <div className="grid gap-3 p-3 sm:p-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.85fr)]">
                       <div className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
                         <div className="grid gap-3 md:grid-cols-2">
                           <Label title="Titolo programma">
@@ -5182,7 +5182,7 @@ const builderQuality = getBuilderQualityReport();
                     </details>
                   </div>
 
-                  <Card className="sticky bottom-[4.9rem] z-20 border border-slate-300 bg-white/95 p-3 shadow-xl backdrop-blur md:bottom-3">
+                  <Card className="sticky bottom-[5.35rem] z-20 border border-slate-300 bg-white/95 p-3 shadow-[0_-18px_45px_rgba(15,23,42,0.14)] backdrop-blur md:bottom-3">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="flex min-w-0 items-center gap-3">
                         <span
