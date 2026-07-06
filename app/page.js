@@ -4530,252 +4530,307 @@ const builderQuality = getBuilderQualityReport();
                           </div>
                         </div>
 
-                        <div className="space-y-3 bg-slate-50 p-4">
+                        <div className="space-y-4 bg-slate-50 p-4">
                           {day.exercises.map((exercise, exerciseIndex) => (
                             <div
                               key={exercise.temp_id}
-                              className="rounded-3xl border border-slate-300 bg-white p-4 shadow-sm"
+                              className="overflow-hidden rounded-[1.45rem] border border-slate-200 bg-white shadow-sm"
                             >
-                              <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-3 md:flex-row md:items-center md:justify-between">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Pill className="bg-teal-300 text-slate-950">
-                                    Esercizio {exerciseIndex + 1}
-                                  </Pill>
-                                  {exercise.has_weekly_progression && (
-                                    <Pill className="bg-[#07111f] text-white">
-                                      Progressione
-                                    </Pill>
-                                  )}
-                                </div>
+                              <div className="border-b border-slate-200 bg-slate-950 px-4 py-3 text-white">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Pill className="bg-teal-300 text-slate-950">
+                                        Esercizio {exerciseIndex + 1}
+                                      </Pill>
+                                      {exercise.has_weekly_progression && (
+                                        <Pill className="bg-white/10 text-teal-300">
+                                          Progressione attiva
+                                        </Pill>
+                                      )}
+                                    </div>
 
-                                <div className="flex flex-wrap gap-1.5">
-                                  <Button
-                                    type="button"
-                                    onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
-                                    disabled={exerciseIndex === 0}
-                                    className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
-                                  >
-                                    ↑
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
-                                    disabled={exerciseIndex === day.exercises.length - 1}
-                                    className="border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"
-                                  >
-                                    ↓
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
-                                    className="border border-teal-200 bg-white px-3 py-2 text-xs text-teal-700"
-                                  >
-                                    Duplica
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
-                                    className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
-                                  >
-                                    <X size={14} />
-                                  </Button>
-                                </div>
-                              </div>
+                                    <p className="mt-2 truncate text-base font-black text-white">
+                                      {exercise.exercise_name?.trim() || "Nuovo esercizio"}
+                                    </p>
+                                    <p className="mt-0.5 text-xs font-bold text-slate-400">
+                                      Compila i campi principali. I dettagli restano opzionali.
+                                    </p>
+                                  </div>
 
-                              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
-                                <Label title="Esercizio" className="md:col-span-2 xl:col-span-4">
-                                  <Input
-                                    placeholder="Panca piana, Squat, Lat machine..."
-                                    value={exercise.exercise_name}
-                                    onChange={(event) =>
-                                      updateExerciseField(
-                                        dayIndex,
-                                        exerciseIndex,
-                                        "exercise_name",
-                                        event.currentTarget.value
-                                      )
-                                    }
-                                  />
-                                </Label>
-
-                                <Label title="Serie" className="xl:col-span-1">
-                                  <Input
-                                    value={exercise.sets || ""}
-                                    onChange={(event) =>
-                                      updateExerciseField(dayIndex, exerciseIndex, "sets", event.target.value)
-                                    }
-                                  />
-                                </Label>
-
-                                <Label title="Reps" className="xl:col-span-2">
-                                  <Input
-                                    value={exercise.reps || ""}
-                                    onChange={(event) =>
-                                      updateExerciseField(dayIndex, exerciseIndex, "reps", event.target.value)
-                                    }
-                                  />
-                                </Label>
-
-                                <Label title="Recupero sec" className="xl:col-span-2">
-                                  <Input
-                                    value={exercise.recovery_seconds || ""}
-                                    onChange={(event) =>
-                                      updateExerciseField(
-                                        dayIndex,
-                                        exerciseIndex,
-                                        "recovery_seconds",
-                                        event.target.value
-                                      )
-                                    }
-                                  />
-                                </Label>
-
-                                <Label title="RPE" className="xl:col-span-1">
-                                  <Input
-                                    value={exercise.target_rpe || ""}
-                                    onChange={(event) =>
-                                      updateExerciseField(dayIndex, exerciseIndex, "target_rpe", event.target.value)
-                                    }
-                                  />
-                                </Label>
-
-                                <Label title="RIR" className="xl:col-span-2">
-                                  <Input
-                                    value={exercise.target_rir || ""}
-                                    onChange={(event) =>
-                                      updateExerciseField(dayIndex, exerciseIndex, "target_rir", event.target.value)
-                                    }
-                                  />
-                                </Label>
-                              </div>
-
-                              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                                <summary className="cursor-pointer text-sm font-black text-slate-800">
-                                  Dettagli opzionali, video, note e progressione
-                                </summary>
-
-                                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                  <Label title="Note esecuzione" className="md:col-span-2 xl:col-span-2">
-                                    <Input
-                                      value={exercise.notes || ""}
-                                      onChange={(event) =>
-                                        updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
-                                      }
-                                      placeholder="Cue tecnici, range, varianti..."
-                                    />
-                                  </Label>
-
-                                  <Label title="Video URL">
-                                    <Input
-                                      value={exercise.video_url || ""}
-                                      onChange={(event) =>
-                                        updateExerciseField(dayIndex, exerciseIndex, "video_url", event.target.value)
-                                      }
-                                    />
-                                  </Label>
-
-                                  <Label title="Immagine URL">
-                                    <Input
-                                      value={exercise.image_url || ""}
-                                      onChange={(event) =>
-                                        updateExerciseField(dayIndex, exerciseIndex, "image_url", event.target.value)
-                                      }
-                                    />
-                                  </Label>
-
-                                  <Label title="Media esercizio" className="md:col-span-2">
-                                    <Select
-                                      value={exercise.exercise_media_id || ""}
-                                      onChange={(event) =>
-                                        updateExerciseField(
-                                          dayIndex,
-                                          exerciseIndex,
-                                          "exercise_media_id",
-                                          event.currentTarget.value
-                                        )
-                                      }
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <Button
+                                      type="button"
+                                      onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
+                                      disabled={exerciseIndex === 0}
+                                      className="border border-white/10 bg-white/10 px-2 py-2 text-xs text-white"
                                     >
-                                      <option value="">Immagine auto/opzionale</option>
-                                      {exerciseMedia.map((media) => (
-                                        <option key={media.id} value={media.id}>
-                                          {media.name}
-                                        </option>
-                                      ))}
-                                    </Select>
-                                  </Label>
+                                      ↑
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
+                                      disabled={exerciseIndex === day.exercises.length - 1}
+                                      className="border border-white/10 bg-white/10 px-2 py-2 text-xs text-white"
+                                    >
+                                      ↓
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
+                                      className="border border-white/10 bg-white/10 px-3 py-2 text-xs text-white"
+                                    >
+                                      Duplica
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
+                                      className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+                                    >
+                                      <X size={14} />
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
 
-                                  <label className="flex items-center gap-3 rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800 md:col-span-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={Boolean(exercise.has_weekly_progression)}
-                                      onChange={(event) =>
-                                        toggleExerciseProgression(
-                                          dayIndex,
-                                          exerciseIndex,
-                                          event.target.checked
-                                        )
-                                      }
-                                    />
-                                    Progressione settimanale su questo esercizio
-                                  </label>
+                              <div className="p-4">
+                                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
+                                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
+                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-4">
+                                      <Input
+                                        placeholder="Panca piana, Squat, Lat machine..."
+                                        value={exercise.exercise_name}
+                                        onChange={(event) =>
+                                          updateExerciseField(
+                                            dayIndex,
+                                            exerciseIndex,
+                                            "exercise_name",
+                                            event.currentTarget.value
+                                          )
+                                        }
+                                        className="bg-white"
+                                      />
+                                    </Label>
+
+                                    <Label title="Serie" className="lg:col-span-1">
+                                      <Input
+                                        value={exercise.sets || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "sets", event.target.value)
+                                        }
+                                        placeholder="3"
+                                        className="bg-white text-center"
+                                      />
+                                    </Label>
+
+                                    <Label title="Reps" className="lg:col-span-2">
+                                      <Input
+                                        value={exercise.reps || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "reps", event.target.value)
+                                        }
+                                        placeholder="8-10"
+                                        className="bg-white text-center"
+                                      />
+                                    </Label>
+
+                                    <Label title="Recupero" className="lg:col-span-2">
+                                      <Input
+                                        value={exercise.recovery_seconds || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(
+                                            dayIndex,
+                                            exerciseIndex,
+                                            "recovery_seconds",
+                                            event.target.value
+                                          )
+                                        }
+                                        placeholder="90 sec"
+                                        className="bg-white text-center"
+                                      />
+                                    </Label>
+
+                                    <Label title="RPE" className="lg:col-span-1">
+                                      <Input
+                                        value={exercise.target_rpe || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "target_rpe", event.target.value)
+                                        }
+                                        placeholder="8"
+                                        className="bg-white text-center"
+                                      />
+                                    </Label>
+
+                                    <Label title="RIR" className="lg:col-span-2">
+                                      <Input
+                                        value={exercise.target_rir || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "target_rir", event.target.value)
+                                        }
+                                        placeholder="1-2"
+                                        className="bg-white text-center"
+                                      />
+                                    </Label>
+                                  </div>
                                 </div>
 
-                                {exercise.has_weekly_progression && (
-                                  <div className="mt-4 space-y-2">
-                                    {(exercise.progressions || []).map((progression, progressionIndex) => (
-                                      <div
-                                        key={progression.temp_id || progressionIndex}
-                                        className="grid gap-2 rounded-2xl border border-teal-200 bg-white p-3 shadow-sm md:grid-cols-2 xl:grid-cols-12"
-                                      >
-                                        <div className="flex items-end xl:col-span-1">
+                                <details className="mt-3 rounded-3xl border border-slate-200 bg-white">
+                                  <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-black text-slate-800">
+                                    <span>Dettagli opzionali</span>
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                      Video · Note · Progressione
+                                    </span>
+                                  </summary>
+
+                                  <div className="border-t border-slate-100 p-4">
+                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                      <Label title="Note esecuzione" className="md:col-span-2 xl:col-span-2">
+                                        <Input
+                                          value={exercise.notes || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
+                                          }
+                                          placeholder="Cue tecnici, range, varianti..."
+                                        />
+                                      </Label>
+
+                                      <Label title="Video URL">
+                                        <Input
+                                          value={exercise.video_url || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(dayIndex, exerciseIndex, "video_url", event.target.value)
+                                          }
+                                          placeholder="Link video"
+                                        />
+                                      </Label>
+
+                                      <Label title="Immagine URL">
+                                        <Input
+                                          value={exercise.image_url || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(dayIndex, exerciseIndex, "image_url", event.target.value)
+                                          }
+                                          placeholder="Link immagine"
+                                        />
+                                      </Label>
+
+                                      <Label title="Media esercizio" className="md:col-span-2">
+                                        <Select
+                                          value={exercise.exercise_media_id || ""}
+                                          onChange={(event) =>
+                                            updateExerciseField(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              "exercise_media_id",
+                                              event.currentTarget.value
+                                            )
+                                          }
+                                        >
+                                          <option value="">Immagine auto/opzionale</option>
+                                          {exerciseMedia.map((media) => (
+                                            <option key={media.id} value={media.id}>
+                                              {media.name}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                      </Label>
+
+                                      <label className="flex items-center gap-3 rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800 md:col-span-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(exercise.has_weekly_progression)}
+                                          onChange={(event) =>
+                                            toggleExerciseProgression(
+                                              dayIndex,
+                                              exerciseIndex,
+                                              event.target.checked
+                                            )
+                                          }
+                                        />
+                                        Progressione settimanale su questo esercizio
+                                      </label>
+                                    </div>
+
+                                    {exercise.has_weekly_progression && (
+                                      <div className="mt-4 rounded-3xl border border-teal-200 bg-teal-50 p-3">
+                                        <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+                                          <div>
+                                            <p className="text-sm font-black text-slate-900">
+                                              Progressione settimanale
+                                            </p>
+                                            <p className="text-xs font-bold text-slate-500">
+                                              Compila solo i valori che cambiano rispetto alla base.
+                                            </p>
+                                          </div>
                                           <Pill className="bg-teal-300 text-slate-950">
-                                            W{progression.week_number || progressionIndex + 1}
+                                            {exercise.progressions?.length || 0} settimane
                                           </Pill>
                                         </div>
 
-                                        {[
-                                          ["target_sets", "Serie", "xl:col-span-1"],
-                                          ["target_reps", "Reps", "xl:col-span-2"],
-                                          ["target_load_text", "Kg/target", "xl:col-span-2"],
-                                          ["target_rpe", "RPE", "xl:col-span-1"],
-                                          ["target_rir", "RIR", "xl:col-span-1"],
-                                          ["recovery_seconds", "Recupero", "xl:col-span-2"]
-                                        ].map(([field, label, fieldClassName]) => (
-                                          <Label key={field} title={label} className={fieldClassName}>
-                                            <Input
-                                              value={progression[field] || ""}
-                                              onChange={(event) =>
-                                                updateProgressionField(
-                                                  dayIndex,
-                                                  exerciseIndex,
-                                                  progressionIndex,
-                                                  field,
-                                                  event.target.value
-                                                )
-                                              }
-                                            />
-                                          </Label>
-                                        ))}
+                                        <div className="space-y-2">
+                                          {(exercise.progressions || []).map((progression, progressionIndex) => (
+                                            <div
+                                              key={progression.temp_id || progressionIndex}
+                                              className="rounded-2xl border border-teal-200 bg-white p-3 shadow-sm"
+                                            >
+                                              <div className="mb-3 flex items-center justify-between gap-3">
+                                                <Pill className="bg-teal-300 text-slate-950">
+                                                  W{progression.week_number || progressionIndex + 1}
+                                                </Pill>
+                                                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                                                  Target settimana
+                                                </p>
+                                              </div>
 
-                                        <Label title="Note" className="md:col-span-2 xl:col-span-12">
-                                          <Input
-                                            value={progression.notes || ""}
-                                            onChange={(event) =>
-                                              updateProgressionField(
-                                                dayIndex,
-                                                exerciseIndex,
-                                                progressionIndex,
-                                                "notes",
-                                                event.target.value
-                                              )
-                                            }
-                                          />
-                                        </Label>
+                                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-12">
+                                                {[
+                                                  ["target_sets", "Serie", "lg:col-span-1"],
+                                                  ["target_reps", "Reps", "lg:col-span-2"],
+                                                  ["target_load_text", "Kg/target", "lg:col-span-2"],
+                                                  ["target_rpe", "RPE", "lg:col-span-1"],
+                                                  ["target_rir", "RIR", "lg:col-span-1"],
+                                                  ["recovery_seconds", "Recupero", "lg:col-span-2"]
+                                                ].map(([field, label, fieldClassName]) => (
+                                                  <Label key={field} title={label} className={fieldClassName}>
+                                                    <Input
+                                                      value={progression[field] || ""}
+                                                      onChange={(event) =>
+                                                        updateProgressionField(
+                                                          dayIndex,
+                                                          exerciseIndex,
+                                                          progressionIndex,
+                                                          field,
+                                                          event.target.value
+                                                        )
+                                                      }
+                                                      className="text-center"
+                                                    />
+                                                  </Label>
+                                                ))}
+
+                                                <Label title="Note" className="sm:col-span-2 lg:col-span-3">
+                                                  <Input
+                                                    value={progression.notes || ""}
+                                                    onChange={(event) =>
+                                                      updateProgressionField(
+                                                        dayIndex,
+                                                        exerciseIndex,
+                                                        progressionIndex,
+                                                        "notes",
+                                                        event.target.value
+                                                      )
+                                                    }
+                                                  />
+                                                </Label>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
-                                    ))}
+                                    )}
                                   </div>
-                                )}
-                              </details>
+                                </details>
+                              </div>
                             </div>
                           ))}
                         </div>
