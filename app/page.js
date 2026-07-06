@@ -5441,90 +5441,391 @@ const builderQuality = getBuilderQualityReport();
           )}
 
           {activeTab === "measurements" && (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Misurazioni private</h2>
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <Card className="p-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+                    Cliente attivo
+                  </p>
+                  <p className="mt-2 truncate text-xl font-black text-slate-950">
+                    {selectedClient ? fullName(selectedClient) : "Nessun cliente"}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    Misure visibili solo lato professionista.
+                  </p>
+                </Card>
 
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Sezione visibile solo al professionista.
-                </p>
+                <Card className="p-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+                    Storico
+                  </p>
+                  <p className="mt-2 text-xl font-black text-slate-950">
+                    {measurements.length}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    misurazioni registrate
+                  </p>
+                </Card>
 
-                <form
-                  onSubmit={saveMeasurement}
-                  className="mt-4 grid gap-3 md:grid-cols-2"
-                >
-                  {Object.entries(measurementForm).map(([key, value]) => {
-                    if (key === "notes") return null;
+                <Card className="p-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+                    Ultimo peso
+                  </p>
+                  <p className="mt-2 text-xl font-black text-slate-950">
+                    {measurements[0]?.weight_kg ? `${measurements[0].weight_kg} kg` : "—"}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {measurements[0]?.measurement_date || "Nessun dato recente"}
+                  </p>
+                </Card>
+              </div>
 
-                    return (
-                      <Label key={key} title={key.replaceAll("_", " ")}>
-                        <Input
-                          type={key === "measurement_date" ? "date" : "number"}
-                          value={value}
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                      Nuova misurazione
+                    </p>
+                    <h2 className="mt-1 text-xl font-black text-slate-950">
+                      Dati corporei e circonferenze
+                    </h2>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                      Compila solo i valori disponibili. I campi vuoti vengono salvati come non presenti.
+                    </p>
+                  </div>
+
+                  {!selectedClient ? (
+                    <div className="p-5">
+                      <Empty
+                        title="Seleziona un cliente"
+                        text="Prima scegli un cliente dalla sidebar o dalla sezione Clienti."
+                      />
+                    </div>
+                  ) : (
+                    <form onSubmit={saveMeasurement} className="grid gap-5 p-5">
+                      <div className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-950">
+                              Composizione
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Data, peso, massa grassa e massa magra.
+                            </p>
+                          </div>
+                          <Pill className="bg-teal-50 text-teal-700">
+                            Base
+                          </Pill>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Label title="Data misurazione">
+                            <Input
+                              type="date"
+                              value={measurementForm.measurement_date}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  measurement_date: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Peso kg">
+                            <Input
+                              type="number"
+                              value={measurementForm.weight_kg}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  weight_kg: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Body fat %">
+                            <Input
+                              type="number"
+                              value={measurementForm.body_fat_percentage}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  body_fat_percentage: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Massa magra kg">
+                            <Input
+                              type="number"
+                              value={measurementForm.lean_mass_kg}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  lean_mass_kg: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50 p-4">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-950">
+                              Circonferenze
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Vita, fianchi, arti e distretti principali.
+                            </p>
+                          </div>
+                          <Pill className="bg-white text-slate-700">
+                            cm
+                          </Pill>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          <Label title="Vita cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.waist_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  waist_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Fianchi cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.hips_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  hips_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Petto cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.chest_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  chest_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Addome cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.abdomen_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  abdomen_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Braccio dx cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.right_arm_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  right_arm_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Braccio sx cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.left_arm_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  left_arm_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Coscia dx cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.right_thigh_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  right_thigh_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+
+                          <Label title="Coscia sx cm">
+                            <Input
+                              type="number"
+                              value={measurementForm.left_thigh_cm}
+                              onChange={(event) =>
+                                setMeasurementForm({
+                                  ...measurementForm,
+                                  left_thigh_cm: event.target.value
+                                })
+                              }
+                            />
+                          </Label>
+                        </div>
+                      </div>
+
+                      <Label title="Note misurazione">
+                        <Textarea
+                          placeholder="Es. condizioni del check, orario, ciclo, ritenzione, percezione visiva, indicazioni per il prossimo controllo..."
+                          value={measurementForm.notes}
                           onChange={(event) =>
                             setMeasurementForm({
                               ...measurementForm,
-                              [key]: event.target.value
+                              notes: event.target.value
                             })
                           }
                         />
                       </Label>
-                    );
-                  })}
 
-                  <Textarea
-                    className="md:col-span-2"
-                    placeholder="Note misurazione"
-                    value={measurementForm.notes}
-                    onChange={(event) =>
-                      setMeasurementForm({
-                        ...measurementForm,
-                        notes: event.target.value
-                      })
-                    }
-                  />
-
-                  <Button
-                    type="submit"
-                    className="bg-[#07111f] text-white md:col-span-2"
-                  >
-                    Salva misurazione
-                  </Button>
-                </form>
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Storico misure</h2>
-
-                <div className="mt-4 space-y-3">
-                  {measurements.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    >
-                      <p className="font-black">{item.measurement_date}</p>
-
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        Peso {item.weight_kg || "—"} kg · BF{" "}
-                        {item.body_fat_percentage || "—"}% · Massa magra{" "}
-                        {item.lean_mass_kg || "—"} kg
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        Vita {item.waist_cm || "—"} · Fianchi{" "}
-                        {item.hips_cm || "—"} · Petto {item.chest_cm || "—"}
-                      </p>
-                    </div>
-                  ))}
-
-                  {measurements.length === 0 && (
-                    <Empty
-                      title="Nessuna misurazione"
-                      text="Inserisci la prima misurazione."
-                    />
+                      <Button type="submit" className="w-full bg-[#07111f] text-white">
+                        <Save size={16} className="mr-2" />
+                        Salva misurazione
+                      </Button>
+                    </form>
                   )}
-                </div>
-              </Card>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-200 bg-white px-5 py-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
+                      Storico misure
+                    </p>
+                    <h2 className="mt-1 text-xl font-black text-slate-950">
+                      Progressi registrati
+                    </h2>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                      Ultime misurazioni salvate per il cliente selezionato.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 p-5">
+                    {measurements.length > 0 && (
+                      <div className="rounded-[1.4rem] border border-teal-100 bg-teal-50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-700">
+                              Ultima rilevazione
+                            </p>
+                            <p className="mt-1 text-lg font-black text-slate-950">
+                              {measurements[0].measurement_date}
+                            </p>
+                          </div>
+                          <Pill className="bg-white text-teal-700">
+                            {measurements[0].weight_kg ? `${measurements[0].weight_kg} kg` : "Peso —"}
+                          </Pill>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                          <div className="rounded-2xl bg-white p-3">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              BF
+                            </p>
+                            <p className="mt-1 text-sm font-black text-slate-950">
+                              {measurements[0].body_fat_percentage || "—"}%
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-white p-3">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              Magra
+                            </p>
+                            <p className="mt-1 text-sm font-black text-slate-950">
+                              {measurements[0].lean_mass_kg || "—"} kg
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-white p-3">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              Vita
+                            </p>
+                            <p className="mt-1 text-sm font-black text-slate-950">
+                              {measurements[0].waist_cm || "—"} cm
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {measurements.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-[1.4rem] border border-slate-200 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-950">
+                              {item.measurement_date}
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Peso {item.weight_kg || "—"} kg · BF {item.body_fat_percentage || "—"}% · Massa magra {item.lean_mass_kg || "—"} kg
+                            </p>
+                          </div>
+                          <Pill className="bg-slate-100 text-slate-700">
+                            Check misure
+                          </Pill>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-2">
+                          <p className="rounded-2xl bg-slate-50 px-3 py-2">
+                            Vita {item.waist_cm || "—"} cm · Fianchi {item.hips_cm || "—"} cm
+                          </p>
+                          <p className="rounded-2xl bg-slate-50 px-3 py-2">
+                            Petto {item.chest_cm || "—"} cm · Addome {item.abdomen_cm || "—"} cm
+                          </p>
+                          <p className="rounded-2xl bg-slate-50 px-3 py-2">
+                            Braccia dx/sx {item.right_arm_cm || "—"}/{item.left_arm_cm || "—"} cm
+                          </p>
+                          <p className="rounded-2xl bg-slate-50 px-3 py-2">
+                            Cosce dx/sx {item.right_thigh_cm || "—"}/{item.left_thigh_cm || "—"} cm
+                          </p>
+                        </div>
+
+                        {item.notes && (
+                          <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">
+                            {item.notes}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+
+                    {measurements.length === 0 && (
+                      <Empty
+                        title="Nessuna misurazione"
+                        text="Inserisci la prima misurazione del cliente selezionato."
+                      />
+                    )}
+                  </div>
+                </Card>
+              </div>
             </div>
           )}
 
