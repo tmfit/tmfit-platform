@@ -4222,9 +4222,9 @@ const builderQuality = getBuilderQualityReport();
           )}
 
           {activeTab === "programs" && (
-            <div className="space-y-4">
-              <Card className="border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-5">
+              <Card className="border border-slate-300 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
                       Programmi
@@ -4237,7 +4237,7 @@ const builderQuality = getBuilderQualityReport();
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1 rounded-2xl bg-slate-100 p-1">
+                  <div className="grid grid-cols-3 gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 shadow-inner">
                     {[
                       { id: "builder", label: "Crea" },
                       { id: "saved", label: `Salvati ${plans.length}` },
@@ -4268,8 +4268,8 @@ const builderQuality = getBuilderQualityReport();
               )}
 
               {selectedClient && programPanel === "builder" && (
-                <form onSubmit={saveWorkoutPlan} className="space-y-4">
-                  <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+                <form onSubmit={saveWorkoutPlan} className="space-y-5">
+                  <Card className="border border-slate-300 bg-slate-50 p-4 shadow-sm">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0">
                         <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
@@ -4339,7 +4339,7 @@ const builderQuality = getBuilderQualityReport();
                   </Card>
 
                   <Card className="border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
                       <h3 className="text-lg font-black text-slate-950">Dati base</h3>
                       <Pill className="bg-slate-100 text-slate-700">
                         Setup
@@ -4443,9 +4443,9 @@ const builderQuality = getBuilderQualityReport();
                     {builder.days.map((day, dayIndex) => (
                       <Card
                         key={day.temp_id}
-                        className="overflow-hidden border border-slate-200 bg-white shadow-sm"
+                        className="overflow-hidden border border-slate-300 bg-white shadow-sm"
                       >
-                        <div className="border-b border-slate-100 bg-[#07111f] p-4 text-white">
+                        <div className="border-b border-slate-200 bg-[#07111f] p-4 text-white">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1.5fr)_120px_minmax(0,1fr)]">
                               <Label title="Giorno" className="text-white [&_span]:text-slate-300">
@@ -4530,15 +4530,15 @@ const builderQuality = getBuilderQualityReport();
                           </div>
                         </div>
 
-                        <div className="space-y-3 p-4">
+                        <div className="space-y-3 bg-slate-50 p-4">
                           {day.exercises.map((exercise, exerciseIndex) => (
                             <div
                               key={exercise.temp_id}
-                              className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+                              className="rounded-3xl border border-slate-300 bg-white p-4 shadow-sm"
                             >
-                              <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-3 md:flex-row md:items-center md:justify-between">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <Pill className="bg-teal-100 text-teal-700">
+                                  <Pill className="bg-teal-300 text-slate-950">
                                     Esercizio {exerciseIndex + 1}
                                   </Pill>
                                   {exercise.has_weekly_progression && (
@@ -4582,8 +4582,8 @@ const builderQuality = getBuilderQualityReport();
                                 </div>
                               </div>
 
-                              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_90px_110px_120px_90px_90px]">
-                                <Label title="Esercizio" className="md:col-span-2 xl:col-span-1">
+                              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
+                                <Label title="Esercizio" className="md:col-span-2 xl:col-span-4">
                                   <Input
                                     placeholder="Panca piana, Squat, Lat machine..."
                                     value={exercise.exercise_name}
@@ -4598,7 +4598,7 @@ const builderQuality = getBuilderQualityReport();
                                   />
                                 </Label>
 
-                                <Label title="Serie">
+                                <Label title="Serie" className="xl:col-span-1">
                                   <Input
                                     value={exercise.sets || ""}
                                     onChange={(event) =>
@@ -4607,7 +4607,7 @@ const builderQuality = getBuilderQualityReport();
                                   />
                                 </Label>
 
-                                <Label title="Reps">
+                                <Label title="Reps" className="xl:col-span-2">
                                   <Input
                                     value={exercise.reps || ""}
                                     onChange={(event) =>
@@ -4616,7 +4616,7 @@ const builderQuality = getBuilderQualityReport();
                                   />
                                 </Label>
 
-                                <Label title="Recupero sec">
+                                <Label title="Recupero sec" className="xl:col-span-2">
                                   <Input
                                     value={exercise.recovery_seconds || ""}
                                     onChange={(event) =>
@@ -4630,7 +4630,7 @@ const builderQuality = getBuilderQualityReport();
                                   />
                                 </Label>
 
-                                <Label title="RPE">
+                                <Label title="RPE" className="xl:col-span-1">
                                   <Input
                                     value={exercise.target_rpe || ""}
                                     onChange={(event) =>
@@ -4639,7 +4639,7 @@ const builderQuality = getBuilderQualityReport();
                                   />
                                 </Label>
 
-                                <Label title="RIR">
+                                <Label title="RIR" className="xl:col-span-2">
                                   <Input
                                     value={exercise.target_rir || ""}
                                     onChange={(event) =>
@@ -4649,8 +4649,8 @@ const builderQuality = getBuilderQualityReport();
                                 </Label>
                               </div>
 
-                              <details className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-                                <summary className="cursor-pointer text-sm font-black text-slate-700">
+                              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <summary className="cursor-pointer text-sm font-black text-slate-800">
                                   Dettagli opzionali, video, note e progressione
                                 </summary>
 
@@ -4725,23 +4725,23 @@ const builderQuality = getBuilderQualityReport();
                                     {(exercise.progressions || []).map((progression, progressionIndex) => (
                                       <div
                                         key={progression.temp_id || progressionIndex}
-                                        className="grid gap-2 rounded-2xl border border-teal-100 bg-teal-50/60 p-3 md:grid-cols-2 xl:grid-cols-[80px_repeat(6,minmax(0,1fr))]"
+                                        className="grid gap-2 rounded-2xl border border-teal-200 bg-white p-3 shadow-sm md:grid-cols-2 xl:grid-cols-12"
                                       >
-                                        <div className="flex items-end">
+                                        <div className="flex items-end xl:col-span-1">
                                           <Pill className="bg-teal-300 text-slate-950">
                                             W{progression.week_number || progressionIndex + 1}
                                           </Pill>
                                         </div>
 
                                         {[
-                                          ["target_sets", "Serie"],
-                                          ["target_reps", "Reps"],
-                                          ["target_load_text", "Kg/target"],
-                                          ["target_rpe", "RPE"],
-                                          ["target_rir", "RIR"],
-                                          ["recovery_seconds", "Recupero"]
-                                        ].map(([field, label]) => (
-                                          <Label key={field} title={label}>
+                                          ["target_sets", "Serie", "xl:col-span-1"],
+                                          ["target_reps", "Reps", "xl:col-span-2"],
+                                          ["target_load_text", "Kg/target", "xl:col-span-2"],
+                                          ["target_rpe", "RPE", "xl:col-span-1"],
+                                          ["target_rir", "RIR", "xl:col-span-1"],
+                                          ["recovery_seconds", "Recupero", "xl:col-span-2"]
+                                        ].map(([field, label, fieldClassName]) => (
+                                          <Label key={field} title={label} className={fieldClassName}>
                                             <Input
                                               value={progression[field] || ""}
                                               onChange={(event) =>
@@ -4757,7 +4757,7 @@ const builderQuality = getBuilderQualityReport();
                                           </Label>
                                         ))}
 
-                                        <Label title="Note" className="md:col-span-2 xl:col-span-7">
+                                        <Label title="Note" className="md:col-span-2 xl:col-span-12">
                                           <Input
                                             value={progression.notes || ""}
                                             onChange={(event) =>
@@ -4783,7 +4783,7 @@ const builderQuality = getBuilderQualityReport();
                     ))}
                   </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[1fr_.9fr]">
+                  <div className="grid gap-4 xl:grid-cols-2">
                     <details className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
                       <summary className="cursor-pointer text-sm font-black text-slate-800">
                         Anteprima cliente
@@ -4813,9 +4813,9 @@ const builderQuality = getBuilderQualityReport();
                     </details>
                   </div>
 
-                  <Card className="sticky bottom-4 z-20 border-2 border-[#07111f]/10 bg-white/95 p-3 shadow-xl backdrop-blur">
+                  <Card className="sticky bottom-3 z-20 border border-slate-300 bg-white/95 p-3 shadow-lg backdrop-blur">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <p className="text-sm font-bold text-slate-500">
+                      <p className="text-sm font-black text-slate-700">
                         {builderStats.totalDays} giorni · {builderStats.totalExercises} esercizi · {builderQuality.statusLabel}
                       </p>
 
