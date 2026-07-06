@@ -2425,6 +2425,201 @@ function DietExtractedPlan({ diet, compact = false }) {
   );
 }
 
+function dietExtractionStats(diet) {
+  const extracted = dietExtractedInfo(diet);
+
+  if (!extracted) {
+    return {
+      hasCards: false,
+      isOptions: false,
+      statusLabel: "Da analizzare",
+      statusText: "Il PDF è presente, ma non ci sono ancora card pasti salvate.",
+      statusClass: "bg-amber-100 text-amber-800",
+      formatLabel: dietTypeLabel(diet?.diet_type),
+      primaryCount: 0,
+      primaryLabel: "Sezioni",
+      secondaryCount: 0,
+      secondaryLabel: "Card",
+      totalItems: 0,
+      warnings: diet?.file_path
+        ? ["Premi Analizza PDF o Rigenera card per creare la visualizzazione pasti."]
+        : ["Nessun PDF collegato a questa dieta."],
+      confidence: 0
+    };
+  }
+
+  const days = Array.isArray(extracted.days) ? extracted.days : [];
+  const optionGroups = Array.isArray(extracted.optionGroups)
+    ? extracted.optionGroups
+    : [];
+  const isOptions =
+    extracted.format === "options_pdf" ||
+    (optionGroups.length > 0 && days.length === 0);
+
+  const totalMeals = days.reduce(
+    (sum, day) => sum + ((day.meals || day.sections || []).length || 0),
+    0
+  );
+  const totalOptions = optionGroups.reduce(
+    (sum, group) => sum + ((group.options || []).length || 0),
+    0
+  );
+  const totalDailyItems = days.reduce((sum, day) => {
+    const meals = day.meals || day.sections || [];
+    return (
+      sum +
+      meals.reduce((mealSum, meal) => mealSum + ((meal.items || []).length || 0), 0)
+    );
+  }, 0);
+  const totalOptionItems = optionGroups.reduce((sum, group) => {
+    return (
+      sum +
+      (group.options || []).reduce(
+        (optionSum, option) => optionSum + ((option.items || []).length || 0),
+        0
+      )
+    );
+  }, 0);
+
+  const warnings = Array.isArray(extracted.warnings)
+    ? extracted.warnings.filter(Boolean)
+    : [];
+  const rawConfidence = Number(
+    extracted.confidence || extracted.score || extracted.parseScore || 0
+  );
+  const confidence =
+    rawConfidence > 100
+      ? Math.min(99, Math.max(30, Math.round((rawConfidence / (rawConfidence + 60)) * 100)))
+      : rawConfidence;
+  const totalCards = isOptions ? totalOptions : totalMeals;
+  const totalItems = isOptions ? totalOptionItems : totalDailyItems;
+
+  let statusLabel = "Card pronte";
+  let statusText = "La dieta ha card generate e consultabili nel tab Pasti.";
+  let statusClass = "bg-teal-100 text-teal-800";
+
+  if (totalCards === 0) {
+    statusLabel = "Da rigenerare";
+    statusText = "Il PDF è stato letto, ma le card generate sono insufficienti.";
+    statusClass = "bg-amber-100 text-amber-800";
+  } else if (warnings.length > 0 || confidence < 70) {
+    statusLabel = "Da controllare";
+    statusText = "Le card sono state create, ma conviene fare un controllo rapido.";
+    statusClass = "bg-amber-100 text-amber-800";
+  }
+
+  return {
+    hasCards: totalCards > 0,
+    isOptions,
+    statusLabel,
+    statusText,
+    statusClass,
+    formatLabel: isOptions ? "Formato opzioni" : "Formato giorni",
+    primaryCount: isOptions ? optionGroups.length : days.length,
+    primaryLabel: isOptions ? "Sezioni" : "Giorni",
+    secondaryCount: totalCards,
+    secondaryLabel: isOptions ? "Opzioni" : "Pasti",
+    totalItems,
+    warnings,
+    confidence
+  };
+}
+
+function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = false }) {
+  const stats = dietExtractionStats(diet);
+
+  return (
+    <div
+      className={`rounded-[1.35rem] border border-slate-200 bg-white ${
+        compact ? "p-3" : "p-4"
+      }`}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+            Controllo card
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <p className="font-black text-slate-950">
+              Qualità visualizzazione app
+            </p>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${stats.statusClass}`}>
+              {stats.statusLabel}
+            </span>
+          </div>
+          {!compact && (
+            <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+              {stats.statusText}
+            </p>
+          )}
+        </div>
+
+        {onAnalyze && (
+          <Button
+            onClick={onAnalyze}
+            disabled={analyzing || !diet?.file_path}
+            className="shrink-0 border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800"
+          >
+            {analyzing ? "Analisi..." : stats.hasCards ? "Rigenera card" : "Analizza PDF"}
+          </Button>
+        )}
+      </div>
+
+      <div className={`mt-3 grid gap-2 text-center ${compact ? "grid-cols-3" : "grid-cols-3 sm:grid-cols-4"}`}>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-950">{stats.primaryCount}</p>
+          <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+            {stats.primaryLabel}
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-950">{stats.secondaryCount}</p>
+          <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+            {stats.secondaryLabel}
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-950">{stats.totalItems}</p>
+          <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+            Righe
+          </p>
+        </div>
+        {!compact && (
+          <div className="rounded-2xl bg-slate-50 p-3">
+            <p className="text-sm font-black text-slate-950">
+              {stats.confidence ? `${stats.confidence}%` : "—"}
+            </p>
+            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+              Lettura
+            </p>
+          </div>
+        )}
+      </div>
+
+      {stats.warnings.length > 0 && !compact && (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+            Da verificare
+          </p>
+          <div className="mt-2 space-y-1">
+            {stats.warnings.slice(0, 4).map((warning, index) => (
+              <p key={`${warning}-${index}`} className="text-xs font-bold leading-5 text-amber-800">
+                • {warning}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!compact && (
+        <p className="mt-3 text-[11px] font-semibold leading-5 text-slate-500">
+          Il PDF resta sempre il documento ufficiale. Le card servono per una lettura rapida in app e possono essere rigenerate se il formato del PDF cambia.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function pdfViewerSrc(url) {
   if (!url) return "";
   return `${url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
@@ -7705,10 +7900,11 @@ const builderQuality = getBuilderQualityReport();
                       <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
                         Comandi parser
                       </p>
-                      <div className="mt-3 grid gap-2 text-xs font-bold leading-5 text-slate-600 sm:grid-cols-3">
+                      <div className="mt-3 grid gap-2 text-xs font-bold leading-5 text-slate-600 sm:grid-cols-4">
                         <div className="rounded-xl bg-white p-3">1. Carica PDF</div>
                         <div className="rounded-xl bg-white p-3">2. Genera card</div>
-                        <div className="rounded-xl bg-white p-3">3. Controlla in Pasti</div>
+                        <div className="rounded-xl bg-white p-3">3. Controlla qualità</div>
+                        <div className="rounded-xl bg-white p-3">4. Verifica in Pasti</div>
                       </div>
                       <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
                         Il parser è dinamico: non forza Colazione/Pranzo/Cena. Legge le sezioni reali del PDF, anche se una dieta ha otto colazioni, nessuna merenda o blocchi extra come post workout/pre nanna.
@@ -7775,6 +7971,12 @@ const builderQuality = getBuilderQualityReport();
                               <div className="mt-4 space-y-3">
                                 <DietSummaryBox diet={diets[0]} />
                                 <DietInfoGrid diet={diets[0]} compact />
+                                <DietParseQualityCard
+                                  diet={diets[0]}
+                                  compact
+                                  onAnalyze={() => analyzeDietPdfToCards(diets[0])}
+                                  analyzing={analyzingDietId === String(diets[0].id)}
+                                />
                                 <DietExtractedPlan diet={diets[0]} compact />
                                 <DietCoachNoteBox diet={diets[0]} emptyTitle="Nessuna nota coach" />
                               </div>
@@ -7911,10 +8113,17 @@ const builderQuality = getBuilderQualityReport();
                             {diet.file_name || "PDF dieta"}
                           </p>
                           <p className="mt-1 text-xs font-bold text-slate-400">
-
                             {dietTypeLabel(diet.diet_type)} · {dietStructuredInfo(diet).calorieTarget || dietPeriodLabel(diet)}
-
                           </p>
+
+                          <div className="mt-3">
+                            <DietParseQualityCard
+                              diet={diet}
+                              compact
+                              onAnalyze={() => analyzeDietPdfToCards(diet)}
+                              analyzing={analyzingDietId === String(diet.id)}
+                            />
+                          </div>
                         </div>
 
                         <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
