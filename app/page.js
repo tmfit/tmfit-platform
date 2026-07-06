@@ -1519,8 +1519,71 @@ function cutDietLinesForOptions(lines) {
   return lines.slice(safeStart, endIndex > safeStart ? endIndex : undefined);
 }
 
+function expandDietLinesForParsing(lines = [], mode = "daily") {
+  const expanded = [];
+
+  lines.forEach((line) => {
+    const clean = cleanDietPdfLine(line);
+    if (!clean) return;
+
+    const normalized = normalizeDietToken(clean);
+    let handled = false;
+
+    DIET_DAY_NAMES.forEach((day) => {
+      if (handled) return;
+
+      const dayToken = normalizeDietToken(day);
+      if (normalized === dayToken) {
+        expanded.push(day);
+        handled = true;
+        return;
+      }
+
+      if (normalized.startsWith(`${dayToken} `)) {
+        expanded.push(day);
+        const rest = clean.slice(day.length).trim();
+        if (rest) expanded.push(rest);
+        handled = true;
+      }
+    });
+
+    if (handled) return;
+
+    if (mode === "daily") {
+      const mealBase = DIET_MEAL_BASES.find((meal) =>
+        normalized.startsWith(`${meal} `)
+      );
+
+      if (mealBase) {
+        const rest = clean.slice(mealBase.length).trim();
+        if (rest && !/^\d+$/.test(rest)) {
+          expanded.push(dietMealLabel(mealBase));
+          expanded.push(rest);
+          return;
+        }
+      }
+    }
+
+    expanded.push(clean);
+  });
+
+  return expanded;
+}
+
+function extractionHasCards(extractedDiet) {
+  if (!extractedDiet) return false;
+
+  const hasDailyCards =
+    Array.isArray(extractedDiet.days) && extractedDiet.days.length > 0;
+  const hasOptionCards =
+    Array.isArray(extractedDiet.optionGroups) &&
+    extractedDiet.optionGroups.length > 0;
+
+  return hasDailyCards || hasOptionCards;
+}
+
 function parseDailyDietLines(lines, sourceName) {
-  const scopedLines = cutDietLinesForDaily(lines);
+  const scopedLines = expandDietLinesForParsing(cutDietLinesForDaily(lines), "daily");
   const days = [];
   let currentDay = null;
   let currentMeal = null;
@@ -1577,7 +1640,7 @@ function parseDailyDietLines(lines, sourceName) {
 }
 
 function parseOptionsDietLines(lines, sourceName) {
-  const scopedLines = cutDietLinesForOptions(lines);
+  const scopedLines = expandDietLinesForParsing(cutDietLinesForOptions(lines), "options");
   const groupsMap = new Map();
   let currentOption = null;
 
@@ -1645,16 +1708,53 @@ async function loadPdfJsForDietExtraction() {
     throw new Error("Lettura PDF disponibile solo nel browser.");
   }
 
+  function configurePdfJs(pdfjsLib) {
+    if (!pdfjsLib) return null;
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    return pdfjsLib;
+  }
+
   if (window.pdfjsLib) {
-    return window.pdfjsLib;
+    return configurePdfJs(window.pdfjsLib);
   }
 
   await new Promise((resolve, reject) => {
     const existingScript = document.querySelector("script[data-tmfit-pdfjs='true']");
 
     if (existingScript) {
-      existingScript.addEventListener("load", resolve, { once: true });
-      existingScript.addEventListener("error", reject, { once: true });
+      if (window.pdfjsLib) {
+        resolve();
+        return;
+      }
+
+      const timeout = window.setTimeout(() => {
+        if (window.pdfjsLib) {
+          resolve();
+          return;
+        }
+
+        reject(new Error("Il lettore PDF sta impiegando troppo tempo a caricarsi."));
+      }, 12000);
+
+      existingScript.addEventListener(
+        "load",
+        () => {
+          window.clearTimeout(timeout);
+          resolve();
+        },
+        { once: true }
+      );
+      existingScript.addEventListener(
+        "error",
+        () => {
+          window.clearTimeout(timeout);
+          reject(new Error("Impossibile caricare il lettore PDF automatico."));
+        },
+        { once: true }
+      );
       return;
     }
 
@@ -1662,8 +1762,19 @@ async function loadPdfJsForDietExtraction() {
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
     script.async = true;
     script.dataset.tmfitPdfjs = "true";
-    script.onload = resolve;
-    script.onerror = () => reject(new Error("Impossibile caricare il lettore PDF automatico."));
+
+    const timeout = window.setTimeout(() => {
+      reject(new Error("Il lettore PDF sta impiegando troppo tempo a caricarsi."));
+    }, 12000);
+
+    script.onload = () => {
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    script.onerror = () => {
+      window.clearTimeout(timeout);
+      reject(new Error("Impossibile caricare il lettore PDF automatico."));
+    };
     document.head.appendChild(script);
   });
 
@@ -1671,10 +1782,7 @@ async function loadPdfJsForDietExtraction() {
     throw new Error("Lettore PDF automatico non disponibile.");
   }
 
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-
-  return window.pdfjsLib;
+  return configurePdfJs(window.pdfjsLib);
 }
 
 function pdfTextItemsToLines(items = []) {
@@ -1725,12 +1833,36 @@ async function extractDietTextFromPdfFile(file) {
 
 async function extractDietPdfForApp(file, dietType) {
   const lines = await extractDietTextFromPdfFile(file);
+  const wantsOptions = dietType === "options_pdf";
+  const primary = wantsOptions
+    ? parseOptionsDietLines(lines, file.name)
+    : parseDailyDietLines(lines, file.name);
 
-  if (dietType === "options_pdf") {
-    return parseOptionsDietLines(lines, file.name);
+  if (extractionHasCards(primary)) {
+    return primary;
   }
 
-  return parseDailyDietLines(lines, file.name);
+  const fallback = wantsOptions
+    ? parseDailyDietLines(lines, file.name)
+    : parseOptionsDietLines(lines, file.name);
+
+  if (extractionHasCards(fallback)) {
+    return {
+      ...fallback,
+      warnings: [
+        ...(fallback.warnings || []),
+        "Formato selezionato non riconosciuto perfettamente: TMFIT ha usato il parsing alternativo."
+      ]
+    };
+  }
+
+  return {
+    ...primary,
+    warnings: [
+      ...(primary.warnings || []),
+      "PDF letto, ma non sono state riconosciute card pasti. Verifica che il PDF sia esportato come testo e non come immagine."
+    ]
+  };
 }
 
 function dietExtractToNotesBlock(extractedDiet) {
@@ -2015,9 +2147,219 @@ function pdfViewerSrc(url) {
   return `${url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
 }
 
-function DietPdfInlineViewer({ url, title = "PDF dieta", onOpenFull, onOpenExternal }) {
-  const viewerUrl = pdfViewerSrc(url);
+function DietPdfPageCanvas({ pdf, pageNumber, mode = "inline" }) {
+  const [canvasNode, setCanvasNode] = useState(null);
+  const [renderError, setRenderError] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    let renderTask = null;
+
+    async function renderPage() {
+      if (!pdf || !canvasNode) return;
+
+      setRenderError("");
+
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const availableWidth = Math.max(
+          280,
+          Math.min(
+            mode === "fullscreen" ? window.innerWidth - 24 : window.innerWidth - 48,
+            mode === "fullscreen" ? 980 : 860
+          )
+        );
+        const scale = availableWidth / baseViewport.width;
+        const viewport = page.getViewport({ scale });
+        const pixelRatio = window.devicePixelRatio || 1;
+        const context = canvasNode.getContext("2d");
+
+        canvasNode.width = Math.floor(viewport.width * pixelRatio);
+        canvasNode.height = Math.floor(viewport.height * pixelRatio);
+        canvasNode.style.width = `${Math.floor(viewport.width)}px`;
+        canvasNode.style.height = `${Math.floor(viewport.height)}px`;
+
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.clearRect(0, 0, viewport.width, viewport.height);
+
+        renderTask = page.render({ canvasContext: context, viewport });
+        await renderTask.promise;
+      } catch (error) {
+        if (!cancelled) {
+          setRenderError(error?.message || "Pagina PDF non renderizzata.");
+        }
+      }
+    }
+
+    renderPage();
+
+    return () => {
+      cancelled = true;
+      if (renderTask) {
+        try {
+          renderTask.cancel();
+        } catch {
+          // rendering already completed
+        }
+      }
+    };
+  }, [pdf, pageNumber, canvasNode, mode]);
+
+  return (
+    <div className="mx-auto w-full max-w-[980px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+          Pagina {pageNumber}
+        </p>
+        {renderError && (
+          <p className="text-[10px] font-bold text-red-600">
+            Errore rendering
+          </p>
+        )}
+      </div>
+
+      {renderError ? (
+        <div className="p-4 text-sm font-bold leading-6 text-red-700">
+          {renderError}
+        </div>
+      ) : (
+        <div className="overflow-x-auto bg-slate-100 p-2">
+          <canvas
+            ref={setCanvasNode}
+            className="mx-auto block max-w-none bg-white"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DietPdfPagesViewer({ url, mode = "inline" }) {
+  const [pdfState, setPdfState] = useState({
+    loading: false,
+    error: "",
+    pdf: null,
+    pageCount: 0
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    let loadingTask = null;
+
+    async function loadPdf() {
+      if (!url) {
+        setPdfState({ loading: false, error: "", pdf: null, pageCount: 0 });
+        return;
+      }
+
+      setPdfState({ loading: true, error: "", pdf: null, pageCount: 0 });
+
+      try {
+        const pdfjsLib = await loadPdfJsForDietExtraction();
+        loadingTask = pdfjsLib.getDocument({
+          url,
+          withCredentials: false,
+          disableAutoFetch: false,
+          disableStream: false
+        });
+        const pdf = await loadingTask.promise;
+
+        if (cancelled) return;
+
+        setPdfState({
+          loading: false,
+          error: "",
+          pdf,
+          pageCount: pdf.numPages || 0
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setPdfState({
+            loading: false,
+            error:
+              error?.message ||
+              "Non riesco a leggere il PDF dentro l’app. Usa Apri PDF come fallback.",
+            pdf: null,
+            pageCount: 0
+          });
+        }
+      }
+    }
+
+    loadPdf();
+
+    return () => {
+      cancelled = true;
+      if (loadingTask) {
+        try {
+          loadingTask.destroy();
+        } catch {
+          // pdf loading already completed
+        }
+      }
+    };
+  }, [url]);
+
+  if (pdfState.loading) {
+    return (
+      <div className="grid min-h-[360px] place-items-center rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-center">
+        <div>
+          <FileText className="mx-auto text-teal-700" size={32} />
+          <p className="mt-3 font-black text-slate-950">
+            Rendering PDF in corso...
+          </p>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+            Sto caricando tutte le pagine, non solo la prima.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (pdfState.error) {
+    return (
+      <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+        {pdfState.error}
+      </div>
+    );
+  }
+
+  if (!pdfState.pdf || pdfState.pageCount === 0) {
+    return (
+      <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+        <FileText className="mx-auto text-slate-400" />
+        <p className="mt-3 font-black text-slate-950">
+          PDF non ancora caricato.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={mode === "fullscreen" ? "space-y-4 pb-4" : "space-y-4"}>
+      <div className="rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3">
+        <p className="text-xs font-black text-teal-900">
+          PDF renderizzato dentro TMFIT · {pdfState.pageCount} pagine
+        </p>
+        <p className="mt-1 text-[11px] font-bold leading-5 text-teal-800">
+          Scorri verticalmente: ogni pagina viene disegnata nell’app per migliorare la lettura mobile.
+        </p>
+      </div>
+
+      {Array.from({ length: pdfState.pageCount }, (_, index) => (
+        <DietPdfPageCanvas
+          key={`${url}-${index + 1}`}
+          pdf={pdfState.pdf}
+          pageNumber={index + 1}
+          mode={mode}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DietPdfInlineViewer({ url, title = "PDF dieta", onOpenFull, onOpenExternal }) {
   return (
     <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2055,11 +2397,9 @@ function DietPdfInlineViewer({ url, title = "PDF dieta", onOpenFull, onOpenExter
         </p>
       </div>
 
-      <iframe
-        src={viewerUrl}
-        title={title}
-        className="h-[62dvh] min-h-[420px] w-full bg-white md:h-[78vh] md:min-h-[640px]"
-      />
+      <div className="max-h-[72dvh] overflow-y-auto bg-slate-100 p-3 md:max-h-[82vh] md:p-4">
+        <DietPdfPagesViewer url={url} mode="inline" />
+      </div>
     </div>
   );
 }
@@ -2084,8 +2424,6 @@ function DietPdfFullscreenModal({
   }, [open]);
 
   if (!open) return null;
-
-  const viewerUrl = pdfViewerSrc(preview?.url || "");
 
   return (
     <div className="fixed inset-0 z-[140] flex h-[100dvh] flex-col bg-[#07111f] text-white">
@@ -2138,12 +2476,8 @@ function DietPdfFullscreenModal({
         )}
 
         {!preview?.loading && preview?.url && (
-          <div className="h-full overflow-hidden rounded-[1.4rem] bg-white shadow-2xl">
-            <iframe
-              src={viewerUrl}
-              title={title}
-              className="h-full w-full bg-white"
-            />
+          <div className="h-full overflow-y-auto rounded-[1.4rem] bg-slate-100 p-3 shadow-2xl md:p-4">
+            <DietPdfPagesViewer url={preview.url} mode="fullscreen" />
           </div>
         )}
 
