@@ -565,25 +565,25 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
         </div>
       </div>
 
-      <div className={`fixed bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pt-2 shadow-2xl backdrop-blur-xl tmfit-safe-bottom md:hidden ${
+      <div className={`fixed bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-1 shadow-xl backdrop-blur-xl md:hidden ${
           contained
             ? "left-1/2 w-full max-w-[480px] -translate-x-1/2"
             : "left-0 right-0"
         }`}
       >
-        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.7rem] bg-slate-100 p-1`}>
+        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.25rem] bg-slate-100 p-0.5`}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center rounded-[1.3rem] px-1 py-2 text-[10px] font-black transition active:scale-[.96] ${
+              className={`flex min-w-0 flex-col items-center justify-center rounded-[1rem] px-1 py-1 text-[9px] font-black leading-tight transition active:scale-[.96] ${
                 active === tab.id
                   ? "bg-[#07111f] text-white"
                   : "text-slate-500"
               }`}
             >
-              <span className="mb-1">{tab.icon}</span>
+              <span className="mb-0.5 scale-90">{tab.icon}</span>
               <span className="max-w-full truncate">{tab.label}</span>
             </button>
           ))}
@@ -9193,9 +9193,9 @@ function getExerciseHistory(exercise) {
             className="min-w-0 rounded-2xl px-1 py-1 text-left transition hover:bg-white/5 active:scale-[.98]"
             aria-label="Vai alla Home"
           >
-            <p className="text-2xl font-black leading-none tracking-tight text-white">TMFIT</p>
-            <p className="mt-1 max-w-[220px] truncate text-sm font-black text-slate-300 md:max-w-none">
-              Area cliente
+            <p className="text-[11px] font-black uppercase tracking-[0.32em] text-teal-300">Benvenuto</p>
+            <p className="mt-1 max-w-[220px] truncate text-2xl font-black leading-none tracking-tight text-white md:max-w-none">
+              {client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
             </p>
           </button>
 
@@ -9223,88 +9223,33 @@ function getExerciseHistory(exercise) {
   userProfile={userProfile}
   side="right"
 />
-      <main className="mx-auto w-full max-w-[480px] space-y-5 overflow-x-hidden p-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:p-5">
+      <main className="mx-auto w-full max-w-[480px] space-y-5 overflow-x-hidden p-4 pb-[calc(4.6rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
-          <div className="space-y-5">
-            <Card className="overflow-hidden border-none bg-transparent shadow-none">
-              <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
-                <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
-                  OGGI
+          <div className="space-y-4">
+            <Card className="overflow-hidden border border-slate-200 bg-white shadow-sm">
+              <div className="p-4">
+                <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-600">
+                  Oggi
                 </p>
 
-                <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
-                  {client ? fullName(client) : "Cliente"}
-                </h2>
-
-                <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
-                  Apri l’app, guarda la prossima azione e completa il percorso senza schermate confuse.
-                </p>
-              </div>
-            </Card>
-
-            <Card className="overflow-hidden border-2 border-[#07111f]/10 shadow-lg">
-              <div className="bg-white p-4 md:p-6">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
-                        Prossima azione
-                      </p>
-                      <h3 className="mt-2 text-2xl font-black text-slate-950">
-                        {primaryClientReminder?.title || "Tutto aggiornato"}
-                      </h3>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                        {primaryClientReminder?.text || "Non hai azioni urgenti da completare in questo momento."}
-                      </p>
-                    </div>
-
-                    {primaryClientReminder && (
-                      <Button
-                        onClick={primaryClientReminder.onAction}
-                        className="shrink-0 bg-[#07111f] text-white"
-                      >
-                        {primaryClientReminder.actionLabel}
-                      </Button>
-                    )}
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-2xl font-black text-slate-950">
+                      {primaryClientReminder?.title || "Tutto aggiornato"}
+                    </h2>
+                    <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-500">
+                      {primaryClientReminder?.text || "Non hai azioni urgenti da completare in questo momento."}
+                    </p>
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Prossimo workout
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {nextWorkoutTitle}
-                      </p>
-                    </div>
-
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Allenamenti registrati
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {clientCompletedWorkoutCount}
-                      </p>
-                    </div>
-
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Ultimo check-in
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {latestCheckin ? formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Mai inviato"}
-                      </p>
-                    </div>
-
-                    <div className="rounded-3xl bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        Dieta attiva
-                      </p>
-                      <p className="mt-1 font-black text-slate-950">
-                        {latestDiet ? latestDiet.title || "Disponibile" : "Non caricata"}
-                      </p>
-                    </div>
-                  </div>
+                  {primaryClientReminder && (
+                    <Button
+                      onClick={primaryClientReminder.onAction}
+                      className="shrink-0 bg-[#07111f] text-white"
+                    >
+                      {primaryClientReminder.actionLabel}
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>
@@ -9312,75 +9257,28 @@ function getExerciseHistory(exercise) {
             <Card className="border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.28em] text-slate-400">
-                    Azioni rapide
+                  <p className="text-[11px] font-black uppercase tracking-[0.28em] text-slate-400">
+                    Promemoria
                   </p>
-                  <h3 className="mt-1 text-lg font-black text-slate-950">
-                    Apri subito quello che ti serve
+                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                    Cose da fare oggi
                   </h3>
                 </div>
-                <Pill className="bg-slate-100 text-slate-700">Smart</Pill>
+                <Pill className="bg-slate-100 text-slate-700">
+                  {clientReminderItems.length} attivi
+                </Pill>
               </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {[
-                  { id: "training", label: "Scheda", icon: <Dumbbell size={16} /> },
-                  { id: "checkin", label: "Check-in", icon: <ClipboardCheck size={16} /> },
-                  { id: "diet", label: "Dieta", icon: <FileText size={16} /> }
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveTab(item.id)}
-                    className="tmfit-tap flex min-h-[70px] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-black text-slate-800 transition active:scale-[.98]"
-                  >
-                    {item.icon}
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="overflow-hidden border-none shadow-lg">
-              <div className="bg-white p-4 md:p-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
-                      Promemoria
-                    </p>
-
-                    <h3 className="mt-2 text-2xl font-black text-slate-950">
-                      Cose da fare oggi
-                    </h3>
-                  </div>
-
-                  <Pill className="bg-teal-100 text-teal-700">
-                    {clientReminderItems.length} attivi
-                  </Pill>
-                </div>
-
-                <div className="mt-5 grid gap-3">
-                  {clientReminderItems.map((item) => (
+              <div className="mt-4 grid gap-3">
+                {clientReminderItems.length > 0 ? (
+                  clientReminderItems.slice(0, 3).map((item) => (
                     <ClientReminderCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
-                    Installa app
-                  </p>
-                  <h3 className="mt-2 text-xl font-black text-slate-950">
-                    Usa TMFIT dalla schermata Home
-                  </h3>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                    iPhone: Safari → Condividi → Aggiungi alla schermata Home. Android: Chrome → Menu → Installa app.
-                  </p>
-                </div>
-                <Pill className="bg-[#07111f] text-white">PWA</Pill>
+                  ))
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                    Nessun promemoria urgente.
+                  </div>
+                )}
               </div>
             </Card>
           </div>
