@@ -6424,33 +6424,44 @@ function TemplatesPanel({
   });
 
   return (
-    <Card className="p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-xl font-black">Template schede</h2>
-          <p className="text-sm font-semibold text-slate-500">
-            Salva strutture riutilizzabili e caricale nel builder in un click.
+    <Card className="border border-slate-300 bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+            Archivio template
+          </p>
+          <h2 className="mt-1 text-xl font-black text-slate-950">
+            Template schede
+          </h2>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+            Strutture riutilizzabili da caricare nel builder senza ricominciare da zero.
           </p>
         </div>
 
-        <Button
-          onClick={onSaveTemplate}
-          disabled={savingTemplate}
-          className="bg-[#07111f] text-white"
-        >
-          <Save size={17} className="mr-2" />
-          {savingTemplate ? "Salvataggio..." : "Salva builder come template"}
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Pill className="bg-slate-100 text-slate-700">
+            {templates.length} template
+          </Pill>
+
+          <Button
+            onClick={onSaveTemplate}
+            disabled={savingTemplate}
+            className="bg-[#07111f] text-white"
+          >
+            <Save size={17} className="mr-2" />
+            {savingTemplate ? "Salvataggio..." : "Salva builder"}
+          </Button>
+        </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <Search size={17} className="text-slate-400" />
+      <div className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 shadow-inner">
+        <Search size={17} className="shrink-0 text-slate-400" />
 
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Cerca template"
-          className="w-full bg-transparent text-sm font-bold outline-none"
+          placeholder="Cerca per titolo, obiettivo, livello o luogo"
+          className="w-full min-w-0 bg-transparent text-sm font-bold text-slate-900 outline-none placeholder:text-slate-400"
         />
       </div>
 
@@ -6458,18 +6469,20 @@ function TemplatesPanel({
         {filteredTemplates.map((template) => (
           <div
             key={template.id}
-            className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+            className="rounded-[1.5rem] border border-slate-300 bg-slate-50 p-4 shadow-sm"
           >
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h3 className="font-black">{template.title}</h3>
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="min-w-0">
+                <h3 className="break-words text-base font-black text-slate-950">
+                  {template.title || "Template senza titolo"}
+                </h3>
 
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  {template.goal || "Nessun obiettivo"}
+                <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">
+                  {template.goal || "Nessun obiettivo inserito"}
                 </p>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Pill className="bg-teal-100 text-teal-700">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Pill className="bg-teal-100 text-teal-800">
                     {template.duration_weeks || 4} settimane
                   </Pill>
 
@@ -6486,34 +6499,34 @@ function TemplatesPanel({
                   )}
                 </div>
               </div>
-            </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                onClick={() => onUseTemplate(template)}
-                className="bg-[#07111f] text-white"
-              >
-                Usa nel builder
-              </Button>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  onClick={() => onUseTemplate(template)}
+                  className="bg-[#07111f] text-white"
+                >
+                  Usa nel builder
+                </Button>
 
-              <Button
-                onClick={() => onDeleteTemplate(template)}
-                disabled={deletingTemplateId === template.id}
-                className="border border-red-200 bg-red-50 text-red-700"
-              >
-                <Trash2 size={16} className="mr-2" />
-                {deletingTemplateId === template.id
-                  ? "Eliminazione..."
-                  : "Elimina"}
-              </Button>
+                <Button
+                  onClick={() => onDeleteTemplate(template)}
+                  disabled={deletingTemplateId === template.id}
+                  className="border border-red-200 bg-white text-red-700 hover:bg-red-50"
+                >
+                  <Trash2 size={16} className="mr-2" />
+                  {deletingTemplateId === template.id
+                    ? "Eliminazione..."
+                    : "Elimina"}
+                </Button>
+              </div>
             </div>
           </div>
         ))}
 
         {filteredTemplates.length === 0 && (
           <Empty
-            title="Nessun template"
-            text="Compila una scheda nel builder e salvala come template."
+            title="Nessun template trovato"
+            text="Salva il builder come template oppure modifica la ricerca."
           />
         )}
       </div>
@@ -6529,14 +6542,31 @@ function PlansList({
   onDuplicateProgram,
   onEditProgram
 }) {
+  const activeCount = plans.filter((plan) => (plan.status || "active") === "active").length;
+  const archivedCount = plans.length - activeCount;
+
   return (
-    <Card className="p-5">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-xl font-black">Programmi salvati</h2>
-          <p className="text-sm font-semibold text-slate-500">
-            Gestisci schede attive, archiviate e riutilizzabili.
+    <Card className="border border-slate-300 bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+            Archivio cliente
           </p>
+          <h2 className="mt-1 text-xl font-black text-slate-950">
+            Programmi salvati
+          </h2>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+            Gestisci schede attive, archiviate, duplicabili o modificabili.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Pill className="bg-teal-100 text-teal-800">
+            {activeCount} attivi
+          </Pill>
+          <Pill className="bg-slate-100 text-slate-700">
+            {archivedCount} archiviati
+          </Pill>
         </div>
       </div>
 
@@ -6547,26 +6577,20 @@ function PlansList({
           return (
             <div
               key={plan.id}
-              className={`rounded-3xl border p-4 ${
+              className={`rounded-[1.5rem] border p-4 shadow-sm ${
                 isActive
-                  ? "border-slate-200 bg-white"
-                  : "border-slate-200 bg-slate-50 opacity-80"
+                  ? "border-slate-300 bg-white"
+                  : "border-slate-200 bg-slate-50 opacity-90"
               }`}
             >
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div>
-                  <h3 className="text-lg font-black">{plan.title}</h3>
-
-                  <p className="text-sm font-semibold text-slate-500">
-                    {plan.goal || "Nessun obiettivo"}
-                  </p>
-
-                  <div className="mt-2 flex flex-wrap gap-2">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Pill
                       className={
                         isActive
-                          ? "bg-teal-100 text-teal-700"
-                          : "bg-slate-200 text-slate-600"
+                          ? "bg-teal-300 text-slate-950"
+                          : "bg-slate-200 text-slate-700"
                       }
                     >
                       {isActive ? "Attivo" : "Archiviato"}
@@ -6578,9 +6602,17 @@ function PlansList({
                       </Pill>
                     )}
                   </div>
+
+                  <h3 className="mt-3 break-words text-lg font-black text-slate-950">
+                    {plan.title || "Programma senza titolo"}
+                  </h3>
+
+                  <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">
+                    {plan.goal || "Nessun obiettivo inserito"}
+                  </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[420px] xl:grid-cols-4">
                   <Button
                     onClick={() => onEditProgram(plan)}
                     className="bg-[#07111f] text-white"
@@ -6590,7 +6622,7 @@ function PlansList({
 
                   <Button
                     onClick={() => onDuplicateProgram(plan)}
-                    className="border border-slate-200 bg-white text-slate-900"
+                    className="border border-slate-300 bg-white text-slate-900"
                   >
                     Duplica
                   </Button>
@@ -6620,7 +6652,7 @@ function PlansList({
                   <Button
                     onClick={() => onDeleteProgram(plan)}
                     disabled={deletingProgramId === plan.id}
-                    className="border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                    className="border border-red-200 bg-white text-red-700 hover:bg-red-50"
                   >
                     <Trash2 size={16} className="mr-2" />
 
@@ -6635,45 +6667,48 @@ function PlansList({
                 {plan.workout_weeks?.map((week) => (
                   <details
                     key={week.id}
-                    className="rounded-2xl bg-slate-50 p-4"
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
                   >
-                    <summary className="cursor-pointer font-black">
+                    <summary className="cursor-pointer text-sm font-black text-slate-900">
                       {week.title || `Settimana ${week.week_number}`}
                     </summary>
 
                     <div className="mt-3 space-y-3">
                       {week.workout_days?.map((day) => (
-                        <div key={day.id} className="rounded-2xl bg-white p-3">
-                          <p className="font-black text-teal-700">
+                        <div
+                          key={day.id}
+                          className="rounded-2xl border border-slate-200 bg-white p-3"
+                        >
+                          <p className="text-sm font-black text-teal-700">
                             {day.title}
                           </p>
 
                           <div className="mt-2 space-y-2">
                             {day.workout_blocks?.map((block) => (
-                              <div key={block.id}>
+                              <div key={block.id} className="space-y-2">
                                 {block.workout_exercises?.map((exercise) => (
                                   <div
                                     key={exercise.id}
-                                    className="mt-2 rounded-xl bg-slate-50 p-3 text-sm"
+                                    className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
                                   >
-                                    <div className="flex items-start gap-3">
+                                    <div className="flex min-w-0 items-start gap-3">
                                       <ExerciseMediaPreview
                                         media={exercise.exercise_media_library}
                                       />
 
-                                      <div className="flex-1">
-                                        <p className="font-black">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="break-words font-black text-slate-950">
                                           {exercise.exercise_name}
                                         </p>
 
-                                        <p className="font-semibold text-slate-500">
-                                          {exercise.sets || "—"} serie ·{" "}
-                                          {exercise.reps || "—"} reps · recupero{" "}
+                                        <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                                          {exercise.sets || "—"} serie · {" "}
+                                          {exercise.reps || "—"} reps · recupero {" "}
                                           {exercise.recovery_seconds || "—"}s
                                         </p>
 
                                         {exercise.has_weekly_progression && (
-                                          <Pill className="mt-2 bg-teal-100 text-teal-700">
+                                          <Pill className="mt-2 bg-teal-100 text-teal-800">
                                             Progressione settimanale
                                           </Pill>
                                         )}
@@ -6697,7 +6732,7 @@ function PlansList({
         {plans.length === 0 && (
           <Empty
             title="Nessun programma"
-            text="Crea il primo programma completo."
+            text="Crea il primo programma completo dal builder."
           />
         )}
       </div>
