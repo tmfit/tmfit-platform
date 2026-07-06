@@ -1272,6 +1272,33 @@ function ExerciseMediaPreview({ media }) {
   );
 }
 
+const DIET_TYPE_OPTIONS = [
+  { value: "daily_pdf", label: "Giornaliera" },
+  { value: "weekly_pdf", label: "Settimanale" },
+  { value: "options_pdf", label: "A opzioni" },
+  { value: "file", label: "PDF dieta" }
+];
+
+function dietTypeLabel(value) {
+  const found = DIET_TYPE_OPTIONS.find((item) => item.value === value);
+  return found?.label || "PDF dieta";
+}
+
+function dietPeriodLabel(diet) {
+  if (!diet?.start_date && !diet?.end_date) return "Periodo non impostato";
+  return `${diet?.start_date || "—"} → ${diet?.end_date || "—"}`;
+}
+
+function dietDisplayTitle(diet) {
+  return diet?.title || diet?.file_name || "Piano alimentare";
+}
+
+function dietIsPdf(diet) {
+  const fileName = String(diet?.file_name || "").toLowerCase();
+  const filePath = String(diet?.file_path || "").toLowerCase();
+  return fileName.endsWith(".pdf") || filePath.includes(".pdf");
+}
+
 export default function Home() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -1499,11 +1526,20 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
 
   const [dietForm, setDietForm] = useState({
     title: "",
+    diet_type: "daily_pdf",
+    calorie_target: "",
+    summary: "",
     start_date: "",
     end_date: "",
     notes: ""
   });
   const [dietFile, setDietFile] = useState(null);
+  const [dietPreview, setDietPreview] = useState({
+    dietId: "",
+    url: "",
+    loading: false,
+    error: ""
+  });
 
   const [measurementForm, setMeasurementForm] = useState({
     measurement_date: today(),
@@ -3025,6 +3061,14 @@ try {
       return;
     }
 
+    const richNotes = [
+      dietForm.calorie_target ? `Target kcal: ${dietForm.calorie_target}` : null,
+      dietForm.summary ? `Riepilogo: ${dietForm.summary}` : null,
+      dietForm.notes ? `Note coach: ${dietForm.notes}` : null
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
     const { error } = await supabase.from("diets").insert({
       client_id: Number(selectedClient.id),
       professional_id: session.user.id,
@@ -3033,9 +3077,9 @@ try {
       file_path: path,
       start_date: dietForm.start_date || null,
       end_date: dietForm.end_date || null,
-      notes: dietForm.notes || null,
+      notes: richNotes || null,
       status: "active",
-      diet_type: "file"
+      diet_type: dietForm.diet_type || "file"
     });
 
     if (error) {
@@ -3045,6 +3089,9 @@ try {
 
     setDietForm({
       title: "",
+      diet_type: "daily_pdf",
+      calorie_target: "",
+      summary: "",
       start_date: "",
       end_date: "",
       notes: ""
@@ -3151,6 +3198,38 @@ async function savePrivateNote(event) {
     }
 
     window.open(data.signedUrl, "_blank");
+  }
+
+  async function previewDietInApp(diet) {
+    if (!diet?.file_path) return;
+
+    setDietPreview({
+      dietId: String(diet.id),
+      url: "",
+      loading: true,
+      error: ""
+    });
+
+    const { data, error } = await supabase.storage
+      .from("diets")
+      .createSignedUrl(diet.file_path, 3600);
+
+    if (error) {
+      setDietPreview({
+        dietId: String(diet.id),
+        url: "",
+        loading: false,
+        error: error.message
+      });
+      return;
+    }
+
+    setDietPreview({
+      dietId: String(diet.id),
+      url: data.signedUrl,
+      loading: false,
+      error: ""
+    });
   }
 
   function CoachTodayDashboard() {
@@ -5830,105 +5909,386 @@ const builderQuality = getBuilderQualityReport();
           )}
 
           {activeTab === "diets" && (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Carica dieta</h2>
+            <div className="space-y-5">
+              <Card className="overflow-hidden border-slate-200">
+                <div className="bg-[#07111f] p-5 text-white md:p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                        Diete PDF
+                      </p>
+                      <h2 className="mt-2 text-2xl font-black tracking-tight md:text-3xl">
+                        Piano alimentare cliente
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-300">
+                        Carica il PDF generato da SIFA Dieta e trasformalo in una sezione consultabile in app, con riepilogo, note coach e anteprima integrata.
+                      </p>
+                    </div>
 
-                <form onSubmit={uploadDiet} className="mt-4 space-y-3">
-                  <Input
-                    placeholder="Titolo dieta"
-                    value={dietForm.title}
-                    onChange={(event) =>
-                      setDietForm({
-                        ...dietForm,
-                        title: event.target.value
-                      })
-                    }
-                  />
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Input
-                      type="date"
-                      value={dietForm.start_date}
-                      onChange={(event) =>
-                        setDietForm({
-                          ...dietForm,
-                          start_date: event.target.value
-                        })
-                      }
-                    />
-
-                    <Input
-                      type="date"
-                      value={dietForm.end_date}
-                      onChange={(event) =>
-                        setDietForm({
-                          ...dietForm,
-                          end_date: event.target.value
-                        })
-                      }
-                    />
+                    <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[420px]">
+                      <div className="rounded-2xl bg-white/10 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Cliente
+                        </p>
+                        <p className="mt-1 truncate text-sm font-black text-white">
+                          {selectedClient ? fullName(selectedClient) : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/10 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Diete
+                        </p>
+                        <p className="mt-1 text-sm font-black text-white">
+                          {diets.length}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-teal-300 p-3 text-slate-950">
+                        <p className="text-[10px] font-black uppercase tracking-wider opacity-70">
+                          Attiva
+                        </p>
+                        <p className="mt-1 truncate text-sm font-black">
+                          {diets[0] ? dietTypeLabel(diets[0].diet_type) : "Nessuna"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-
-                  <input
-                    type="file"
-                    onChange={(event) =>
-                      setDietFile(event.target.files?.[0] || null)
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold"
-                  />
-
-                  <Textarea
-                    placeholder="Note dieta"
-                    value={dietForm.notes}
-                    onChange={(event) =>
-                      setDietForm({
-                        ...dietForm,
-                        notes: event.target.value
-                      })
-                    }
-                  />
-
-                  <Button type="submit" className="w-full bg-[#07111f] text-white">
-                    <Upload size={17} className="mr-2" />
-                    Carica dieta
-                  </Button>
-                </form>
+                </div>
               </Card>
 
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Diete cliente</h2>
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-200 bg-white px-5 py-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                      Upload PDF
+                    </p>
+                    <h3 className="mt-1 text-xl font-black text-slate-950">
+                      Carica dieta SIFA
+                    </h3>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                      Usa il PDF giornaliero, settimanale o a opzioni. Il cliente lo vedrà in modo ordinato nella sua area Dieta.
+                    </p>
+                  </div>
 
-                <div className="mt-4 space-y-3">
-                  {diets.map((diet) => (
+                  <form onSubmit={uploadDiet} className="space-y-4 p-5">
+                    {!selectedClient && (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
+                        Seleziona un cliente prima di caricare una dieta.
+                      </div>
+                    )}
+
+                    <Label title="Titolo piano">
+                      <Input
+                        placeholder="Es. Piano alimentare 5 settimane"
+                        value={dietForm.title}
+                        onChange={(event) =>
+                          setDietForm({
+                            ...dietForm,
+                            title: event.target.value
+                          })
+                        }
+                      />
+                    </Label>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Label title="Formato dieta">
+                        <Select
+                          value={dietForm.diet_type}
+                          onChange={(event) =>
+                            setDietForm({
+                              ...dietForm,
+                              diet_type: event.target.value
+                            })
+                          }
+                        >
+                          {DIET_TYPE_OPTIONS.filter((item) => item.value !== "file").map((item) => (
+                            <option key={item.value} value={item.value}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </Label>
+
+                      <Label title="Target kcal / nota calorie">
+                        <Input
+                          placeholder="Es. 2200 ON / 1950 OFF"
+                          value={dietForm.calorie_target}
+                          onChange={(event) =>
+                            setDietForm({
+                              ...dietForm,
+                              calorie_target: event.target.value
+                            })
+                          }
+                        />
+                      </Label>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Label title="Data inizio">
+                        <Input
+                          type="date"
+                          value={dietForm.start_date}
+                          onChange={(event) =>
+                            setDietForm({
+                              ...dietForm,
+                              start_date: event.target.value
+                            })
+                          }
+                        />
+                      </Label>
+
+                      <Label title="Data fine">
+                        <Input
+                          type="date"
+                          value={dietForm.end_date}
+                          onChange={(event) =>
+                            setDietForm({
+                              ...dietForm,
+                              end_date: event.target.value
+                            })
+                          }
+                        />
+                      </Label>
+                    </div>
+
+                    <Label title="Riepilogo visibile in app">
+                      <Textarea
+                        placeholder="Es. 4 pasti giornalieri, ricomposizione corporea, pasto libero 1 volta a settimana."
+                        value={dietForm.summary}
+                        onChange={(event) =>
+                          setDietForm({
+                            ...dietForm,
+                            summary: event.target.value
+                          })
+                        }
+                      />
+                    </Label>
+
+                    <Label title="PDF dieta">
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        onChange={(event) =>
+                          setDietFile(event.target.files?.[0] || null)
+                        }
+                        className="w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-black text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-[#07111f] file:px-4 file:py-2 file:text-xs file:font-black file:text-white"
+                      />
+                    </Label>
+
+                    {dietFile && (
+                      <div className="rounded-2xl border border-teal-100 bg-teal-50 p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-teal-700">
+                          File selezionato
+                        </p>
+                        <p className="mt-1 truncate text-sm font-black text-slate-950">
+                          {dietFile.name}
+                        </p>
+                      </div>
+                    )}
+
+                    <Label title="Note coach">
+                      <Textarea
+                        placeholder="Indicazioni aggiuntive, integrazione, sostituzioni o messaggi per il cliente."
+                        value={dietForm.notes}
+                        onChange={(event) =>
+                          setDietForm({
+                            ...dietForm,
+                            notes: event.target.value
+                          })
+                        }
+                      />
+                    </Label>
+
+                    <Button
+                      type="submit"
+                      disabled={!selectedClient || !dietFile}
+                      className="w-full bg-[#07111f] text-white hover:bg-slate-800"
+                    >
+                      <Upload size={17} className="mr-2" />
+                      Carica PDF dieta
+                    </Button>
+                  </form>
+                </Card>
+
+                <div className="space-y-5">
+                  <Card className="overflow-hidden">
+                    <div className="border-b border-slate-200 bg-white px-5 py-4">
+                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                        Dieta attiva
+                      </p>
+                      <h3 className="mt-1 text-xl font-black text-slate-950">
+                        Anteprima cliente
+                      </h3>
+                    </div>
+
+                    <div className="p-5">
+                      {diets[0] ? (
+                        <div className="rounded-[1.6rem] border border-[#07111f] bg-slate-50 p-5">
+                          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Pill className="bg-[#07111f] text-white">Attiva</Pill>
+                                <Pill className="bg-teal-100 text-teal-700">
+                                  {dietTypeLabel(diets[0].diet_type)}
+                                </Pill>
+                                {dietIsPdf(diets[0]) && (
+                                  <Pill className="bg-white text-slate-700">PDF</Pill>
+                                )}
+                              </div>
+
+                              <h4 className="mt-3 text-2xl font-black leading-tight text-slate-950">
+                                {dietDisplayTitle(diets[0])}
+                              </h4>
+                              <p className="mt-1 text-sm font-bold text-slate-500">
+                                {dietPeriodLabel(diets[0])}
+                              </p>
+
+                              {diets[0].notes && (
+                                <p className="mt-4 whitespace-pre-line rounded-2xl bg-white p-4 text-sm font-semibold leading-6 text-slate-600">
+                                  {diets[0].notes}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex shrink-0 flex-col gap-2 sm:min-w-40">
+                              <Button
+                                onClick={() => previewDietInApp(diets[0])}
+                                className="bg-teal-300 text-slate-950 hover:bg-teal-200"
+                              >
+                                Visualizza in app
+                              </Button>
+                              <Button
+                                onClick={() => openStorageFile("diets", diets[0].file_path)}
+                                className="border border-slate-200 bg-white text-slate-950"
+                              >
+                                Apri PDF
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <Empty
+                          title="Nessuna dieta attiva"
+                          text="Carica un PDF SIFA per creare la visualizzazione cliente."
+                        />
+                      )}
+                    </div>
+                  </Card>
+
+                  <Card className="overflow-hidden">
+                    <div className="border-b border-slate-200 bg-white px-5 py-4">
+                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                        Viewer integrato
+                      </p>
+                      <h3 className="mt-1 text-xl font-black text-slate-950">
+                        PDF dentro TMFIT
+                      </h3>
+                    </div>
+
+                    <div className="p-5">
+                      {dietPreview.loading && (
+                        <div className="grid min-h-[280px] place-items-center rounded-[1.6rem] border border-slate-200 bg-slate-50 text-sm font-black text-slate-500">
+                          Preparazione anteprima PDF...
+                        </div>
+                      )}
+
+                      {!dietPreview.loading && dietPreview.error && (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                          {dietPreview.error}
+                        </div>
+                      )}
+
+                      {!dietPreview.loading && dietPreview.url && (
+                        <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-slate-100">
+                          <iframe
+                            src={dietPreview.url}
+                            title="Anteprima PDF dieta"
+                            className="h-[68vh] w-full bg-white"
+                          />
+                        </div>
+                      )}
+
+                      {!dietPreview.loading && !dietPreview.url && !dietPreview.error && (
+                        <div className="rounded-[1.6rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                          <FileText className="mx-auto text-slate-400" />
+                          <p className="mt-3 font-black text-slate-950">
+                            Seleziona “Visualizza in app” su una dieta.
+                          </p>
+                          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                            Il PDF verrà aperto qui, senza uscire dalla piattaforma.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              </div>
+
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-200 bg-white px-5 py-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                    Storico
+                  </p>
+                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                    Diete caricate
+                  </h3>
+                  <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                    L’ultima dieta caricata resta la più visibile lato cliente.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 p-5 lg:grid-cols-2">
+                  {diets.map((diet, index) => (
                     <div
                       key={diet.id}
-                      className="rounded-2xl border border-slate-200 p-4"
+                      className={`rounded-[1.4rem] border p-4 shadow-sm ${
+                        index === 0
+                          ? "border-teal-200 bg-teal-50"
+                          : "border-slate-200 bg-white"
+                      }`}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-black">{diet.title}</p>
-
-                          <p className="text-sm font-semibold text-slate-500">
-                            {diet.file_name}
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-black text-slate-950">
+                              {dietDisplayTitle(diet)}
+                            </p>
+                            {index === 0 && (
+                              <Pill className="bg-[#07111f] text-white">Attiva</Pill>
+                            )}
+                          </div>
+                          <p className="mt-1 truncate text-sm font-semibold text-slate-500">
+                            {diet.file_name || "PDF dieta"}
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-slate-400">
+                            {dietTypeLabel(diet.diet_type)} · {dietPeriodLabel(diet)}
                           </p>
                         </div>
 
-                        <Button
-                          onClick={() => openStorageFile("diets", diet.file_path)}
-                          className="bg-[#07111f] text-white"
-                        >
-                          Apri
-                        </Button>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            onClick={() => previewDietInApp(diet)}
+                            className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
+                          >
+                            In app
+                          </Button>
+                          <Button
+                            onClick={() => openStorageFile("diets", diet.file_path)}
+                            className="bg-[#07111f] px-3 py-2 text-xs text-white"
+                          >
+                            Apri
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
 
                   {diets.length === 0 && (
-                    <Empty
-                      title="Nessuna dieta"
-                      text="Carica il primo file dieta."
-                    />
+                    <div className="lg:col-span-2">
+                      <Empty
+                        title="Nessuna dieta"
+                        text="Carica il primo PDF dieta per il cliente selezionato."
+                      />
+                    </div>
                   )}
                 </div>
               </Card>
@@ -9462,6 +9822,16 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     photo_type: "front",
     notes: ""
   });
+  const [dietView, setDietView] = usePersistedState(
+    "tmfit_client_diet_view",
+    "summary"
+  );
+  const [dietPreview, setDietPreview] = useState({
+    dietId: "",
+    url: "",
+    loading: false,
+    error: ""
+  });
 
   const clientTabs = [
     { id: "home", label: "Home", icon: <HomeIcon size={17} /> },
@@ -9834,6 +10204,38 @@ function getExerciseHistory(exercise) {
     window.open(data.signedUrl, "_blank");
   }
 
+  async function previewDietInApp(diet) {
+    if (!diet?.file_path) return;
+
+    setDietPreview({
+      dietId: String(diet.id),
+      url: "",
+      loading: true,
+      error: ""
+    });
+
+    const { data, error } = await supabase.storage
+      .from("diets")
+      .createSignedUrl(diet.file_path, 3600);
+
+    if (error) {
+      setDietPreview({
+        dietId: String(diet.id),
+        url: "",
+        loading: false,
+        error: error.message
+      });
+      return;
+    }
+
+    setDietPreview({
+      dietId: String(diet.id),
+      url: data.signedUrl,
+      loading: false,
+      error: ""
+    });
+  }
+
   function clientDate(value) {
     if (!value) return null;
     const date = new Date(value);
@@ -9862,6 +10264,15 @@ function getExerciseHistory(exercise) {
   const latestPhoto = photos[0] || null;
   const latestCheckinDays = daysSince(latestCheckin?.checkin_date || latestCheckin?.created_at);
   const latestPhotoDays = daysSince(latestPhoto?.photo_date || latestPhoto?.created_at);
+
+  useEffect(() => {
+    if (activeTab !== "diet") return;
+    if (dietView !== "pdf") return;
+    if (!latestDiet?.file_path) return;
+    if (dietPreview.dietId === String(latestDiet.id) && dietPreview.url) return;
+
+    previewDietInApp(latestDiet);
+  }, [activeTab, dietView, latestDiet?.id]);
 
   const completedWorkoutKeys = new Set(
     loadHistory
@@ -10750,78 +11161,305 @@ function getExerciseHistory(exercise) {
         )}
 
         {activeTab === "diet" && (
-          <Card className="p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
-                  Piano alimentare
-                </p>
-                <h2 className="mt-2 text-xl font-black text-slate-950">
-                  Dieta e indicazioni coach
-                </h2>
-              </div>
-              <Pill className="bg-teal-100 text-teal-700">
-                {diets.length} disponibili
-              </Pill>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {diets.map((diet, index) => (
-                <div
-                  key={diet.id}
-                  className={`rounded-3xl border p-4 ${
-                    index === 0
-                      ? "border-[#07111f] bg-slate-50"
-                      : "border-slate-200 bg-white"
-                  }`}
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-black text-slate-950">{diet.title}</p>
-                        {index === 0 && (
-                          <Pill className="bg-[#07111f] text-white">Attiva</Pill>
-                        )}
+          <div className="space-y-5">
+            {latestDiet ? (
+              <>
+                <Card className="overflow-hidden border-slate-200">
+                  <div className="bg-[#07111f] p-5 text-white md:p-6">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                          Dieta attiva
+                        </p>
+                        <h2 className="mt-2 text-2xl font-black leading-tight tracking-tight md:text-3xl">
+                          {dietDisplayTitle(latestDiet)}
+                        </h2>
+                        <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+                          {dietPeriodLabel(latestDiet)}
+                        </p>
                       </div>
 
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        {diet.file_name}
-                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[420px]">
+                        <div className="rounded-2xl bg-white/10 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            Formato
+                          </p>
+                          <p className="mt-1 truncate text-sm font-black text-white">
+                            {dietTypeLabel(latestDiet.diet_type)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-white/10 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            File
+                          </p>
+                          <p className="mt-1 text-sm font-black text-white">
+                            {dietIsPdf(latestDiet) ? "PDF" : "File"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-teal-300 p-3 text-slate-950">
+                          <p className="text-[10px] font-black uppercase tracking-wider opacity-70">
+                            Stato
+                          </p>
+                          <p className="mt-1 text-sm font-black">
+                            Attiva
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
 
-                      {(diet.start_date || diet.end_date) && (
-                        <p className="mt-1 text-xs font-bold text-slate-400">
-                          {diet.start_date || "—"} → {diet.end_date || "—"}
+                <div className="grid grid-cols-3 gap-2 rounded-[1.4rem] border border-slate-200 bg-white p-1 shadow-sm">
+                  {[
+                    { id: "summary", label: "Riepilogo" },
+                    { id: "pdf", label: "PDF" },
+                    { id: "history", label: "Storico" }
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setDietView(item.id)}
+                      className={`rounded-[1rem] px-2 py-3 text-xs font-black transition ${
+                        dietView === item.id
+                          ? "bg-[#07111f] text-white"
+                          : "text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                {dietView === "summary" && (
+                  <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                    <Card className="overflow-hidden">
+                      <div className="border-b border-slate-200 bg-white px-5 py-4">
+                        <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                          Indicazioni coach
                         </p>
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          Come seguire il piano
+                        </h3>
+                      </div>
+
+                      <div className="space-y-4 p-5">
+                        {latestDiet.notes ? (
+                          <div className="whitespace-pre-line rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 text-sm font-semibold leading-7 text-slate-600">
+                            {latestDiet.notes}
+                          </div>
+                        ) : (
+                          <Empty
+                            title="Nessuna nota aggiuntiva"
+                            text="Consulta il PDF completo per tutti i dettagli del piano."
+                          />
+                        )}
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-2xl border border-teal-100 bg-teal-50 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-teal-700">
+                              Idratazione
+                            </p>
+                            <p className="mt-1 text-sm font-black text-slate-950">
+                              Segui le indicazioni del PDF
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              Preparazione
+                            </p>
+                            <p className="mt-1 text-sm font-black text-slate-950">
+                              Pesi a crudo
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              Condimenti
+                            </p>
+                            <p className="mt-1 text-sm font-black text-slate-950">
+                              Olio a crudo
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+
+                    <Card className="overflow-hidden">
+                      <div className="border-b border-slate-200 bg-white px-5 py-4">
+                        <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                          PDF originale
+                        </p>
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          Piano completo
+                        </h3>
+                      </div>
+
+                      <div className="space-y-3 p-5">
+                        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+                          <FileText className="text-teal-700" />
+                          <p className="mt-3 truncate font-black text-slate-950">
+                            {latestDiet.file_name || "PDF dieta"}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                            Puoi consultarlo dentro l’app oppure aprirlo a schermo intero.
+                          </p>
+                        </div>
+
+                        <Button
+                          onClick={() => {
+                            setDietView("pdf");
+                            previewDietInApp(latestDiet);
+                          }}
+                          className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+                        >
+                          Visualizza dentro l’app
+                        </Button>
+
+                        <Button
+                          onClick={() => openStorageFile("diets", latestDiet.file_path)}
+                          className="w-full border border-slate-200 bg-white text-slate-950"
+                        >
+                          Apri PDF completo
+                        </Button>
+                      </div>
+                    </Card>
+                  </div>
+                )}
+
+                {dietView === "pdf" && (
+                  <Card className="overflow-hidden">
+                    <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                          Viewer dieta
+                        </p>
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          PDF dentro l’app
+                        </h3>
+                      </div>
+                      <Button
+                        onClick={() => openStorageFile("diets", latestDiet.file_path)}
+                        className="bg-[#07111f] text-white"
+                      >
+                        Apri a schermo intero
+                      </Button>
+                    </div>
+
+                    <div className="p-4 md:p-5">
+                      {dietPreview.loading && (
+                        <div className="grid min-h-[360px] place-items-center rounded-[1.6rem] border border-slate-200 bg-slate-50 text-sm font-black text-slate-500">
+                          Caricamento PDF...
+                        </div>
                       )}
 
-                      {diet.notes && (
-                        <div className="mt-3 rounded-2xl bg-white p-3 text-sm font-semibold leading-6 text-slate-600">
-                          <p className="mb-1 text-xs font-black uppercase tracking-wider text-teal-700">
-                            Indicazioni coach
+                      {!dietPreview.loading && dietPreview.error && (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                          {dietPreview.error}
+                        </div>
+                      )}
+
+                      {!dietPreview.loading && dietPreview.url && (
+                        <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-slate-100 shadow-sm">
+                          <iframe
+                            src={dietPreview.url}
+                            title="PDF dieta cliente"
+                            className="h-[72vh] w-full bg-white"
+                          />
+                        </div>
+                      )}
+
+                      {!dietPreview.loading && !dietPreview.url && !dietPreview.error && (
+                        <div className="rounded-[1.6rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                          <FileText className="mx-auto text-slate-400" />
+                          <p className="mt-3 font-black text-slate-950">
+                            Anteprima pronta
                           </p>
-                          {diet.notes}
+                          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                            Tocca il pulsante per caricare il PDF direttamente qui.
+                          </p>
+                          <Button
+                            onClick={() => previewDietInApp(latestDiet)}
+                            className="mt-4 bg-teal-300 text-slate-950"
+                          >
+                            Carica PDF
+                          </Button>
                         </div>
                       )}
                     </div>
+                  </Card>
+                )}
 
-                    <Button
-                      onClick={() => openStorageFile("diets", diet.file_path)}
-                      className="shrink-0 bg-[#07111f] text-white"
-                    >
-                      Apri dieta
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                {dietView === "history" && (
+                  <Card className="overflow-hidden">
+                    <div className="border-b border-slate-200 bg-white px-5 py-4">
+                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                        Storico diete
+                      </p>
+                      <h3 className="mt-1 text-xl font-black text-slate-950">
+                        Piani disponibili
+                      </h3>
+                    </div>
 
-              {diets.length === 0 && (
+                    <div className="space-y-3 p-5">
+                      {diets.map((diet, index) => (
+                        <div
+                          key={diet.id}
+                          className={`rounded-3xl border p-4 ${
+                            index === 0
+                              ? "border-[#07111f] bg-slate-50"
+                              : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-black text-slate-950">
+                                  {dietDisplayTitle(diet)}
+                                </p>
+                                {index === 0 && (
+                                  <Pill className="bg-[#07111f] text-white">Attiva</Pill>
+                                )}
+                              </div>
+                              <p className="mt-1 truncate text-sm font-semibold text-slate-500">
+                                {diet.file_name || "PDF dieta"}
+                              </p>
+                              <p className="mt-1 text-xs font-bold text-slate-400">
+                                {dietTypeLabel(diet.diet_type)} · {dietPeriodLabel(diet)}
+                              </p>
+                            </div>
+
+                            <div className="flex shrink-0 gap-2">
+                              <Button
+                                onClick={() => {
+                                  setDietView("pdf");
+                                  previewDietInApp(diet);
+                                }}
+                                className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
+                              >
+                                In app
+                              </Button>
+                              <Button
+                                onClick={() => openStorageFile("diets", diet.file_path)}
+                                className="bg-[#07111f] px-3 py-2 text-xs text-white"
+                              >
+                                Apri
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+              </>
+            ) : (
+              <Card className="p-5">
                 <Empty
                   title="Nessuna dieta"
-                  text="Il coach non ha ancora caricato una dieta."
+                  text="Il coach non ha ancora caricato un piano alimentare."
                 />
-              )}
-            </div>
-          </Card>
+              </Card>
+            )}
+          </div>
         )}
 
         {activeTab === "posts" && (
