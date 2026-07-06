@@ -4367,12 +4367,12 @@ const builderQuality = getBuilderQualityReport();
                         </p>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         {editingProgramId && (
                           <Button
                             type="button"
                             onClick={cancelProgramEditing}
-                            className="border border-amber-200 bg-amber-50 text-amber-700"
+                            className="w-full border border-amber-200 bg-amber-50 text-amber-700 sm:w-auto"
                           >
                             <X size={16} className="mr-2" />
                             Annulla
@@ -4382,7 +4382,7 @@ const builderQuality = getBuilderQualityReport();
                         <Button
                           type="button"
                           onClick={addWorkoutDay}
-                          className="border border-slate-200 bg-white text-slate-900"
+                          className="w-full border border-slate-200 bg-white text-slate-900 sm:w-auto"
                         >
                           <Plus size={16} className="mr-2" />
                           Giorno
@@ -4392,7 +4392,7 @@ const builderQuality = getBuilderQualityReport();
                           type="button"
                           onClick={saveBuilderAsTemplate}
                           disabled={savingTemplate}
-                          className="border border-teal-200 bg-teal-50 text-teal-700"
+                          className="w-full border border-teal-200 bg-teal-50 text-teal-700 sm:w-auto"
                         >
                           <Save size={16} className="mr-2" />
                           {savingTemplate ? "Salvataggio..." : "Template"}
@@ -4401,7 +4401,7 @@ const builderQuality = getBuilderQualityReport();
                         <Button
                           type="submit"
                           disabled={savingPlan || builderQuality.warnings.length > 0}
-                          className="bg-[#07111f] text-white"
+                          className="w-full bg-[#07111f] text-white sm:w-auto"
                         >
                           {savingPlan
                             ? "Salvataggio..."
@@ -4647,12 +4647,12 @@ const builderQuality = getBuilderQualityReport();
                               </Label>
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
+                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                               <Button
                                 type="button"
                                 onClick={() => moveWorkoutDay(dayIndex, -1)}
                                 disabled={dayIndex === 0}
-                                className="border border-white/10 bg-white/10 px-3 text-white"
+                                className="w-full border border-white/10 bg-white/10 px-3 text-white sm:w-auto"
                               >
                                 ↑
                               </Button>
@@ -4660,21 +4660,21 @@ const builderQuality = getBuilderQualityReport();
                                 type="button"
                                 onClick={() => moveWorkoutDay(dayIndex, 1)}
                                 disabled={dayIndex === builder.days.length - 1}
-                                className="border border-white/10 bg-white/10 px-3 text-white"
+                                className="w-full border border-white/10 bg-white/10 px-3 text-white sm:w-auto"
                               >
                                 ↓
                               </Button>
                               <Button
                                 type="button"
                                 onClick={() => duplicateWorkoutDay(dayIndex)}
-                                className="border border-white/10 bg-white/10 text-white"
+                                className="w-full border border-white/10 bg-white/10 text-white sm:w-auto"
                               >
                                 Duplica
                               </Button>
                               <Button
                                 type="button"
                                 onClick={() => addExerciseRow(dayIndex)}
-                                className="bg-teal-300 text-slate-950"
+                                className="w-full bg-teal-300 text-slate-950 sm:w-auto"
                               >
                                 <Plus size={16} className="mr-2" />
                                 Esercizio
@@ -4682,7 +4682,7 @@ const builderQuality = getBuilderQualityReport();
                               <Button
                                 type="button"
                                 onClick={() => removeWorkoutDay(dayIndex)}
-                                className="border border-red-300 bg-white text-red-600"
+                                className="w-full border border-red-300 bg-white text-red-600 sm:w-auto"
                               >
                                 <X size={16} />
                               </Button>
@@ -4718,12 +4718,12 @@ const builderQuality = getBuilderQualityReport();
                                     </p>
                                   </div>
 
-                                  <div className="flex flex-wrap gap-1.5">
+                                  <div className="grid grid-cols-[42px_42px_minmax(0,1fr)_42px] gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
                                     <Button
                                       type="button"
                                       onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
                                       disabled={exerciseIndex === 0}
-                                      className="border border-white/10 bg-white/10 px-2 py-2 text-xs text-white"
+                                      className="w-full border border-white/10 bg-white/10 px-2 py-2 text-xs text-white sm:w-auto"
                                     >
                                       ↑
                                     </Button>
@@ -4731,21 +4731,21 @@ const builderQuality = getBuilderQualityReport();
                                       type="button"
                                       onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
                                       disabled={exerciseIndex === day.exercises.length - 1}
-                                      className="border border-white/10 bg-white/10 px-2 py-2 text-xs text-white"
+                                      className="w-full border border-white/10 bg-white/10 px-2 py-2 text-xs text-white sm:w-auto"
                                     >
                                       ↓
                                     </Button>
                                     <Button
                                       type="button"
                                       onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
-                                      className="border border-white/10 bg-white/10 px-3 py-2 text-xs text-white"
+                                      className="w-full border border-white/10 bg-white/10 px-3 py-2 text-xs text-white sm:w-auto"
                                     >
                                       Duplica
                                     </Button>
                                     <Button
                                       type="button"
                                       onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
-                                      className="border border-red-200 bg-white px-3 py-2 text-xs text-red-600"
+                                      className="w-full border border-red-200 bg-white px-3 py-2 text-xs text-red-600 sm:w-auto"
                                     >
                                       <X size={14} />
                                     </Button>
@@ -4754,7 +4754,7 @@ const builderQuality = getBuilderQualityReport();
                               </div>
 
                               <div className="p-4">
-                                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="rounded-3xl border border-slate-200 bg-slate-50/90 p-3 ring-1 ring-white">
                                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
                                     <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-4">
                                       <Input
@@ -4834,8 +4834,8 @@ const builderQuality = getBuilderQualityReport();
                                   </div>
                                 </div>
 
-                                <details className="mt-3 rounded-3xl border border-slate-200 bg-white">
-                                  <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-black text-slate-800">
+                                <details className="mt-3 rounded-3xl border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+                                  <summary className="flex cursor-pointer flex-col gap-2 px-4 py-3 text-sm font-black text-slate-800 sm:flex-row sm:items-center sm:justify-between">
                                     <span>Dettagli opzionali</span>
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
                                       Video · Note · Progressione
@@ -4912,7 +4912,7 @@ const builderQuality = getBuilderQualityReport();
                                     </div>
 
                                     {exercise.has_weekly_progression && (
-                                      <div className="mt-4 rounded-3xl border border-teal-200 bg-teal-50 p-3">
+                                      <div className="mt-4 rounded-3xl border border-teal-200 bg-teal-50 p-3 shadow-inner">
                                         <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                                           <div>
                                             <p className="text-sm font-black text-slate-900">
@@ -4942,7 +4942,7 @@ const builderQuality = getBuilderQualityReport();
                                                 </p>
                                               </div>
 
-                                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-12">
+                                              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
                                                 {[
                                                   ["target_sets", "Serie", "lg:col-span-1"],
                                                   ["target_reps", "Reps", "lg:col-span-2"],
@@ -5056,7 +5056,7 @@ const builderQuality = getBuilderQualityReport();
                     </details>
                   </div>
 
-                  <Card className="sticky bottom-3 z-20 border border-slate-300 bg-white/95 p-3 shadow-xl backdrop-blur">
+                  <Card className="sticky bottom-[4.9rem] z-20 border border-slate-300 bg-white/95 p-3 shadow-xl backdrop-blur md:bottom-3">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="flex min-w-0 items-center gap-3">
                         <span
@@ -5081,11 +5081,11 @@ const builderQuality = getBuilderQualityReport();
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                         <Button
                           type="button"
                           onClick={addWorkoutDay}
-                          className="border border-slate-200 bg-white px-4 py-2.5 text-slate-900"
+                          className="w-full border border-slate-200 bg-white px-4 py-2.5 text-slate-900 sm:w-auto"
                         >
                           <Plus size={15} className="mr-2" />
                           Giorno
@@ -5094,7 +5094,7 @@ const builderQuality = getBuilderQualityReport();
                         <Button
                           type="submit"
                           disabled={savingPlan || builderQuality.warnings.length > 0}
-                          className="bg-[#07111f] px-5 py-2.5 text-white"
+                          className="w-full bg-[#07111f] px-5 py-2.5 text-white sm:w-auto"
                         >
                           {savingPlan
                             ? "Salvataggio..."
