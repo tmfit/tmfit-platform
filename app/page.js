@@ -4691,6 +4691,26 @@ const builderQuality = getBuilderQualityReport();
                         </div>
 
                         <div className="space-y-4 bg-slate-50 p-4">
+                          <div className="flex flex-col gap-2 rounded-[1.25rem] border border-slate-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-black text-slate-950">
+                                Esercizi del giorno
+                              </p>
+                              <p className="mt-0.5 text-xs font-bold text-slate-500">
+                                Mantieni ordinati volume, recuperi e progressioni.
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <Pill className="bg-slate-100 text-slate-600">
+                                {day.exercises.length} esercizi
+                              </Pill>
+                              <Pill className="bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                                {day.estimated_minutes || 0} min
+                              </Pill>
+                            </div>
+                          </div>
+
                           {day.exercises.map((exercise, exerciseIndex) => (
                             <div
                               key={exercise.temp_id}
@@ -4993,6 +5013,28 @@ const builderQuality = getBuilderQualityReport();
                               </div>
                             </div>
                           ))}
+
+                          <div className="rounded-[1.4rem] border border-dashed border-slate-300 bg-white p-3">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="text-sm font-black text-slate-950">
+                                  Aggiungi un altro esercizio
+                                </p>
+                                <p className="mt-0.5 text-xs font-bold text-slate-500">
+                                  Rimani nello stesso giorno senza tornare all’header della seduta.
+                                </p>
+                              </div>
+
+                              <Button
+                                type="button"
+                                onClick={() => addExerciseRow(dayIndex)}
+                                className="w-full bg-[#07111f] px-4 py-2.5 text-white sm:w-auto"
+                              >
+                                <Plus size={15} className="mr-2" />
+                                Esercizio
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </Card>
                     ))}
