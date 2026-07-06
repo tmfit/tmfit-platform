@@ -4247,13 +4247,39 @@ const builderQuality = getBuilderQualityReport();
                       </p>
                     </div>
 
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm lg:text-right">
-                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                        Cliente attivo
-                      </p>
-                      <p className="mt-1 max-w-[240px] truncate text-sm font-black text-slate-950">
-                        {selectedClient ? fullName(selectedClient) : "Nessun cliente"}
-                      </p>
+                    <div className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm lg:w-[360px]">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                          Cliente attivo
+                        </p>
+
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
+                          {clients.length} clienti
+                        </span>
+                      </div>
+
+                      <Select
+                        value={selectedClientId || ""}
+                        onChange={(event) => setSelectedClientId(event.target.value)}
+                        className="border-slate-300 bg-white text-slate-950"
+                      >
+                        <option value="">Seleziona cliente</option>
+                        {clients.map((client) => (
+                          <option key={client.id} value={String(client.id)}>
+                            {fullName(client)}
+                          </option>
+                        ))}
+                      </Select>
+
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Pill className="bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                          {selectedClient?.status || "nessun cliente"}
+                        </Pill>
+
+                        <Pill className="max-w-full bg-slate-100 text-slate-600">
+                          {selectedClient?.goal || "Obiettivo non impostato"}
+                        </Pill>
+                      </div>
                     </div>
                   </div>
                 </div>
