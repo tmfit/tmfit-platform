@@ -13669,7 +13669,7 @@ function getExerciseHistory(exercise) {
           }
         }
       `}</style>
-      <div className="tmfit-client-shell mx-auto min-h-[100dvh] w-full max-w-[480px] overflow-x-hidden bg-[#f5f7fb] shadow-2xl">
+      <div className="tmfit-client-shell mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col overflow-x-hidden bg-[#f5f7fb] shadow-2xl">
       <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-2.5 text-white shadow-xl md:relative md:px-6 md:py-4">
         <div className="mx-auto flex w-full max-w-[480px] items-center justify-between gap-4">
           <button
@@ -13714,7 +13714,7 @@ function getExerciseHistory(exercise) {
   userProfile={userProfile}
   side="right"
 />
-      <main className="mx-auto w-full max-w-[480px] space-y-4 overflow-x-hidden p-4 pb-[calc(3.7rem+env(safe-area-inset-bottom))] md:p-5">
+      <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(3.7rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
           <div className="space-y-5">
             <Card className="overflow-hidden border-none bg-transparent shadow-none">
