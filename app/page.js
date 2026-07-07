@@ -2379,7 +2379,7 @@ function DietFoodLines({ items = [] }) {
   if (groups.length === 0 && notes.length === 0) {
     return (
       <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold text-slate-400">
-        Nessuna riga alimentare riconosciuta.
+        Nessun alimento disponibile in questa card.
       </div>
     );
   }
@@ -2486,13 +2486,9 @@ function DietExtractedPlan({ diet, compact = false }) {
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
               {meal.name || meal.title || "Pasto"}
             </p>
-            <p className="mt-1 text-xs font-bold text-slate-400">
-              Solo righe alimentari riconosciute
-            </p>
+
           </div>
-          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
-            {items.length} righe
-          </span>
+
         </div>
         <DietFoodLines items={items} />
       </div>
@@ -2516,9 +2512,7 @@ function DietExtractedPlan({ diet, compact = false }) {
               {group?.meal || group?.title || "Sezione"}
             </p>
           </div>
-          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
-            {items.length} righe
-          </span>
+
         </div>
         <DietFoodLines items={items} />
       </div>
@@ -2533,55 +2527,21 @@ function DietExtractedPlan({ diet, compact = false }) {
             Pasti in app
           </p>
           <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni lette dal PDF" : "Giorni e pasti letti dal PDF"}
+            {isOptions ? "Opzioni alimentari" : "Piano giornaliero"}
           </h3>
           <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-            Da {sourceLabel}. In questa sezione vengono mostrate solo card pasto reali: copertina, stagionalità, ripartizione calorica, integrazione e liste alimenti vengono escluse.
+            Visualizzazione pronta per il cliente, organizzata in card semplici da consultare.
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 text-center md:min-w-[300px]">
-          <div className="rounded-2xl bg-white p-3">
-            <p className="text-lg font-black text-slate-950">
-              {isOptions ? optionGroups.length : dailyDays.length}
-            </p>
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-              {isOptions ? "Sezioni" : "Giorni"}
-            </p>
+        {!compact && (
+          <div className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm">
+            {isOptions ? "Scegli una sezione per consultare le alternative." : "Scegli un giorno per consultare i pasti."}
           </div>
-          <div className="rounded-2xl bg-white p-3">
-            <p className="text-lg font-black text-slate-950">
-              {isOptions ? totalOptions : totalMeals}
-            </p>
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-              {isOptions ? "Opzioni" : "Pasti"}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-white p-3">
-            <p className="text-lg font-black text-slate-950">
-              {totalFoodRows}
-            </p>
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-              Righe
-            </p>
-          </div>
-        </div>
+        )}
       </div>
 
-      {warnings.length > 0 && !compact && (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
-            Da controllare
-          </p>
-          <div className="mt-2 space-y-1">
-            {warnings.slice(0, 4).map((warning, index) => (
-              <p key={`${warning}-${index}`} className="text-xs font-bold leading-5 text-amber-800">
-                • {warning}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
+
 
       {!isOptions && (
         <div className="mt-4 space-y-3">
@@ -2603,9 +2563,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                     }`}
                   >
                     <p className="text-sm font-black">{day.day || day.title}</p>
-                    <p className={`mt-0.5 text-[11px] font-bold ${isActive ? "text-slate-300" : "text-slate-400"}`}>
-                      {dayMeals.length || 0} pasti
-                    </p>
+
                   </button>
                 );
               })}
@@ -2623,9 +2581,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                     {activeDay.day || activeDay.title}
                   </h4>
                 </div>
-                <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
-                  {activeDayMeals.length || 0} card
-                </span>
+
               </div>
 
               <div className="grid gap-3 bg-slate-50 p-3 md:grid-cols-2">
@@ -2658,9 +2614,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
                   <div>
                     <p className="font-black text-slate-950">{day.day || day.title}</p>
-                    <p className="mt-0.5 text-xs font-bold text-slate-500">
-                      {dayMeals.length || 0} pasti riconosciuti
-                    </p>
+
                   </div>
                   <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
                     Apri
@@ -2679,11 +2633,7 @@ function DietExtractedPlan({ diet, compact = false }) {
             );
           })}
 
-          {compact && dailyDays.length > visibleDays.length && (
-            <p className="text-center text-xs font-bold text-slate-500">
-              Altri {dailyDays.length - visibleDays.length} giorni visibili lato cliente nella sezione Pasti.
-            </p>
-          )}
+
         </div>
       )}
 
@@ -2707,9 +2657,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                     }`}
                   >
                     <p className="text-sm font-black">{group.meal || group.title}</p>
-                    <p className={`mt-0.5 text-[11px] font-bold ${isActive ? "text-slate-300" : "text-slate-400"}`}>
-                      {optionCount} opzioni
-                    </p>
+
                   </button>
                 );
               })}
@@ -2727,9 +2675,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                     {activeOptionGroup.meal || activeOptionGroup.title}
                   </h4>
                 </div>
-                <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
-                  {activeOptions.length || 0} opzioni
-                </span>
+
               </div>
 
               <div className="grid gap-3 bg-slate-50 p-3 md:grid-cols-2">
@@ -2756,9 +2702,7 @@ function DietExtractedPlan({ diet, compact = false }) {
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
                 <div>
                   <p className="font-black text-slate-950">{group.meal || group.title}</p>
-                  <p className="mt-0.5 text-xs font-bold text-slate-500">
-                    {group.options?.length || 0} opzioni disponibili
-                  </p>
+
                 </div>
                 <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
                   Apri
@@ -2773,11 +2717,7 @@ function DietExtractedPlan({ diet, compact = false }) {
             </details>
           ))}
 
-          {compact && optionGroups.length > visibleOptionGroups.length && (
-            <p className="text-center text-xs font-bold text-slate-500">
-              Altre {optionGroups.length - visibleOptionGroups.length} sezioni visibili lato cliente nella sezione Pasti.
-            </p>
-          )}
+
         </div>
       )}
     </div>
@@ -2908,7 +2848,7 @@ function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = fa
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <p className="font-black text-slate-950">
-              Qualità visualizzazione app
+              Visualizzazione cliente
             </p>
             <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${stats.statusClass}`}>
               {stats.statusLabel}
@@ -2927,12 +2867,12 @@ function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = fa
             disabled={analyzing || !diet?.file_path}
             className="shrink-0 border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800"
           >
-            {analyzing ? "Analisi..." : stats.hasCards ? "Rigenera card" : "Analizza PDF"}
+            {analyzing ? "Preparazione..." : stats.hasCards ? "Rigenera vista" : "Genera vista"}
           </Button>
         )}
       </div>
 
-      <div className={`mt-3 grid gap-2 text-center ${compact ? "grid-cols-3" : "grid-cols-3 sm:grid-cols-4"}`}>
+      <div className={`mt-3 grid gap-2 text-center ${compact ? "grid-cols-2" : "grid-cols-2"}`}>
         <div className="rounded-2xl bg-slate-50 p-3">
           <p className="text-sm font-black text-slate-950">{stats.primaryCount}</p>
           <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
@@ -2945,53 +2885,13 @@ function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = fa
             {stats.secondaryLabel}
           </p>
         </div>
-        <div className="rounded-2xl bg-slate-50 p-3">
-          <p className="text-sm font-black text-slate-950">{stats.totalItems}</p>
-          <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-            Righe
-          </p>
-        </div>
-        {!compact && (
-          <div className="rounded-2xl bg-slate-50 p-3">
-            <p className="text-sm font-black text-slate-950">
-              {stats.confidence ? `${stats.confidence}%` : "—"}
-            </p>
-            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-              Lettura
-            </p>
-          </div>
-        )}
       </div>
 
-      {!compact && stats.parserScopeLabel && (
-        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
-            Parsing Pasti
-          </p>
-          <p className="mt-1 text-xs font-bold leading-5 text-slate-600">
-            {stats.parserScopeLabel}
-          </p>
-        </div>
-      )}
 
-      {stats.warnings.length > 0 && !compact && (
-        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
-            Da verificare
-          </p>
-          <div className="mt-2 space-y-1">
-            {stats.warnings.slice(0, 4).map((warning, index) => (
-              <p key={`${warning}-${index}`} className="text-xs font-bold leading-5 text-amber-800">
-                • {warning}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
 
       {!compact && (
         <p className="mt-3 text-[11px] font-semibold leading-5 text-slate-500">
-          Il PDF resta sempre il documento ufficiale. Le card servono per una lettura rapida in app e possono essere rigenerate se il formato del PDF cambia.
+          Questa è l’anteprima della sezione Pasti che vedrà il cliente. Il PDF resta sempre disponibile nel tab dedicato.
         </p>
       )}
     </div>
@@ -8285,7 +8185,7 @@ const builderQuality = getBuilderQualityReport();
                         <div className="rounded-xl bg-white p-3">4. Verifica in Pasti</div>
                       </div>
                       <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-                        Il parser è dinamico: non forza Colazione/Pranzo/Cena. Legge le sezioni reali del PDF, anche se una dieta ha otto colazioni, nessuna merenda o blocchi extra come post workout/pre nanna.
+                        Dopo il caricamento puoi generare la vista cliente e controllare subito la sezione Pasti prima di farla usare al cliente.
                       </p>
                     </div>
 
@@ -8355,7 +8255,19 @@ const builderQuality = getBuilderQualityReport();
                                   onAnalyze={() => analyzeDietPdfToCards(diets[0])}
                                   analyzing={analyzingDietId === String(diets[0].id)}
                                 />
-                                <DietExtractedPlan diet={diets[0]} compact />
+                                <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white">
+                                  <div className="border-b border-slate-200 px-4 py-3">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+                                      Vista cliente
+                                    </p>
+                                    <p className="mt-1 text-sm font-black text-slate-950">
+                                      Sezione Pasti
+                                    </p>
+                                  </div>
+                                  <div className="p-3">
+                                    <DietExtractedPlan diet={diets[0]} />
+                                  </div>
+                                </div>
                                 <DietCoachNoteBox diet={diets[0]} emptyTitle="Nessuna nota coach" />
                               </div>
                             </div>
@@ -8381,8 +8293,8 @@ const builderQuality = getBuilderQualityReport();
                                 {analyzingDietId === String(diets[0].id)
                                   ? "Analisi..."
                                   : dietExtractedInfo(diets[0])
-                                  ? "Rigenera card"
-                                  : "Analizza PDF"}
+                                  ? "Rigenera vista"
+                                  : "Genera vista"}
                               </Button>
                               <Button
                                 onClick={() => openStorageFile("diets", diets[0].file_path)}
@@ -8520,7 +8432,7 @@ const builderQuality = getBuilderQualityReport();
                               ? "Analisi"
                               : dietExtractedInfo(diet)
                               ? "Rigenera"
-                              : "Analizza"}
+                              : "Genera"}
                           </Button>
                           <Button
                             onClick={() => openStorageFile("diets", diet.file_path)}
@@ -13763,13 +13675,13 @@ function getExerciseHistory(exercise) {
                   <Card className="overflow-hidden">
                     <div className="border-b border-slate-200 bg-white px-5 py-4">
                       <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Piano letto dal PDF
+                        Piano alimentare
                       </p>
                       <h3 className="mt-1 text-xl font-black text-slate-950">
                         Card pasti
                       </h3>
                       <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                        Versione rapida generata automaticamente dal PDF originale. Per i dettagli completi resta valido il PDF.
+                        Consulta il piano alimentare organizzato in card. Il PDF completo resta disponibile nella sezione dedicata.
                       </p>
                     </div>
 
