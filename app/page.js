@@ -262,11 +262,19 @@ function BrandLogo({
   );
 }
 function AppFooter({ role = "coach" }) {
+  const isClient = role === "client";
+
   return (
-    <footer className="mt-8 border-t border-white/10 bg-[#07111f] text-white">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-7 pb-32 md:flex-row md:items-center md:justify-between md:px-6 md:pb-7">
+    <footer className="mt-6 border-t border-white/10 bg-[#07111f] text-white">
+      <div
+        className={`mx-auto flex max-w-7xl flex-col px-4 md:flex-row md:items-center md:justify-between md:px-6 ${
+          isClient
+            ? "gap-3 py-5 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:py-5 md:pb-5"
+            : "gap-4 py-7 pb-32 md:py-7 md:pb-7"
+        }`}
+      >
         <div>
-          <p className="text-sm font-black tracking-wide">
+          <p className={isClient ? "text-sm font-black tracking-wide" : "text-sm font-black tracking-wide"}>
             TM FIT Coaching Platform
           </p>
 
@@ -284,24 +292,28 @@ function AppFooter({ role = "coach" }) {
             Webapp privata
           </Pill>
 
-          <Pill className="bg-white/10 text-white">
-  {APP_VERSION}
-</Pill>
+          {!isClient && (
+            <Pill className="bg-white/10 text-white">
+              {APP_VERSION}
+            </Pill>
+          )}
         </div>
 
-        <div className="flex flex-wrap gap-4 text-xs font-bold text-slate-400">
-          <button type="button" className="hover:text-white">
-            Termini
-          </button>
+        {!isClient && (
+          <div className="flex flex-wrap gap-4 text-xs font-bold text-slate-400">
+            <button type="button" className="hover:text-white">
+              Termini
+            </button>
 
-          <button type="button" className="hover:text-white">
-            Privacy
-          </button>
+            <button type="button" className="hover:text-white">
+              Privacy
+            </button>
 
-          <button type="button" className="hover:text-white">
-            Assistenza
-          </button>
-        </div>
+            <button type="button" className="hover:text-white">
+              Assistenza
+            </button>
+          </div>
+        )}
       </div>
     </footer>
   );
