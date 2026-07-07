@@ -1299,6 +1299,16 @@ function dietIsPdf(diet) {
   return fileName.endsWith(".pdf") || filePath.includes(".pdf");
 }
 
+function safePdfDownloadName(value, fallback = "TMFIT-piano-alimentare.pdf") {
+  const clean = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9À-ÿ._ -]/g, "")
+    .replace(/\s+/g, "-");
+
+  if (!clean) return fallback;
+  return clean.toLowerCase().endsWith(".pdf") ? clean : `${clean}.pdf`;
+}
+
 const DIET_EXTRACT_START = "TMFIT_DIET_EXTRACT_START";
 const DIET_EXTRACT_END = "TMFIT_DIET_EXTRACT_END";
 const DIET_PARSER_SKIP_INTRO_PAGES = 6;
@@ -3035,7 +3045,7 @@ function DietPdfPagesViewer({ url, mode = "inline" }) {
             loading: false,
             error:
               error?.message ||
-              "Non riesco a leggere il PDF dentro l’app. Usa Apri PDF come fallback.",
+              "Non riesco a leggere il PDF dentro l’app. Usa Scarica PDF come fallback.",
             pdf: null,
             pageCount: 0
           });
@@ -3142,7 +3152,7 @@ function DietPdfInlineViewer({ url, title = "PDF dieta", onOpenFull, onOpenExter
             onClick={onOpenExternal}
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 active:scale-[.98]"
           >
-            Apri PDF
+            Scarica PDF
           </button>
         </div>
       </div>
@@ -3203,7 +3213,7 @@ function DietPdfFullscreenModal({
               onClick={onOpenExternal}
               className="hidden rounded-2xl bg-white/10 px-4 py-3 text-xs font-black text-white md:inline-flex"
             >
-              Apri esterno
+              Scarica PDF
             </button>
           )}
 
@@ -3259,7 +3269,7 @@ function DietPdfFullscreenModal({
           disabled={!preview?.url}
           className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black text-white disabled:opacity-40"
         >
-          Apri esterno
+          Scarica PDF
         </button>
 
         <button
@@ -5258,6 +5268,39 @@ async function savePrivateNote(event) {
     }
 
     window.open(data.signedUrl, "_blank");
+  }
+
+  async function downloadStorageFile(bucket, path, fileName = "TMFIT-piano-alimentare.pdf") {
+    if (!path) return;
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(path, 120);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    try {
+      const response = await fetch(data.signedUrl);
+
+      if (!response.ok) throw new Error("Download non riuscito.");
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = safePdfDownloadName(fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (downloadError) {
+      console.warn("Download PDF non riuscito", downloadError?.message || downloadError);
+      window.open(data.signedUrl, "_blank");
+    }
   }
 
   async function previewDietInApp(diet) {
@@ -7988,7 +8031,11 @@ const builderQuality = getBuilderQualityReport();
                 onClose={() => setDietFullscreenOpen(false)}
                 onOpenExternal={() => {
                   if (previewDietForModal?.file_path) {
-                    openStorageFile("diets", previewDietForModal.file_path);
+                    downloadStorageFile(
+                      "diets",
+                      previewDietForModal.file_path,
+                      previewDietForModal.file_name || dietDisplayTitle(previewDietForModal)
+                    );
                   }
                 }}
               />
@@ -8297,10 +8344,16 @@ const builderQuality = getBuilderQualityReport();
                                   : "Genera vista"}
                               </Button>
                               <Button
-                                onClick={() => openStorageFile("diets", diets[0].file_path)}
+                                onClick={() =>
+                                  downloadStorageFile(
+                                    "diets",
+                                    diets[0].file_path,
+                                    diets[0].file_name || dietDisplayTitle(diets[0])
+                                  )
+                                }
                                 className="border border-slate-200 bg-white text-slate-950"
                               >
-                                Apri PDF
+                                Scarica PDF
                               </Button>
                             </div>
                           </div>
@@ -8344,7 +8397,11 @@ const builderQuality = getBuilderQualityReport();
                           onOpenFull={() => setDietFullscreenOpen(true)}
                           onOpenExternal={() => {
                             if (previewDietForModal?.file_path) {
-                              openStorageFile("diets", previewDietForModal.file_path);
+                              downloadStorageFile(
+                                "diets",
+                                previewDietForModal.file_path,
+                                previewDietForModal.file_name || dietDisplayTitle(previewDietForModal)
+                              );
                             }
                           }}
                         />
@@ -8435,10 +8492,16 @@ const builderQuality = getBuilderQualityReport();
                               : "Genera"}
                           </Button>
                           <Button
-                            onClick={() => openStorageFile("diets", diet.file_path)}
+                            onClick={() =>
+                              downloadStorageFile(
+                                "diets",
+                                diet.file_path,
+                                diet.file_name || dietDisplayTitle(diet)
+                              )
+                            }
                             className="bg-[#07111f] px-3 py-2 text-xs text-white"
                           >
-                            Apri
+                            Scarica
                           </Button>
                         </div>
                       </div>
@@ -12515,6 +12578,39 @@ function getExerciseHistory(exercise) {
     window.open(data.signedUrl, "_blank");
   }
 
+  async function downloadStorageFile(bucket, path, fileName = "TMFIT-piano-alimentare.pdf") {
+    if (!path) return;
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(path, 120);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    try {
+      const response = await fetch(data.signedUrl);
+
+      if (!response.ok) throw new Error("Download non riuscito.");
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = safePdfDownloadName(fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (downloadError) {
+      console.warn("Download PDF non riuscito", downloadError?.message || downloadError);
+      window.open(data.signedUrl, "_blank");
+    }
+  }
+
   async function previewDietInApp(diet) {
     if (!diet?.file_path) return;
 
@@ -13495,7 +13591,11 @@ function getExerciseHistory(exercise) {
               onClose={() => setDietFullscreenOpen(false)}
               onOpenExternal={() => {
                 if (previewDietForModal?.file_path) {
-                  openStorageFile("diets", previewDietForModal.file_path);
+                  downloadStorageFile(
+                    "diets",
+                    previewDietForModal.file_path,
+                    previewDietForModal.file_name || dietDisplayTitle(previewDietForModal)
+                  );
                 }
               }}
             />
@@ -13590,7 +13690,6 @@ function getExerciseHistory(exercise) {
                       <div className="space-y-4 p-5">
                         <DietSummaryBox diet={latestDiet} />
                         <DietInfoGrid diet={latestDiet} />
-                        <DietExtractedPlan diet={latestDiet} compact />
                         <DietCoachNoteBox diet={latestDiet} />
 
                         <div className="grid gap-3 sm:grid-cols-3">
@@ -13639,7 +13738,7 @@ function getExerciseHistory(exercise) {
                             {latestDiet.file_name || "PDF dieta"}
                           </p>
                           <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                            Puoi consultarlo dentro l’app oppure aprirlo a schermo intero.
+                            Puoi consultarlo dentro l’app oppure scaricare il PDF originale.
                           </p>
                         </div>
 
@@ -13661,10 +13760,16 @@ function getExerciseHistory(exercise) {
                         </Button>
 
                         <Button
-                          onClick={() => openStorageFile("diets", latestDiet.file_path)}
+                          onClick={() =>
+                            downloadStorageFile(
+                              "diets",
+                              latestDiet.file_path,
+                              latestDiet.file_name || dietDisplayTitle(latestDiet)
+                            )
+                          }
                           className="w-full border border-slate-200 bg-white text-slate-950"
                         >
-                          Apri PDF completo
+                          Scarica PDF
                         </Button>
                       </div>
                     </Card>
@@ -13710,10 +13815,16 @@ function getExerciseHistory(exercise) {
                           Schermo interno
                         </Button>
                         <Button
-                          onClick={() => openStorageFile("diets", latestDiet.file_path)}
+                          onClick={() =>
+                            downloadStorageFile(
+                              "diets",
+                              latestDiet.file_path,
+                              latestDiet.file_name || dietDisplayTitle(latestDiet)
+                            )
+                          }
                           className="border border-slate-200 bg-white text-slate-950"
                         >
-                          Apri PDF
+                          Scarica PDF
                         </Button>
                       </div>
                     </div>
@@ -13736,7 +13847,13 @@ function getExerciseHistory(exercise) {
                           url={dietPreview.url}
                           title={latestDiet.file_name || "PDF dieta cliente"}
                           onOpenFull={() => setDietFullscreenOpen(true)}
-                          onOpenExternal={() => openStorageFile("diets", latestDiet.file_path)}
+                          onOpenExternal={() =>
+                            downloadStorageFile(
+                              "diets",
+                              latestDiet.file_path,
+                              latestDiet.file_name || dietDisplayTitle(latestDiet)
+                            )
+                          }
                         />
                       )}
 
@@ -13821,10 +13938,16 @@ function getExerciseHistory(exercise) {
                                 In app
                               </Button>
                               <Button
-                                onClick={() => openStorageFile("diets", diet.file_path)}
+                                onClick={() =>
+                                  downloadStorageFile(
+                                    "diets",
+                                    diet.file_path,
+                                    diet.file_name || dietDisplayTitle(diet)
+                                  )
+                                }
                                 className="bg-[#07111f] px-3 py-2 text-xs text-white"
                               >
-                                Apri
+                                Scarica
                               </Button>
                             </div>
                           </div>
