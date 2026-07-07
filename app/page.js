@@ -2601,7 +2601,7 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
         >
           <div className="flex gap-2.5">
             <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-500" />
-            <p className="text-sm font-black leading-6 text-slate-800">
+            <p className="min-w-0 break-words text-sm font-black leading-6 text-slate-800">
               {group.text}
             </p>
           </div>
@@ -2611,7 +2611,7 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
               {group.alternatives.map((alternative, altIndex) => (
                 <p
                   key={`${alternative}-${altIndex}`}
-                  className="text-xs font-bold leading-5 text-slate-500"
+                  className="break-words text-xs font-bold leading-5 text-slate-500"
                 >
                   {alternative}
                 </p>
@@ -2629,7 +2629,7 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
             Note al pasto
           </p>
-          <p className="mt-1 text-xs font-bold leading-5 text-amber-900">
+          <p className="mt-1 break-words text-xs font-bold leading-5 text-amber-900">
             {note}
           </p>
         </div>
@@ -2692,7 +2692,7 @@ function DietExtractedPlan({ diet, compact = false }) {
     return (
       <div
         key={key}
-        className="rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
+        className="w-full rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -2714,7 +2714,7 @@ function DietExtractedPlan({ diet, compact = false }) {
     return (
       <div
         key={`${group?.meal || group?.title || "gruppo"}-${option.title}-${optionIndex}`}
-        className="rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
+        className="w-full rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -2797,7 +2797,7 @@ function DietExtractedPlan({ diet, compact = false }) {
 
               </div>
 
-              <div className="grid gap-3 bg-slate-50 p-3 xl:grid-cols-2">
+              <div className="grid gap-3 bg-slate-50 p-3">
                 {activeDayMeals.length === 0 && (
                   <Empty
                     title="Nessun pasto riconosciuto"
@@ -2834,7 +2834,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                   </span>
                 </summary>
 
-                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 xl:grid-cols-2">
+                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3">
                   {dayMeals.map((meal, mealIndex) =>
                     renderMealCard(
                       meal,
@@ -2891,7 +2891,7 @@ function DietExtractedPlan({ diet, compact = false }) {
 
               </div>
 
-              <div className="grid gap-3 bg-slate-50 p-3 xl:grid-cols-2">
+              <div className="grid gap-3 bg-slate-50 p-3">
                 {activeOptions.length === 0 && (
                   <Empty
                     title="Nessuna opzione riconosciuta"
