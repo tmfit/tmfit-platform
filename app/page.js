@@ -85,6 +85,11 @@ function numberOrNull(value) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function isRecordActive(item) {
+  const status = String(item?.status || "active").toLowerCase();
+  return !["archived", "deleted", "inactive", "removed"].includes(status);
+}
+
 function sortByOrder(items = [], field = "sort_order") {
   return [...items].sort((a, b) => {
     const left = a?.[field] ?? 999;
@@ -2792,7 +2797,7 @@ function DietExtractedPlan({ diet, compact = false }) {
 
               </div>
 
-              <div className="grid gap-3 bg-slate-50 p-3 md:grid-cols-2">
+              <div className="grid gap-3 bg-slate-50 p-3 xl:grid-cols-2">
                 {activeDayMeals.length === 0 && (
                   <Empty
                     title="Nessun pasto riconosciuto"
@@ -2829,7 +2834,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                   </span>
                 </summary>
 
-                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3 xl:grid-cols-2">
                   {dayMeals.map((meal, mealIndex) =>
                     renderMealCard(
                       meal,
@@ -2886,7 +2891,7 @@ function DietExtractedPlan({ diet, compact = false }) {
 
               </div>
 
-              <div className="grid gap-3 bg-slate-50 p-3 md:grid-cols-2">
+              <div className="grid gap-3 bg-slate-50 p-3 xl:grid-cols-2">
                 {activeOptions.length === 0 && (
                   <Empty
                     title="Nessuna opzione riconosciuta"
@@ -3719,6 +3724,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   const [dietFile, setDietFile] = useState(null);
   const [extractingDietPdf, setExtractingDietPdf] = useState(false);
   const [analyzingDietId, setAnalyzingDietId] = useState("");
+  const [updatingDietId, setUpdatingDietId] = useState("");
   const [dietPreview, setDietPreview] = useState({
     dietId: "",
     url: "",
@@ -3754,9 +3760,13 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   const selectedClient =
     clients.find((client) => String(client.id) === String(selectedClientId)) ||
     null;
+
+  const activeDietsForSelectedClient = diets.filter(isRecordActive);
+  const activeDietForSelectedClient = activeDietsForSelectedClient[0] || null;
+
   const previewDietForModal =
     diets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
-    diets[0] ||
+    activeDietForSelectedClient ||
     null;
 
   const filteredClients = useMemo(() => {
@@ -5282,22 +5292,38 @@ try {
       .filter(Boolean)
       .join("\n\n");
 
-    const { error } = await supabase.from("diets").insert({
-      client_id: Number(selectedClient.id),
-      professional_id: session.user.id,
-      title: dietForm.title || dietFile.name,
-      file_name: dietFile.name,
-      file_path: path,
-      start_date: dietForm.start_date || null,
-      end_date: dietForm.end_date || null,
-      notes: richNotes || null,
-      status: "active",
-      diet_type: dietForm.diet_type || "file"
-    });
+    const { data: insertedDiet, error } = await supabase
+      .from("diets")
+      .insert({
+        client_id: Number(selectedClient.id),
+        professional_id: session.user.id,
+        title: dietForm.title || dietFile.name,
+        file_name: dietFile.name,
+        file_path: path,
+        start_date: dietForm.start_date || null,
+        end_date: dietForm.end_date || null,
+        notes: richNotes || null,
+        status: "active",
+        diet_type: dietForm.diet_type || "file"
+      })
+      .select("*")
+      .single();
 
     if (error) {
       alert(error.message);
       return;
+    }
+
+    if (insertedDiet?.id) {
+      const { error: inactiveError } = await supabase
+        .from("diets")
+        .update({ status: "inactive" })
+        .eq("client_id", Number(selectedClient.id))
+        .neq("id", insertedDiet.id);
+
+      if (inactiveError) {
+        console.warn(inactiveError.message);
+      }
     }
 
     setDietForm({
@@ -5367,6 +5393,71 @@ try {
       alert(error.message || "Errore durante l’analisi del PDF dieta.");
     } finally {
       setAnalyzingDietId("");
+    }
+  }
+
+  async function activateDietPlan(diet) {
+    if (!selectedClient || !diet?.id) return;
+
+    setUpdatingDietId(String(diet.id));
+
+    try {
+      const { error: activeError } = await supabase
+        .from("diets")
+        .update({ status: "active" })
+        .eq("id", diet.id);
+
+      if (activeError) {
+        alert(activeError.message);
+        return;
+      }
+
+      const { error: inactiveError } = await supabase
+        .from("diets")
+        .update({ status: "inactive" })
+        .eq("client_id", Number(selectedClient.id))
+        .neq("id", diet.id);
+
+      if (inactiveError) {
+        alert(inactiveError.message);
+        return;
+      }
+
+      await loadClientBundle(selectedClient.id);
+    } finally {
+      setUpdatingDietId("");
+    }
+  }
+
+  async function removeDietPlan(diet) {
+    if (!selectedClient || !diet?.id) return;
+
+    const confirmed = window.confirm(
+      "Vuoi rimuovere questo piano dalla sezione Dieta del cliente? Il PDF resterà nello storico coach, ma non sarà più visibile come dieta attiva."
+    );
+
+    if (!confirmed) return;
+
+    setUpdatingDietId(String(diet.id));
+
+    try {
+      const { error } = await supabase
+        .from("diets")
+        .update({ status: "inactive" })
+        .eq("id", diet.id);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      if (dietPreview.dietId === String(diet.id)) {
+        setDietPreview({ dietId: "", url: "", loading: false, error: "" });
+      }
+
+      await loadClientBundle(selectedClient.id);
+    } finally {
+      setUpdatingDietId("");
     }
   }
 async function savePrivateNote(event) {
@@ -6243,6 +6334,7 @@ function SelectedClientCompactBar() {
 }
 const builderStats = getBuilderStats();
 const builderQuality = getBuilderQualityReport();
+const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
   return (
   <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
   <header className="sticky top-0 z-30 bg-[#07111f] px-4 py-4 text-white shadow-xl md:relative md:px-6 md:py-5">
@@ -8275,7 +8367,7 @@ const builderQuality = getBuilderQualityReport();
                           Attiva
                         </p>
                         <p className="mt-1 truncate text-sm font-black">
-                          {diets[0] ? dietTypeLabel(diets[0].diet_type) : "Nessuna"}
+                          {activeDietForSelectedClient ? dietTypeLabel(activeDietForSelectedClient.diet_type) : "Nessuna"}
                         </p>
                       </div>
                     </div>
@@ -8470,35 +8562,35 @@ const builderQuality = getBuilderQualityReport();
                     </div>
 
                     <div className="p-5">
-                      {diets[0] ? (
+                      {activeDietForSelectedClient ? (
                         <div className="rounded-[1.6rem] border border-[#07111f] bg-slate-50 p-5">
-                          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                          <div className="flex flex-col gap-5">
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Pill className="bg-[#07111f] text-white">Attiva</Pill>
                                 <Pill className="bg-teal-100 text-teal-700">
-                                  {dietTypeLabel(diets[0].diet_type)}
+                                  {dietTypeLabel(activeDietForSelectedClient.diet_type)}
                                 </Pill>
-                                {dietIsPdf(diets[0]) && (
+                                {dietIsPdf(activeDietForSelectedClient) && (
                                   <Pill className="bg-white text-slate-700">PDF</Pill>
                                 )}
                               </div>
 
                               <h4 className="mt-3 text-2xl font-black leading-tight text-slate-950">
-                                {dietDisplayTitle(diets[0])}
+                                {dietDisplayTitle(activeDietForSelectedClient)}
                               </h4>
                               <p className="mt-1 text-sm font-bold text-slate-500">
-                                {dietPeriodLabel(diets[0])}
+                                {dietPeriodLabel(activeDietForSelectedClient)}
                               </p>
 
                               <div className="mt-4 space-y-3">
-                                <DietSummaryBox diet={diets[0]} />
-                                <DietInfoGrid diet={diets[0]} compact />
+                                <DietSummaryBox diet={activeDietForSelectedClient} />
+                                <DietInfoGrid diet={activeDietForSelectedClient} compact />
                                 <DietParseQualityCard
-                                  diet={diets[0]}
+                                  diet={activeDietForSelectedClient}
                                   compact
-                                  onAnalyze={() => analyzeDietPdfToCards(diets[0])}
-                                  analyzing={analyzingDietId === String(diets[0].id)}
+                                  onAnalyze={() => analyzeDietPdfToCards(activeDietForSelectedClient)}
+                                  analyzing={analyzingDietId === String(activeDietForSelectedClient.id)}
                                 />
                                 <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white">
                                   <div className="border-b border-slate-200 px-4 py-3">
@@ -8510,34 +8602,34 @@ const builderQuality = getBuilderQualityReport();
                                     </p>
                                   </div>
                                   <div className="p-3">
-                                    <DietExtractedPlan diet={diets[0]} />
+                                    <DietExtractedPlan diet={activeDietForSelectedClient} />
                                   </div>
                                 </div>
-                                <DietCoachNoteBox diet={diets[0]} emptyTitle="Nessuna nota coach" />
+                                <DietCoachNoteBox diet={activeDietForSelectedClient} emptyTitle="Nessuna nota coach" />
                               </div>
                             </div>
 
-                            <div className="flex shrink-0 flex-col gap-2 sm:min-w-40">
+                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                               <Button
-                                onClick={() => previewDietInApp(diets[0])}
+                                onClick={() => previewDietInApp(activeDietForSelectedClient)}
                                 className="bg-teal-300 text-slate-950 hover:bg-teal-200"
                               >
                                 Visualizza sotto
                               </Button>
                               <Button
-                                onClick={() => openDietFullscreen(diets[0])}
+                                onClick={() => openDietFullscreen(activeDietForSelectedClient)}
                                 className="bg-[#07111f] text-white"
                               >
                                 Schermo interno
                               </Button>
                               <Button
-                                onClick={() => analyzeDietPdfToCards(diets[0])}
-                                disabled={analyzingDietId === String(diets[0].id)}
+                                onClick={() => analyzeDietPdfToCards(activeDietForSelectedClient)}
+                                disabled={analyzingDietId === String(activeDietForSelectedClient.id)}
                                 className="border border-teal-200 bg-white text-teal-700"
                               >
-                                {analyzingDietId === String(diets[0].id)
+                                {analyzingDietId === String(activeDietForSelectedClient.id)
                                   ? "Analisi..."
-                                  : dietExtractedInfo(diets[0])
+                                  : dietExtractedInfo(activeDietForSelectedClient)
                                   ? "Rigenera vista"
                                   : "Genera vista"}
                               </Button>
@@ -8545,13 +8637,20 @@ const builderQuality = getBuilderQualityReport();
                                 onClick={() =>
                                   downloadStorageFile(
                                     "diets",
-                                    diets[0].file_path,
-                                    diets[0].file_name || dietDisplayTitle(diets[0])
+                                    activeDietForSelectedClient.file_path,
+                                    activeDietForSelectedClient.file_name || dietDisplayTitle(activeDietForSelectedClient)
                                   )
                                 }
                                 className="border border-slate-200 bg-white text-slate-950"
                               >
                                 Scarica PDF
+                              </Button>
+                              <Button
+                                onClick={() => removeDietPlan(activeDietForSelectedClient)}
+                                disabled={updatingDietId === String(activeDietForSelectedClient.id)}
+                                className="border border-red-200 bg-red-50 text-red-700"
+                              >
+                                {updatingDietId === String(activeDietForSelectedClient.id) ? "Rimozione..." : "Rimuovi piano"}
                               </Button>
                             </div>
                           </div>
@@ -8559,7 +8658,7 @@ const builderQuality = getBuilderQualityReport();
                       ) : (
                         <Empty
                           title="Nessuna dieta attiva"
-                          text="Carica un PDF SIFA per creare la visualizzazione cliente."
+                          text={diets.length > 0 ? "Hai diete nello storico, ma nessuna è attiva lato cliente." : "Carica un PDF SIFA per creare la visualizzazione cliente."}
                         />
                       )}
                     </div>
@@ -8630,7 +8729,7 @@ const builderQuality = getBuilderQualityReport();
                     Diete caricate
                   </h3>
                   <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                    L’ultima dieta caricata resta la più visibile lato cliente.
+                    Solo una dieta alla volta resta attiva lato cliente. Le altre restano nello storico coach.
                   </p>
                 </div>
 
@@ -8639,7 +8738,7 @@ const builderQuality = getBuilderQualityReport();
                     <div
                       key={diet.id}
                       className={`rounded-[1.4rem] border p-4 shadow-sm ${
-                        index === 0
+                        isRecordActive(diet)
                           ? "border-teal-200 bg-teal-50"
                           : "border-slate-200 bg-white"
                       }`}
@@ -8650,8 +8749,10 @@ const builderQuality = getBuilderQualityReport();
                             <p className="font-black text-slate-950">
                               {dietDisplayTitle(diet)}
                             </p>
-                            {index === 0 && (
+                            {isRecordActive(diet) ? (
                               <Pill className="bg-[#07111f] text-white">Attiva</Pill>
+                            ) : (
+                              <Pill className="bg-slate-100 text-slate-500">Non attiva</Pill>
                             )}
                           </div>
                           <p className="mt-1 truncate text-sm font-semibold text-slate-500">
@@ -8701,6 +8802,23 @@ const builderQuality = getBuilderQualityReport();
                           >
                             Scarica
                           </Button>
+                          {isRecordActive(diet) ? (
+                            <Button
+                              onClick={() => removeDietPlan(diet)}
+                              disabled={updatingDietId === String(diet.id)}
+                              className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                            >
+                              {updatingDietId === String(diet.id) ? "..." : "Rimuovi"}
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => activateDietPlan(diet)}
+                              disabled={updatingDietId === String(diet.id)}
+                              className="border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700"
+                            >
+                              {updatingDietId === String(diet.id) ? "..." : "Attiva"}
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -12468,6 +12586,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       .from("diets")
       .select("*")
       .eq("client_id", numericClientId)
+      .eq("status", "active")
       .order("created_at", { ascending: false });
 
     setDiets(dietData || []);
@@ -12874,7 +12993,7 @@ function getExerciseHistory(exercise) {
   }
 
   const activePlan = plans[0] || null;
-  const latestDiet = diets[0] || null;
+  const latestDiet = diets.filter(isRecordActive)[0] || null;
   const previewDietForModal =
     diets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
     latestDiet ||
