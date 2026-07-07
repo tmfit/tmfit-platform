@@ -3045,6 +3045,341 @@ function dietExtractionStats(diet) {
   };
 }
 
+
+function dietTextareaToLines(value) {
+  return String(value || "")
+    .split(/\n+/)
+    .map(cleanDietPdfLine)
+    .filter(Boolean);
+}
+
+function dietExtractHasVisibleCards(extracted) {
+  if (!extracted) return false;
+
+  const days = Array.isArray(extracted.days) ? extracted.days : [];
+  const optionGroups = Array.isArray(extracted.optionGroups)
+    ? extracted.optionGroups
+    : [];
+
+  const dailyCards = days.reduce((sum, day) => {
+    const meals = day.meals || day.sections || [];
+    return sum + meals.length;
+  }, 0);
+
+  const optionCards = optionGroups.reduce((sum, group) => {
+    return sum + ((group.options || []).length || 0);
+  }, 0);
+
+  return dailyCards + optionCards > 0;
+}
+
+function DietManualCardsEditor({
+  draft,
+  onChange,
+  onSave,
+  onCancel,
+  saving = false
+}) {
+  if (!draft) return null;
+
+  const days = Array.isArray(draft.days) ? draft.days : [];
+  const optionGroups = Array.isArray(draft.optionGroups)
+    ? draft.optionGroups
+    : [];
+  const isOptions =
+    draft.format === "options_pdf" ||
+    (optionGroups.length > 0 && days.length === 0);
+
+  function updateDraft(mutator) {
+    const next = clone(draft);
+
+    if (!Array.isArray(next.days)) next.days = [];
+    if (!Array.isArray(next.optionGroups)) next.optionGroups = [];
+
+    mutator(next);
+    onChange(next);
+  }
+
+  function updateMeal(dayIndex, mealIndex, field, value) {
+    updateDraft((next) => {
+      const meal = next.days[dayIndex].meals[mealIndex];
+      meal[field] = value;
+      if (field === "name") meal.title = value;
+    });
+  }
+
+  function updateMealLines(dayIndex, mealIndex, field, value) {
+    updateDraft((next) => {
+      next.days[dayIndex].meals[mealIndex][field] = dietTextareaToLines(value);
+    });
+  }
+
+  function addMeal(dayIndex) {
+    updateDraft((next) => {
+      next.days[dayIndex].meals.push({
+        name: "Nuovo pasto",
+        title: "Nuovo pasto",
+        items: [],
+        notes: []
+      });
+    });
+  }
+
+  function removeMeal(dayIndex, mealIndex) {
+    updateDraft((next) => {
+      next.days[dayIndex].meals.splice(mealIndex, 1);
+    });
+  }
+
+  function updateOptionGroup(groupIndex, value) {
+    updateDraft((next) => {
+      next.optionGroups[groupIndex].meal = value;
+      next.optionGroups[groupIndex].title = value;
+    });
+  }
+
+  function updateOption(groupIndex, optionIndex, field, value) {
+    updateDraft((next) => {
+      next.optionGroups[groupIndex].options[optionIndex][field] = value;
+    });
+  }
+
+  function updateOptionLines(groupIndex, optionIndex, field, value) {
+    updateDraft((next) => {
+      next.optionGroups[groupIndex].options[optionIndex][field] = dietTextareaToLines(value);
+    });
+  }
+
+  function addOption(groupIndex) {
+    updateDraft((next) => {
+      next.optionGroups[groupIndex].options.push({
+        title: `Opzione ${(next.optionGroups[groupIndex].options || []).length + 1}`,
+        items: [],
+        notes: []
+      });
+    });
+  }
+
+  function removeOption(groupIndex, optionIndex) {
+    updateDraft((next) => {
+      next.optionGroups[groupIndex].options.splice(optionIndex, 1);
+    });
+  }
+
+  return (
+    <div className="rounded-[1.6rem] border-2 border-teal-300 bg-white p-4 shadow-lg md:p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+            Editor professionista
+          </p>
+          <h4 className="mt-1 text-xl font-black text-slate-950">
+            Correggi card pasti
+          </h4>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+            Modifica alimenti e note prima di lasciare la dieta pronta al cliente. Queste istruzioni sono visibili solo lato professionista.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 gap-2">
+          <Button
+            onClick={onCancel}
+            className="border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700"
+          >
+            Annulla
+          </Button>
+          <Button
+            onClick={onSave}
+            disabled={saving}
+            className="bg-teal-300 px-4 py-2 text-xs text-slate-950 hover:bg-teal-200"
+          >
+            {saving ? "Salvataggio..." : "Salva card"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <p className="text-xs font-bold leading-5 text-amber-900">
+          Scrivi una voce per riga. Le note inserite nel campo “Note al pasto” compariranno nel riquadro note della card cliente.
+        </p>
+      </div>
+
+      {!isOptions && (
+        <div className="mt-4 space-y-4">
+          {days.map((day, dayIndex) => {
+            const meals = day.meals || day.sections || [];
+
+            return (
+              <details
+                key={`${day.day || day.title}-${dayIndex}`}
+                open={dayIndex === 0}
+                className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-slate-50"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-white px-4 py-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      Giorno
+                    </p>
+                    <p className="font-black text-slate-950">
+                      {day.day || day.title || `Giorno ${dayIndex + 1}`}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                    Modifica
+                  </span>
+                </summary>
+
+                <div className="space-y-3 border-t border-slate-200 p-3">
+                  {meals.map((meal, mealIndex) => (
+                    <div
+                      key={`${meal.name || meal.title}-${mealIndex}`}
+                      className="rounded-[1.2rem] border border-slate-200 bg-white p-4"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <Label title="Titolo pasto" className="flex-1">
+                          <Input
+                            value={meal.name || meal.title || ""}
+                            onChange={(event) =>
+                              updateMeal(dayIndex, mealIndex, "name", event.target.value)
+                            }
+                          />
+                        </Label>
+                        <Button
+                          onClick={() => removeMeal(dayIndex, mealIndex)}
+                          className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                        >
+                          Rimuovi pasto
+                        </Button>
+                      </div>
+
+                      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                        <Label title="Alimenti, uno per riga">
+                          <Textarea
+                            value={(meal.items || []).join("\n")}
+                            onChange={(event) =>
+                              updateMealLines(dayIndex, mealIndex, "items", event.target.value)
+                            }
+                            className="min-h-44 font-semibold leading-6"
+                          />
+                        </Label>
+                        <Label title="Note al pasto, una per riga">
+                          <Textarea
+                            value={(meal.notes || []).join("\n")}
+                            onChange={(event) =>
+                              updateMealLines(dayIndex, mealIndex, "notes", event.target.value)
+                            }
+                            className="min-h-44 border-amber-200 bg-amber-50 font-semibold leading-6"
+                          />
+                        </Label>
+                      </div>
+                    </div>
+                  ))}
+
+                  <Button
+                    onClick={() => addMeal(dayIndex)}
+                    className="w-full border border-dashed border-teal-300 bg-white text-teal-700"
+                  >
+                    <Plus size={16} className="mr-2" />
+                    Aggiungi pasto
+                  </Button>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+
+      {isOptions && (
+        <div className="mt-4 space-y-4">
+          {optionGroups.map((group, groupIndex) => (
+            <details
+              key={`${group.meal || group.title}-${groupIndex}`}
+              open={groupIndex === 0}
+              className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-slate-50"
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-white px-4 py-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    Sezione
+                  </p>
+                  <p className="font-black text-slate-950">
+                    {group.meal || group.title || `Sezione ${groupIndex + 1}`}
+                  </p>
+                </div>
+                <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                  Modifica
+                </span>
+              </summary>
+
+              <div className="space-y-3 border-t border-slate-200 p-3">
+                <Label title="Titolo sezione">
+                  <Input
+                    value={group.meal || group.title || ""}
+                    onChange={(event) => updateOptionGroup(groupIndex, event.target.value)}
+                  />
+                </Label>
+
+                {(group.options || []).map((option, optionIndex) => (
+                  <div
+                    key={`${option.title}-${optionIndex}`}
+                    className="rounded-[1.2rem] border border-slate-200 bg-white p-4"
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <Label title="Titolo opzione" className="flex-1">
+                        <Input
+                          value={option.title || ""}
+                          onChange={(event) =>
+                            updateOption(groupIndex, optionIndex, "title", event.target.value)
+                          }
+                        />
+                      </Label>
+                      <Button
+                        onClick={() => removeOption(groupIndex, optionIndex)}
+                        className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                      >
+                        Rimuovi opzione
+                      </Button>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                      <Label title="Alimenti, uno per riga">
+                        <Textarea
+                          value={(option.items || []).join("\n")}
+                          onChange={(event) =>
+                            updateOptionLines(groupIndex, optionIndex, "items", event.target.value)
+                          }
+                          className="min-h-44 font-semibold leading-6"
+                        />
+                      </Label>
+                      <Label title="Note al pasto, una per riga">
+                        <Textarea
+                          value={(option.notes || []).join("\n")}
+                          onChange={(event) =>
+                            updateOptionLines(groupIndex, optionIndex, "notes", event.target.value)
+                          }
+                          className="min-h-44 border-amber-200 bg-amber-50 font-semibold leading-6"
+                        />
+                      </Label>
+                    </div>
+                  </div>
+                ))}
+
+                <Button
+                  onClick={() => addOption(groupIndex)}
+                  className="w-full border border-dashed border-teal-300 bg-white text-teal-700"
+                >
+                  <Plus size={16} className="mr-2" />
+                  Aggiungi opzione
+                </Button>
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = false }) {
   const stats = dietExtractionStats(diet);
 
@@ -3732,6 +4067,9 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     error: ""
   });
   const [dietFullscreenOpen, setDietFullscreenOpen] = useState(false);
+  const [editingDietCardsId, setEditingDietCardsId] = useState("");
+  const [editingDietCardsDraft, setEditingDietCardsDraft] = useState(null);
+  const [savingDietCards, setSavingDietCards] = useState(false);
 
   const [measurementForm, setMeasurementForm] = useState({
     measurement_date: today(),
@@ -5458,6 +5796,63 @@ try {
       await loadClientBundle(selectedClient.id);
     } finally {
       setUpdatingDietId("");
+    }
+  }
+
+  function openDietCardsEditor(diet) {
+    const extracted = dietExtractedInfo(diet);
+
+    if (!extracted) {
+      alert("Prima genera le card dalla dieta, poi potrai correggerle manualmente.");
+      return;
+    }
+
+    setEditingDietCardsId(String(diet.id));
+    setEditingDietCardsDraft(clone(extracted));
+  }
+
+  function cancelDietCardsEditor() {
+    setEditingDietCardsId("");
+    setEditingDietCardsDraft(null);
+  }
+
+  async function saveDietCardsEditor(diet) {
+    if (!selectedClient || !diet?.id || !editingDietCardsDraft) return;
+
+    const cleanedExtract = sanitizeExtractedDietForMeals({
+      ...editingDietCardsDraft,
+      editedByCoach: true,
+      editedAt: new Date().toISOString(),
+      warnings: []
+    });
+
+    if (!dietExtractHasVisibleCards(cleanedExtract)) {
+      alert("Non ci sono card pasti valide da salvare. Aggiungi almeno un pasto/opzione con alimenti.");
+      return;
+    }
+
+    setSavingDietCards(true);
+
+    try {
+      const cleanNotes = stripDietExtractBlock(diet.notes || "");
+      const extractBlock = dietExtractToNotesBlock(cleanedExtract);
+      const nextNotes = [cleanNotes, extractBlock].filter(Boolean).join("\n\n");
+
+      const { error } = await supabase
+        .from("diets")
+        .update({ notes: nextNotes || null })
+        .eq("id", diet.id);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      cancelDietCardsEditor();
+      await loadClientBundle(selectedClient.id);
+      alert("Card pasti salvate. La visualizzazione cliente è stata aggiornata.");
+    } finally {
+      setSavingDietCards(false);
     }
   }
 async function savePrivateNote(event) {
@@ -8609,7 +9004,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               </div>
                             </div>
 
-                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
                               <Button
                                 onClick={() => previewDietInApp(activeDietForSelectedClient)}
                                 className="bg-teal-300 text-slate-950 hover:bg-teal-200"
@@ -8634,6 +9029,13 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                   : "Genera vista"}
                               </Button>
                               <Button
+                                onClick={() => openDietCardsEditor(activeDietForSelectedClient)}
+                                disabled={!dietExtractedInfo(activeDietForSelectedClient)}
+                                className="border border-slate-200 bg-white text-slate-950"
+                              >
+                                Modifica card
+                              </Button>
+                              <Button
                                 onClick={() =>
                                   downloadStorageFile(
                                     "diets",
@@ -8653,6 +9055,16 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                 {updatingDietId === String(activeDietForSelectedClient.id) ? "Rimozione..." : "Rimuovi piano"}
                               </Button>
                             </div>
+
+                            {editingDietCardsId === String(activeDietForSelectedClient.id) && (
+                              <DietManualCardsEditor
+                                draft={editingDietCardsDraft}
+                                onChange={setEditingDietCardsDraft}
+                                onSave={() => saveDietCardsEditor(activeDietForSelectedClient)}
+                                onCancel={cancelDietCardsEditor}
+                                saving={savingDietCards}
+                              />
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -8772,7 +9184,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           </div>
                         </div>
 
-                        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
+                        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                           <Button
                             onClick={() => previewDietInApp(diet)}
                             className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
@@ -8789,6 +9201,13 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               : dietExtractedInfo(diet)
                               ? "Rigenera"
                               : "Genera"}
+                          </Button>
+                          <Button
+                            onClick={() => openDietCardsEditor(diet)}
+                            disabled={!dietExtractedInfo(diet)}
+                            className="border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+                          >
+                            Modifica
                           </Button>
                           <Button
                             onClick={() =>
@@ -8821,6 +9240,18 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           )}
                         </div>
                       </div>
+
+                      {editingDietCardsId === String(diet.id) && (
+                        <div className="mt-4">
+                          <DietManualCardsEditor
+                            draft={editingDietCardsDraft}
+                            onChange={setEditingDietCardsDraft}
+                            onSave={() => saveDietCardsEditor(diet)}
+                            onCancel={cancelDietCardsEditor}
+                            saving={savingDietCards}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
 
