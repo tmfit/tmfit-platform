@@ -11316,8 +11316,6 @@ function WorkoutPlayerModal({
   });
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [keepAwake, setKeepAwake] = useState(false);
-  const [wakeLockStatus, setWakeLockStatus] = useState("off");
 
   const open = player?.open;
   const plan = player?.plan;
@@ -11334,8 +11332,6 @@ function WorkoutPlayerModal({
       setFeedback({ difficulty: "", feeling: "", notes: "" });
       setSessionStartedAt(Date.now());
       setElapsedSeconds(0);
-      setKeepAwake(false);
-      setWakeLockStatus("off");
     }
   }, [open, plan?.id, day?.id]);
 
@@ -11343,56 +11339,13 @@ function WorkoutPlayerModal({
     if (!open || !sessionStartedAt) return;
 
     const interval = window.setInterval(() => {
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)));
+      setElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000))
+      );
     }, 1000);
 
     return () => window.clearInterval(interval);
   }, [open, sessionStartedAt]);
-
-  useEffect(() => {
-    if (!open || typeof window === "undefined") return;
-
-    let wakeLock = null;
-    let cancelled = false;
-
-    async function requestWakeLock() {
-      if (!keepAwake) {
-        setWakeLockStatus("off");
-        return;
-      }
-
-      if (!navigator?.wakeLock?.request) {
-        setWakeLockStatus("unsupported");
-        return;
-      }
-
-      try {
-        wakeLock = await navigator.wakeLock.request("screen");
-        if (!cancelled) setWakeLockStatus("active");
-
-        wakeLock.addEventListener("release", () => {
-          if (!cancelled && keepAwake) setWakeLockStatus("released");
-        });
-      } catch (error) {
-        if (!cancelled) setWakeLockStatus("unsupported");
-      }
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible" && keepAwake) {
-        requestWakeLock();
-      }
-    }
-
-    requestWakeLock();
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (wakeLock) wakeLock.release().catch(() => {});
-    };
-  }, [open, keepAwake]);
 
   if (!open || !plan || !day) return null;
 
@@ -11400,18 +11353,23 @@ function WorkoutPlayerModal({
     .flatMap((block) => block.workout_exercises || [])
     .filter(Boolean);
 
-  const totalPlannedSets = exercises.reduce((sum, item) => {
-    return sum + plannedSetsForExercise(item).length;
-  }, 0);
-
-  const exercise = exercises[exerciseIndex];
+  const exercise = exercises[exerciseIndex] || null;
   const plannedSets = exercise ? plannedSetsForExercise(exercise) : [];
-  const currentSet = plannedSets[setIndex];
+  const currentSet = plannedSets[setIndex] || null;
+  const totalPlannedSets = exercises.reduce(
+    (sum, item) => sum + plannedSetsForExercise(item).length,
+    0
+  );
 
   const setToken =
     currentSet?.id || currentSet?.temp_id || `virtual-${currentSet?.set_number}`;
   const draftKey = exercise && currentSet ? `${exercise.id}-${setToken}` : "";
   const draft = drafts[draftKey] || {};
+
+  const completedCount = completedSetKeys.length;
+  const progressPercentage = totalPlannedSets
+    ? Math.round((completedCount / totalPlannedSets) * 100)
+    : 0;
 
   const recoverySeconds =
     currentSet?.recovery_seconds ||
@@ -11419,46 +11377,20 @@ function WorkoutPlayerModal({
     exercise?.rest_seconds ||
     90;
 
-  const history = exercise ? getExerciseHistory(exercise) : [];
-  const lastHistory = history[0] || null;
-  const bestHistory = history.reduce((best, item) => {
-    const bestScore = Number(best?.load_kg || 0) * Number(best?.reps_done || 0);
-    const itemScore = Number(item?.load_kg || 0) * Number(item?.reps_done || 0);
-    return itemScore > bestScore ? item : best;
-  }, history[0] || null);
+  const targetReps = currentSet?.target_reps || exercise?.reps || "libere";
+  const targetLoad =
+    currentSet?.target_load_kg ||
+    currentSet?.target_load_text ||
+    exercise?.target_load ||
+    "—";
 
   const showRpe = hasValue(currentSet?.target_rpe) || hasValue(exercise?.target_rpe);
   const showRir = hasValue(currentSet?.target_rir) || hasValue(exercise?.target_rir);
-  const workoutUsesRpe = exercises.some(
-    (item) => hasValue(item?.target_rpe) || plannedSetsForExercise(item).some((set) => hasValue(set?.target_rpe))
-  );
-  const workoutUsesRir = exercises.some(
-    (item) => hasValue(item?.target_rir) || plannedSetsForExercise(item).some((set) => hasValue(set?.target_rir))
-  );
-
-  const completedCount = completedSetKeys.length;
-  const progressPercentage = totalPlannedSets
-    ? Math.round((completedCount / totalPlannedSets) * 100)
-    : 0;
-  const exerciseLetter = String.fromCharCode(65 + exerciseIndex);
-  const historySessions = groupHistoryBySession(history).slice(0, 4);
-  const historyAround90Days = findHistoryAroundDays(history, 90);
-  const targetReps = currentSet?.target_reps || exercise?.reps || "libere";
-  const targetLoad = currentSet?.target_load_kg || currentSet?.target_load_text || exercise?.target_load || "—";
   const videoUrl = exercise?.video_url || exercise?.image_url || "";
-  const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
-  const currentExerciseCompletedSets = exercise ? completedSetsForExercise(exercise) : 0;
-  const currentExerciseProgress = plannedSets.length
-    ? Math.round((currentExerciseCompletedSets / plannedSets.length) * 100)
-    : 0;
-  const completedExercisesCount = exercises.filter((item) => {
-    const itemSets = plannedSetsForExercise(item);
-    return itemSets.length > 0 && completedSetsForExercise(item) >= itemSets.length;
-  }).length;
+  const history = exercise ? getExerciseHistory(exercise) : [];
+  const lastHistory = history[0] || null;
   const nextExercise = exercises[exerciseIndex + 1] || null;
-  const previousExercise = exercises[exerciseIndex - 1] || null;
-  const lastLoadValue = Number(lastHistory?.load_kg || 0);
-  const lastRepsValue = Number(lastHistory?.reps_done || 0);
+  const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
 
   function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
@@ -11498,12 +11430,18 @@ function WorkoutPlayerModal({
         target_rpe: progression?.target_rpe || set.target_rpe || item?.target_rpe || "",
         target_rir: progression?.target_rir || set.target_rir || item?.target_rir || "",
         recovery_seconds:
-          progression?.recovery_seconds || set.recovery_seconds || item?.recovery_seconds || 90
+          progression?.recovery_seconds ||
+          set.recovery_seconds ||
+          item?.recovery_seconds ||
+          90
       }));
     }
 
     const count =
-      Number(progression?.target_sets) || Number(item?.sets) || Number(item?.series) || 1;
+      Number(progression?.target_sets) ||
+      Number(item?.sets) ||
+      Number(item?.series) ||
+      1;
 
     return Array.from({ length: count }).map((_, index) => ({
       id: null,
@@ -11513,7 +11451,10 @@ function WorkoutPlayerModal({
       target_rpe: progression?.target_rpe || item?.target_rpe || "",
       target_rir: progression?.target_rir || item?.target_rir || "",
       recovery_seconds:
-        progression?.recovery_seconds || item?.recovery_seconds || item?.rest_seconds || 90,
+        progression?.recovery_seconds ||
+        item?.recovery_seconds ||
+        item?.rest_seconds ||
+        90,
       target_load_text: progression?.target_load_text || "",
       target_load_kg: progression?.target_load_kg || ""
     }));
@@ -11530,149 +11471,6 @@ function WorkoutPlayerModal({
     ).length;
   }
 
-  function draftForSet(item, set) {
-    const key = setKeyFor(item, set);
-    return drafts[key] || {};
-  }
-
-  function setResultText(item, set) {
-    const itemDraft = draftForSet(item, set);
-    const parts = [];
-
-    if (hasValue(itemDraft.load_kg)) parts.push(`${itemDraft.load_kg} kg`);
-    if (hasValue(itemDraft.reps_done)) parts.push(`${itemDraft.reps_done} reps`);
-    if (hasValue(itemDraft.rpe)) parts.push(`RPE ${itemDraft.rpe}`);
-    if (hasValue(itemDraft.rir)) parts.push(`RIR ${itemDraft.rir}`);
-
-    return parts.length ? parts.join(" · ") : "non compilata";
-  }
-
-  function targetTextForSet(item, set) {
-    const pieces = [];
-    const reps = set?.target_reps || item?.reps;
-    const load = set?.target_load_kg || set?.target_load_text || item?.target_load;
-    const recovery = set?.recovery_seconds || item?.recovery_seconds || item?.rest_seconds;
-
-    if (hasValue(reps)) pieces.push(`${reps} reps`);
-    if (hasValue(load)) pieces.push(`${load} kg`);
-    if (hasValue(recovery)) pieces.push(`${recovery}" rec.`);
-
-    return pieces.length ? pieces.join(" · ") : "target libero";
-  }
-
-  function nextActionLabel() {
-    if (setIndex < plannedSets.length - 1) {
-      return `Vai alla serie ${setIndex + 2}/${plannedSets.length}`;
-    }
-
-    if (nextExercise) {
-      return `Vai a ${nextExercise.exercise_name || "prossimo esercizio"}`;
-    }
-
-    return "Vai al riepilogo finale";
-  }
-
-  function nextActionHelper() {
-    if (setIndex < plannedSets.length - 1) {
-      return "Continua con la serie successiva dello stesso esercizio.";
-    }
-
-    if (nextExercise) {
-      const nextSets = plannedSetsForExercise(nextExercise).length;
-      return `${nextExercise.exercise_name || "Prossimo esercizio"} · ${nextSets} serie`;
-    }
-
-    return "Hai completato l’ultima serie prevista: chiudi con il riepilogo.";
-  }
-
-  function parseHistoryDate(item) {
-    const value = item?.workout_sessions?.session_date || item?.created_at;
-    if (!value) return null;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  function formatDate(value) {
-    if (!value) return "—";
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) return "—";
-
-    return date.toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric"
-    });
-  }
-
-  function daysAgo(value) {
-    const date = value instanceof Date ? value : parseHistoryDate(value);
-    if (!date) return null;
-    return Math.max(0, Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)));
-  }
-
-  function relativeDateText(value) {
-    const days = daysAgo(value);
-    if (days === null) return "data non disponibile";
-    if (days === 0) return "oggi";
-    if (days === 1) return "ieri";
-    return `${days} giorni fa`;
-  }
-
-  function groupHistoryBySession(items) {
-    const map = new Map();
-
-    items.forEach((item) => {
-      const sessionDate = item?.workout_sessions?.session_date || item?.created_at || "senza-data";
-      const key = `${item?.session_id || sessionDate}`;
-
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          date: sessionDate,
-          dateObject: parseHistoryDate(item),
-          items: []
-        });
-      }
-
-      map.get(key).items.push(item);
-    });
-
-    return Array.from(map.values())
-      .map((group) => ({
-        ...group,
-        items: [...group.items].sort(
-          (a, b) => Number(a.set_number || 0) - Number(b.set_number || 0)
-        )
-      }))
-      .sort((a, b) => {
-        const left = a.dateObject?.getTime() || 0;
-        const right = b.dateObject?.getTime() || 0;
-        return right - left;
-      });
-  }
-
-  function findHistoryAroundDays(items, targetDays) {
-    const candidates = items
-      .map((item) => ({ item, days: daysAgo(item) }))
-      .filter((entry) => entry.days !== null && entry.days >= targetDays - 45)
-      .sort(
-        (a, b) => Math.abs(a.days - targetDays) - Math.abs(b.days - targetDays)
-      );
-
-    return candidates[0] || null;
-  }
-
-  function metricText(item) {
-    const parts = [];
-
-    if (hasValue(item?.load_kg)) parts.push(`${item.load_kg} kg`);
-    if (hasValue(item?.reps_done)) parts.push(`${item.reps_done} reps`);
-    if (hasValue(item?.rpe)) parts.push(`RPE ${item.rpe}`);
-    if (hasValue(item?.rir)) parts.push(`RIR ${item.rir}`);
-
-    return parts.length ? parts.join(" · ") : "dato non compilato";
-  }
-
   function formatElapsed(value) {
     const seconds = Math.max(0, Number(value || 0));
     const hours = Math.floor(seconds / 3600);
@@ -11686,10 +11484,18 @@ function WorkoutPlayerModal({
     return `${minutes}:${String(secs).padStart(2, "0")}`;
   }
 
-  function setCurrentExercise(index) {
-    setExerciseIndex(index);
-    setSetIndex(0);
-    setResting(false);
+  function targetSummaryForSet(set) {
+    const parts = [];
+    if (hasValue(set?.target_reps || exercise?.reps)) {
+      parts.push(`${set?.target_reps || exercise?.reps} reps`);
+    }
+    if (hasValue(set?.target_load_kg || set?.target_load_text || exercise?.target_load)) {
+      parts.push(`${set?.target_load_kg || set?.target_load_text || exercise?.target_load} kg`);
+    }
+    if (hasValue(set?.recovery_seconds || exercise?.recovery_seconds)) {
+      parts.push(`${set?.recovery_seconds || exercise?.recovery_seconds}" rec.`);
+    }
+    return parts.length ? parts.join(" · ") : "target libero";
   }
 
   function goPrevious() {
@@ -11725,6 +11531,12 @@ function WorkoutPlayerModal({
     setFinished(true);
   }
 
+  function nextActionLabel() {
+    if (setIndex < plannedSets.length - 1) return "Prossima serie";
+    if (nextExercise) return "Prossimo esercizio";
+    return "Riepilogo";
+  }
+
   function applyLastSet() {
     if (!lastHistory || !draftKey) return;
 
@@ -11747,36 +11559,11 @@ function WorkoutPlayerModal({
     if (showRir) updateDraft(draftKey, "rir", currentSet.target_rir || draft.rir || "");
   }
 
-  function adjustDraftNumber(field, delta, decimals = 1) {
-    if (!draftKey) return;
-
-    const currentValue = Number(String(draft[field] || "").replace(",", "."));
-    const baseValue = Number.isNaN(currentValue) ? 0 : currentValue;
-    const nextValue = Math.max(0, baseValue + delta);
-    const formatted = Number.isInteger(nextValue)
-      ? String(nextValue)
-      : nextValue.toFixed(decimals).replace(/\.0$/, "");
-
-    updateDraft(draftKey, field, formatted);
-  }
-
-  function applyLastWithIncrement(extraKg = 0) {
-    if (!lastHistory || !draftKey) return;
-
-    const nextLoad = Number(lastHistory.load_kg || 0) + extraKg;
-    updateDraft(draftKey, "load_kg", nextLoad > 0 ? String(nextLoad).replace(/\.0$/, "") : "");
-    updateDraft(draftKey, "reps_done", lastHistory.reps_done || "");
-    if (showRpe) updateDraft(draftKey, "rpe", lastHistory.rpe || "");
-    if (showRir) updateDraft(draftKey, "rir", lastHistory.rir || "");
-  }
-
   async function saveCurrentSet() {
     if (!exercise || !currentSet) return;
 
     setSaving(true);
-
     const ok = await saveSetLog(plan, day, exercise, currentSet);
-
     setSaving(false);
 
     if (ok) {
@@ -11790,14 +11577,9 @@ function WorkoutPlayerModal({
           document
             .getElementById("tmfit-rest-timer")
             ?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }, 120);
+        }, 100);
       }
     }
-  }
-
-  function closeCompletedWorkout() {
-    if (onWorkoutSaved) onWorkoutSaved();
-    onClose();
   }
 
   function requestCloseWorkout() {
@@ -11807,7 +11589,7 @@ function WorkoutPlayerModal({
     }
 
     const confirmed = window.confirm(
-      "Vuoi uscire da Allenati? Le serie già salvate restano registrate, ma la seduta non verrà chiusa con riepilogo finale."
+      "Vuoi uscire da Allenati? Le serie già salvate restano registrate."
     );
 
     if (confirmed) onClose();
@@ -11816,7 +11598,7 @@ function WorkoutPlayerModal({
   function requestFinishWorkout() {
     if (completedCount < totalPlannedSets && typeof window !== "undefined") {
       const confirmed = window.confirm(
-        `Hai salvato ${completedCount}/${totalPlannedSets} serie. Vuoi terminare comunque l’allenamento?`
+        `Hai salvato ${completedCount}/${totalPlannedSets} serie. Vuoi terminare comunque?`
       );
 
       if (!confirmed) return;
@@ -11825,110 +11607,70 @@ function WorkoutPlayerModal({
     setFinished(true);
   }
 
+  function closeCompletedWorkout() {
+    if (onWorkoutSaved) onWorkoutSaved();
+    onClose();
+  }
+
   function openVideo() {
     if (!videoUrl || typeof window === "undefined") return;
     window.open(videoUrl, "_blank", "noopener,noreferrer");
   }
 
-  function HistoryMiniCard({ title, item, tone = "slate", helper }) {
-    if (!item) return null;
+  function setStatusClass(index, set) {
+    const selected = index === setIndex;
+    const done = completedSetKeys.includes(setKeyFor(exercise, set));
 
-    const classes =
-      tone === "dark"
-        ? "bg-[#07111f] text-white"
-        : tone === "teal"
-        ? "bg-teal-50 text-teal-950"
-        : tone === "amber"
-        ? "bg-amber-50 text-amber-950"
-        : "bg-slate-50 text-slate-950";
-
-    const eyebrowClass =
-      tone === "dark"
-        ? "text-teal-300"
-        : tone === "teal"
-        ? "text-teal-700"
-        : tone === "amber"
-        ? "text-amber-700"
-        : "text-slate-500";
-
-    return (
-      <div className={`rounded-2xl p-3 ${classes}`}>
-        <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${eyebrowClass}`}>
-          {title}
-        </p>
-        <p className="mt-1 text-base font-black leading-tight">
-          {metricText(item)}
-        </p>
-        <p className="mt-1 text-xs font-bold opacity-70">
-          {helper || formatDate(item.workout_sessions?.session_date || item.created_at)}
-        </p>
-      </div>
-    );
+    if (selected) return "bg-[#07111f] text-white border-[#07111f]";
+    if (done) return "bg-teal-50 text-teal-800 border-teal-200";
+    return "bg-white text-slate-500 border-slate-200";
   }
 
   return (
-    <div className="fixed inset-0 z-[130] overflow-hidden bg-[#07111f]">
+    <div className="fixed inset-0 z-[130] bg-[#07111f]">
       <div className="mx-auto flex h-[100dvh] w-full max-w-[480px] flex-col overflow-hidden bg-slate-50 shadow-2xl">
-        <div className="shrink-0 bg-[#07111f] px-4 pb-4 pt-[calc(0.9rem+env(safe-area-inset-top))] text-white">
+        <div className="shrink-0 bg-[#07111f] px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] text-white">
           <div className="flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={requestCloseWorkout}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white active:scale-[.96]"
+              className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-white active:scale-[.96]"
               aria-label="Chiudi allenamento"
             >
-              <X size={20} />
+              <X size={19} />
             </button>
 
             <div className="min-w-0 flex-1 text-center">
-              <p className="truncate text-[11px] font-black uppercase tracking-[0.24em] text-teal-300">
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-teal-300">
                 Allenati
               </p>
-              <h2 className="mt-1 truncate text-lg font-black leading-tight">
+              <h2 className="mt-1 truncate text-base font-black leading-tight">
                 {day.title || "Allenamento"}
               </h2>
-              <p className="mt-0.5 truncate text-xs font-bold text-slate-300">
-                {plan.title || "Programma"}
-              </p>
             </div>
 
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-300 text-sm font-black text-slate-950">
+            <div className="rounded-2xl bg-teal-300 px-3 py-2 text-sm font-black text-slate-950">
               {progressPercentage}%
             </div>
           </div>
 
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-slate-300">
-              <span>Esercizio {exerciseIndex + 1}/{Math.max(exercises.length, 1)}</span>
-              <span>Serie {exercise ? setIndex + 1 : 0}/{Math.max(plannedSets.length, 1)}</span>
+          <div className="mt-3">
+            <div className="mb-1.5 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-300">
+              <span>{completedCount}/{totalPlannedSets} serie</span>
+              <span>{formatElapsed(elapsedSeconds)}</span>
             </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
+            <div className="h-2 overflow-hidden rounded-full bg-white/10">
               <div
                 className="h-full rounded-full bg-teal-300 transition-all"
                 style={{ width: `${progressPercentage}%` }}
               />
             </div>
           </div>
-
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            <div className="rounded-2xl bg-white/10 px-2 py-2 text-center">
-              <p className="text-sm font-black text-white">{formatElapsed(elapsedSeconds)}</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-slate-300">Tempo</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 px-2 py-2 text-center">
-              <p className="text-sm font-black text-white">{completedCount}/{totalPlannedSets}</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-slate-300">Serie</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 px-2 py-2 text-center">
-              <p className="truncate text-sm font-black text-white">{exerciseIndex + 1}/{Math.max(exercises.length, 1)}</p>
-              <p className="text-[9px] font-black uppercase tracking-wider text-slate-300">Esercizi</p>
-            </div>
-          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4">
           {finished ? (
-            <div className="space-y-4">
+            <div className="space-y-4 pb-28">
               <Card className="p-5 text-center">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
                   <Check size={28} />
@@ -11937,7 +11679,7 @@ function WorkoutPlayerModal({
                   Allenamento completato
                 </h3>
                 <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                  Hai completato {completedSetKeys.length}/{totalPlannedSets} serie. Il coach potrà vedere carichi e reps{workoutUsesRpe ? ", RPE" : ""}{workoutUsesRir ? ", RIR" : ""}.
+                  Hai salvato {completedCount}/{totalPlannedSets} serie.
                 </p>
               </Card>
 
@@ -11947,292 +11689,94 @@ function WorkoutPlayerModal({
                   <p className="text-[10px] font-black uppercase text-slate-400">Esercizi</p>
                 </div>
                 <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                  <p className="text-2xl font-black text-slate-950">{completedSetKeys.length}</p>
+                  <p className="text-2xl font-black text-slate-950">{completedCount}</p>
                   <p className="text-[10px] font-black uppercase text-slate-400">Serie</p>
                 </div>
                 <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                  <p className="text-2xl font-black text-slate-950">{progressPercentage}%</p>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Fatto</p>
+                  <p className="text-2xl font-black text-slate-950">{formatElapsed(elapsedSeconds)}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Tempo</p>
                 </div>
               </div>
 
-              <Card className="border-none bg-[#07111f] p-4 text-white shadow-md">
-                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-300">
-                  Dati seduta
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="rounded-2xl bg-white/10 p-3 text-center">
-                    <p className="text-2xl font-black">{formatElapsed(elapsedSeconds)}</p>
-                    <p className="text-[10px] font-black uppercase text-slate-300">Tempo totale</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/10 p-3 text-center">
-                    <p className="text-2xl font-black">{completedExercisesCount}/{exercises.length}</p>
-                    <p className="text-[10px] font-black uppercase text-slate-300">Esercizi completati</p>
-                  </div>
-                </div>
-              </Card>
-
               <Card className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                      Riepilogo allenamento
-                    </p>
-                    <h4 className="mt-1 text-xl font-black text-slate-950">
-                      Cosa hai completato
-                    </h4>
-                  </div>
-                  <Pill className="bg-teal-50 text-teal-800">
-                    {completedSetKeys.length}/{totalPlannedSets}
-                  </Pill>
-                </div>
+                <Label title="Difficoltà percepita">
+                  <Select
+                    value={feedback.difficulty}
+                    onChange={(event) =>
+                      setFeedback((prev) => ({ ...prev, difficulty: event.target.value }))
+                    }
+                    className="text-base"
+                  >
+                    <option value="">Seleziona</option>
+                    <option value="facile">Facile</option>
+                    <option value="giusta">Giusta</option>
+                    <option value="dura">Dura</option>
+                    <option value="troppo_dura">Troppo dura</option>
+                  </Select>
+                </Label>
 
-                <div className="mt-4 space-y-2">
-                  {exercises.map((item, index) => {
-                    const itemSets = plannedSetsForExercise(item);
-                    const done = completedSetsForExercise(item);
-                    const complete = itemSets.length > 0 && done >= itemSets.length;
+                <Label title="Sensazioni" className="mt-3">
+                  <Select
+                    value={feedback.feeling}
+                    onChange={(event) =>
+                      setFeedback((prev) => ({ ...prev, feeling: event.target.value }))
+                    }
+                    className="text-base"
+                  >
+                    <option value="">Seleziona</option>
+                    <option value="ottime">Ottime</option>
+                    <option value="buone">Buone</option>
+                    <option value="normali">Normali</option>
+                    <option value="scarse">Scarse</option>
+                  </Select>
+                </Label>
 
-                    return (
-                      <div
-                        key={item.id || item.temp_id || index}
-                        className="rounded-2xl bg-slate-50 p-3"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-black text-slate-950">
-                              {index + 1}. {item.exercise_name || "Esercizio"}
-                            </p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">
-                              {done}/{itemSets.length} serie salvate
-                            </p>
-                          </div>
-                          <span
-                            className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-black ${
-                              complete
-                                ? "bg-teal-300 text-slate-950"
-                                : done > 0
-                                ? "bg-amber-100 text-amber-800"
-                                : "bg-white text-slate-500"
-                            }`}
-                          >
-                            {complete ? "Completo" : done > 0 ? "Parziale" : "Da fare"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-
-              <Card className="p-4">
-                <div className="grid gap-3">
-                  <Label title="Difficoltà percepita">
-                    <Select
-                      value={feedback.difficulty}
-                      onChange={(event) =>
-                        setFeedback((prev) => ({
-                          ...prev,
-                          difficulty: event.target.value
-                        }))
-                      }
-                      className="text-base"
-                    >
-                      <option value="">Seleziona</option>
-                      <option value="facile">Facile</option>
-                      <option value="giusta">Giusta</option>
-                      <option value="dura">Dura</option>
-                      <option value="troppo_dura">Troppo dura</option>
-                    </Select>
-                  </Label>
-
-                  <Label title="Sensazioni">
-                    <Select
-                      value={feedback.feeling}
-                      onChange={(event) =>
-                        setFeedback((prev) => ({
-                          ...prev,
-                          feeling: event.target.value
-                        }))
-                      }
-                      className="text-base"
-                    >
-                      <option value="">Seleziona</option>
-                      <option value="ottime">Ottime</option>
-                      <option value="buone">Buone</option>
-                      <option value="normali">Normali</option>
-                      <option value="scarse">Scarse</option>
-                    </Select>
-                  </Label>
-
-                  <Label title="Note finali per il coach">
-                    <Textarea
-                      value={feedback.notes}
-                      onChange={(event) =>
-                        setFeedback((prev) => ({ ...prev, notes: event.target.value }))
-                      }
-                      placeholder="Es. panca ok, squat pesante, fastidio spalla..."
-                      className="text-base"
-                    />
-                  </Label>
-                </div>
+                <Label title="Note per il coach" className="mt-3">
+                  <Textarea
+                    value={feedback.notes}
+                    onChange={(event) =>
+                      setFeedback((prev) => ({ ...prev, notes: event.target.value }))
+                    }
+                    placeholder="Es. carico ok, fastidio, esercizio difficile..."
+                    className="text-base"
+                  />
+                </Label>
               </Card>
             </div>
           ) : !exercise ? (
-            <Empty
-              title="Nessun esercizio"
-              text="Questo allenamento non contiene esercizi."
-            />
+            <Empty title="Nessun esercizio" text="Questo allenamento non contiene esercizi." />
           ) : (
-            <div className="space-y-4">
-              <Card className="border-none bg-[#07111f] p-4 text-white shadow-md">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-300">
-                      Sessione live
-                    </p>
-                    <h3 className="mt-1 text-xl font-black">
-                      {formatElapsed(elapsedSeconds)} · {progressPercentage}% completato
-                    </h3>
-                    <p className="mt-1 text-xs font-bold leading-5 text-slate-300">
-                      {completedCount}/{totalPlannedSets} serie salvate · esercizio {exerciseIndex + 1}/{Math.max(exercises.length, 1)}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-teal-300 px-3 py-2 text-center text-slate-950">
-                    <p className="text-sm font-black">{currentExerciseCompletedSets}/{plannedSets.length}</p>
-                    <p className="text-[9px] font-black uppercase tracking-wider">Serie eserc.</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-white/10 px-3 py-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-black text-white">Schermo attivo</p>
-                    <p className="mt-0.5 truncate text-[11px] font-bold text-slate-300">
-                      {wakeLockStatus === "active"
-                        ? "Attivo durante la seduta"
-                        : wakeLockStatus === "unsupported"
-                        ? "Non supportato dal dispositivo"
-                        : wakeLockStatus === "released"
-                        ? "Sospeso, riattivalo"
-                        : "Opzionale su iPhone/Android"}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setKeepAwake((current) => !current)}
-                    className={`shrink-0 rounded-2xl px-4 py-2.5 text-xs font-black active:scale-[.96] ${
-                      keepAwake
-                        ? "bg-teal-300 text-slate-950"
-                        : "bg-white/10 text-white"
-                    }`}
-                  >
-                    {keepAwake ? "ON" : "OFF"}
-                  </button>
-                </div>
-              </Card>
-
-              <Card className="overflow-hidden border-none shadow-md">
-                <div className="bg-white p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                        Percorso allenamento
-                      </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
-                        {day.title || "Allenamento"}
-                      </h3>
-                      <p className="mt-1 text-xs font-bold text-slate-500">
-                        Tocca un numero per saltare subito all’esercizio.
-                      </p>
-                    </div>
-                    <Pill className="bg-[#07111f] text-white">
-                      {completedCount}/{totalPlannedSets} serie
-                    </Pill>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-5 gap-2">
-                    {exercises.map((item, index) => {
-                      const itemSets = plannedSetsForExercise(item);
-                      const done = completedSetsForExercise(item);
-                      const active = index === exerciseIndex;
-                      const complete = itemSets.length > 0 && done >= itemSets.length;
-
-                      return (
-                        <button
-                          key={item.id || item.temp_id || index}
-                          type="button"
-                          onClick={() => setCurrentExercise(index)}
-                          className={`rounded-2xl px-2 py-3 text-center text-xs font-black active:scale-[.96] ${
-                            active
-                              ? "bg-[#07111f] text-white shadow-lg"
-                              : complete
-                              ? "bg-teal-50 text-teal-800"
-                              : "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          <span className="block text-base">{index + 1}</span>
-                          <span className="mt-0.5 block text-[10px] opacity-75">
-                            {done}/{itemSets.length}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-lg font-black text-slate-950">{currentExerciseProgress}%</p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Esercizio</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="truncate text-lg font-black text-slate-950">
-                        {previousExercise ? previousExercise.exercise_name || "Precedente" : "—"}
-                      </p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Prima</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="truncate text-lg font-black text-slate-950">
-                        {nextExercise ? nextExercise.exercise_name || "Prossimo" : "Fine"}
-                      </p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Dopo</p>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {resting && (
-                <div id="tmfit-rest-timer">
-                  <RestTimer seconds={recoverySeconds} autoStart prominent />
-                </div>
-              )}
-
+            <div className="space-y-4 pb-32">
               <Card className="overflow-hidden border-none shadow-md">
                 <div className="bg-white p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-lg font-black text-teal-700">
-                      {exerciseLetter}.
-                    </div>
-                    <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
                       <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                        Esercizio attuale
+                        Esercizio {exerciseIndex + 1}/{Math.max(exercises.length, 1)}
                       </p>
                       <h3 className="mt-2 text-2xl font-black leading-tight text-slate-950">
                         {exercise.exercise_name || "Esercizio"}
                       </h3>
                     </div>
+                    <div className="rounded-2xl bg-teal-50 px-3 py-2 text-center text-teal-800">
+                      <p className="text-base font-black">
+                        {completedSetsForExercise(exercise)}/{plannedSets.length}
+                      </p>
+                      <p className="text-[9px] font-black uppercase tracking-wider">Serie</p>
+                    </div>
                   </div>
 
-                  <div className="mt-5 grid grid-cols-3 gap-2">
+                  <div className="mt-4 grid grid-cols-3 gap-2">
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-2xl font-black text-slate-950">{plannedSets.length}</p>
+                      <p className="text-xl font-black text-slate-950">{plannedSets.length}</p>
                       <p className="text-[10px] font-black uppercase text-slate-400">Serie</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-2xl font-black text-slate-950">{targetReps}</p>
+                      <p className="truncate text-xl font-black text-slate-950">{targetReps}</p>
                       <p className="text-[10px] font-black uppercase text-slate-400">Reps</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-2xl font-black text-slate-950">{recoverySeconds}"</p>
+                      <p className="text-xl font-black text-slate-950">{recoverySeconds}"</p>
                       <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
                     </div>
                   </div>
@@ -12243,52 +11787,51 @@ function WorkoutPlayerModal({
                     </div>
                   )}
 
-                  <div className="mt-5 grid gap-2">
-                    <button
-                      type="button"
-                      onClick={openVideo}
-                      disabled={!videoUrl}
-                      className="rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white disabled:bg-slate-200 disabled:text-slate-500"
-                    >
-                      {videoUrl ? "Vedi esecuzione ▶" : "Video non inserito"}
-                    </button>
-
-                    <a
-                      href="#tmfit-history"
-                      className="rounded-2xl border-2 border-[#07111f] bg-white px-4 py-3 text-center text-sm font-black text-[#07111f]"
-                    >
-                      Vai allo storico pesi
-                    </a>
-                  </div>
-
-                  {exercise.notes && (
-                    <div className="mt-5">
-                      <p className="text-sm font-black text-slate-950">Note coach</p>
-                      <div className="mt-2 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-                        {exercise.notes}
-                      </div>
-                    </div>
-                  )}
-
-                  {exercise.execution_mode && (
-                    <div className="mt-3 rounded-2xl bg-teal-50 p-4 text-sm font-bold leading-6 text-teal-900">
-                      Esecuzione: {exercise.execution_mode}
+                  {(exercise.notes || exercise.execution_mode || videoUrl) && (
+                    <div className="mt-4 grid gap-2">
+                      {exercise.notes && (
+                        <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+                          <span className="font-black">Note coach: </span>
+                          {exercise.notes}
+                        </div>
+                      )}
+                      {exercise.execution_mode && (
+                        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-700">
+                          <span className="font-black">Esecuzione: </span>
+                          {exercise.execution_mode}
+                        </div>
+                      )}
+                      {videoUrl && (
+                        <button
+                          type="button"
+                          onClick={openVideo}
+                          className="rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.97]"
+                        >
+                          Vedi esecuzione
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               </Card>
 
+              {resting && (
+                <div id="tmfit-rest-timer">
+                  <RestTimer seconds={recoverySeconds} autoStart prominent />
+                </div>
+              )}
+
               <Card className="p-4 shadow-md">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                      Registra serie
+                      Serie attuale
                     </p>
                     <h4 className="mt-1 text-xl font-black text-slate-950">
                       Serie {setIndex + 1} di {plannedSets.length}
                     </h4>
                     <p className="mt-1 text-xs font-bold text-slate-500">
-                      Inserisci peso e ripetizioni. RPE/RIR compaiono solo se previsti dal coach.
+                      {targetSummaryForSet(currentSet)}
                     </p>
                   </div>
                   <Pill
@@ -12298,64 +11841,31 @@ function WorkoutPlayerModal({
                         : "bg-[#07111f] text-white"
                     }
                   >
-                    {completedSetKeys.includes(draftKey) ? "Salvata" : `${completedCount}/${totalPlannedSets}`}
+                    {completedSetKeys.includes(draftKey) ? "Salvata" : "Da fare"}
                   </Pill>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {plannedSets.map((set, index) => {
-                    const selected = index === setIndex;
-                    const done = completedSetKeys.includes(setKeyFor(exercise, set));
-                    return (
-                      <button
-                        key={set.id || set.temp_id || index}
-                        type="button"
-                        onClick={() => {
-                          setSetIndex(index);
-                          setResting(false);
-                        }}
-                        className={`rounded-2xl px-3 py-3 text-left text-xs font-black active:scale-[.97] ${
-                          selected
-                            ? "bg-[#07111f] text-white"
-                            : done
-                            ? "bg-teal-50 text-teal-800"
-                            : "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        Serie {index + 1}
-                        <span className="mt-1 block text-[11px] opacity-75">
-                          {done ? "salvata" : selected ? "attuale" : "da fare"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-4 rounded-[1.35rem] bg-slate-50 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
-                    Target serie attuale
-                  </p>
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                      <p className="text-base font-black text-slate-950">{targetReps}</p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Reps</p>
-                    </div>
-                    <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                      <p className="truncate text-base font-black text-slate-950">{targetLoad}</p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Carico</p>
-                    </div>
-                    <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                      <p className="text-base font-black text-slate-950">{recoverySeconds}"</p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
-                    </div>
-                  </div>
-                  {(showRpe || showRir) && (
-                    <div className="mt-2 rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm">
-                      {showRpe && <span>RPE target: {currentSet?.target_rpe || exercise?.target_rpe || "—"}</span>}
-                      {showRpe && showRir && <span> · </span>}
-                      {showRir && <span>RIR target: {currentSet?.target_rir || exercise?.target_rir || "—"}</span>}
-                    </div>
-                  )}
+                <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                  {plannedSets.map((set, index) => (
+                    <button
+                      key={set.id || set.temp_id || index}
+                      type="button"
+                      onClick={() => {
+                        setSetIndex(index);
+                        setResting(false);
+                      }}
+                      className={`min-w-[84px] rounded-2xl border px-3 py-3 text-center text-xs font-black active:scale-[.97] ${setStatusClass(index, set)}`}
+                    >
+                      Serie {index + 1}
+                      <span className="mt-1 block text-[10px] opacity-75">
+                        {completedSetKeys.includes(setKeyFor(exercise, set))
+                          ? "salvata"
+                          : index === setIndex
+                          ? "attuale"
+                          : ""}
+                      </span>
+                    </button>
+                  ))}
                 </div>
 
                 <div className="mt-5 grid grid-cols-2 gap-3">
@@ -12363,11 +11873,9 @@ function WorkoutPlayerModal({
                     <Input
                       inputMode="decimal"
                       value={draft.load_kg || ""}
-                      onChange={(event) =>
-                        updateDraft(draftKey, "load_kg", event.target.value)
-                      }
+                      onChange={(event) => updateDraft(draftKey, "load_kg", event.target.value)}
                       placeholder="80"
-                      className="h-14 text-center text-lg font-black"
+                      className="h-14 text-center text-xl font-black"
                     />
                   </Label>
 
@@ -12375,342 +11883,125 @@ function WorkoutPlayerModal({
                     <Input
                       inputMode="numeric"
                       value={draft.reps_done || ""}
-                      onChange={(event) =>
-                        updateDraft(draftKey, "reps_done", event.target.value)
-                      }
+                      onChange={(event) => updateDraft(draftKey, "reps_done", event.target.value)}
                       placeholder="10"
-                      className="h-14 text-center text-lg font-black"
-                    />
-                  </Label>
-
-                  {showRpe && (
-                    <Label title="RPE">
-                      <Input
-                        inputMode="decimal"
-                        value={draft.rpe || ""}
-                        onChange={(event) =>
-                          updateDraft(draftKey, "rpe", event.target.value)
-                        }
-                        placeholder="8"
-                        className="h-14 text-center text-lg font-black"
-                      />
-                    </Label>
-                  )}
-
-                  {showRir && (
-                    <Label title="RIR">
-                      <Input
-                        inputMode="decimal"
-                        value={draft.rir || ""}
-                        onChange={(event) =>
-                          updateDraft(draftKey, "rir", event.target.value)
-                        }
-                        placeholder="2"
-                        className="h-14 text-center text-lg font-black"
-                      />
-                    </Label>
-                  )}
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => adjustDraftNumber("load_kg", -2.5)}
-                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
-                  >
-                    -2,5 kg
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => adjustDraftNumber("load_kg", 2.5)}
-                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
-                  >
-                    +2,5 kg
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => adjustDraftNumber("reps_done", -1, 0)}
-                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
-                  >
-                    -1 rep
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => adjustDraftNumber("reps_done", 1, 0)}
-                    className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
-                  >
-                    +1 rep
-                  </button>
-                </div>
-
-                <div className="mt-3">
-                  <Label title="Note serie">
-                    <Input
-                      value={draft.notes || ""}
-                      onChange={(event) =>
-                        updateDraft(draftKey, "notes", event.target.value)
-                      }
-                      placeholder="Facoltativo"
-                      className="text-base"
+                      className="h-14 text-center text-xl font-black"
                     />
                   </Label>
                 </div>
 
-                <div className="mt-4 grid gap-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={applyLastSet}
-                      disabled={!lastHistory}
-                      className="rounded-2xl bg-slate-100 px-3 py-3 text-left text-xs font-black text-slate-800 disabled:opacity-40"
-                    >
-                      <span className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                        Usa ultimo
-                      </span>
-                      <span className="mt-1 block text-sm text-slate-950">
-                        {lastHistory ? metricText(lastHistory) : "Nessuno storico"}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyLastWithIncrement(2.5)}
-                      disabled={!lastHistory || !lastLoadValue}
-                      className="rounded-2xl bg-amber-50 px-3 py-3 text-left text-xs font-black text-amber-900 disabled:opacity-40"
-                    >
-                      <span className="block text-[10px] uppercase tracking-[0.18em] text-amber-700">
-                        Ultimo +2,5 kg
-                      </span>
-                      <span className="mt-1 block text-sm text-amber-950">
-                        {lastHistory && lastLoadValue ? `${lastLoadValue + 2.5} kg · ${lastRepsValue || "—"} reps` : "Non disponibile"}
-                      </span>
-                    </button>
+                {(showRpe || showRir) && (
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {showRpe && (
+                      <Label title={`RPE target ${currentSet?.target_rpe || exercise?.target_rpe || ""}`}>
+                        <Input
+                          inputMode="decimal"
+                          value={draft.rpe || ""}
+                          onChange={(event) => updateDraft(draftKey, "rpe", event.target.value)}
+                          placeholder="8"
+                          className="h-12 text-center text-base font-black"
+                        />
+                      </Label>
+                    )}
+
+                    {showRir && (
+                      <Label title={`RIR target ${currentSet?.target_rir || exercise?.target_rir || ""}`}>
+                        <Input
+                          inputMode="decimal"
+                          value={draft.rir || ""}
+                          onChange={(event) => updateDraft(draftKey, "rir", event.target.value)}
+                          placeholder="2"
+                          className="h-12 text-center text-base font-black"
+                        />
+                      </Label>
+                    )}
                   </div>
+                )}
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={applyLastSet}
+                    disabled={!lastHistory}
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                  >
+                    Usa ultimo
+                  </button>
                   <button
                     type="button"
                     onClick={applyTargetSet}
-                    className="rounded-2xl bg-teal-300 px-3 py-3 text-sm font-black text-slate-950"
+                    disabled={!currentSet}
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
                   >
-                    Usa target della scheda
+                    Usa target
                   </button>
                 </div>
-              </Card>
 
-              <Card className="p-4 shadow-md">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                      Riepilogo esercizio
-                    </p>
-                    <h4 className="mt-1 text-xl font-black text-slate-950">
-                      Serie di {exercise.exercise_name || "questo esercizio"}
-                    </h4>
-                    <p className="mt-1 text-xs font-bold text-slate-500">
-                      Tocca una serie per correggerla o completarla.
-                    </p>
+                {lastHistory && (
+                  <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-bold leading-5 text-slate-600">
+                    Ultima volta: {lastHistory.load_kg || "—"} kg · {lastHistory.reps_done || "—"} reps
+                    {hasValue(lastHistory.rpe) ? ` · RPE ${lastHistory.rpe}` : ""}
+                    {hasValue(lastHistory.rir) ? ` · RIR ${lastHistory.rir}` : ""}
                   </div>
-                  <Pill className="bg-slate-100 text-slate-700">
-                    {currentExerciseCompletedSets}/{plannedSets.length}
-                  </Pill>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  {plannedSets.map((set, index) => {
-                    const selected = index === setIndex;
-                    const done = completedSetKeys.includes(setKeyFor(exercise, set));
-                    const result = setResultText(exercise, set);
-
-                    return (
-                      <button
-                        key={set.id || set.temp_id || index}
-                        type="button"
-                        onClick={() => {
-                          setSetIndex(index);
-                          setResting(false);
-                        }}
-                        className={`w-full rounded-2xl p-3 text-left transition active:scale-[.98] ${
-                          selected
-                            ? "bg-[#07111f] text-white"
-                            : done
-                            ? "bg-teal-50 text-teal-950"
-                            : "bg-slate-50 text-slate-800"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-black">Serie {index + 1}</p>
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-[10px] font-black ${
-                              selected
-                                ? "bg-white/10 text-white"
-                                : done
-                                ? "bg-teal-300 text-slate-950"
-                                : "bg-white text-slate-500"
-                            }`}
-                          >
-                            {done ? "Salvata" : selected ? "Attuale" : "Da fare"}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs font-bold opacity-70">
-                          Target: {targetTextForSet(exercise, set)}
-                        </p>
-                        <p className="mt-1 text-xs font-black">
-                          Fatto: {result}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </Card>
-
-              {resting && (
-                <Card className="border-none bg-teal-50 p-4 shadow-md">
-                  <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-700">
-                    Prossimo passo
-                  </p>
-                  <h4 className="mt-1 text-lg font-black text-teal-950">
-                    {nextActionLabel()}
-                  </h4>
-                  <p className="mt-1 text-sm font-bold leading-6 text-teal-800">
-                    {nextActionHelper()}
-                  </p>
-                </Card>
-              )}
-
-              <Card id="tmfit-history" className="p-4 shadow-md">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                      Storico pesi
-                    </p>
-                    <h4 className="mt-1 text-xl font-black text-slate-950">
-                      {exercise.exercise_name || "Esercizio"}
-                    </h4>
-                  </div>
-                  <Pill className="bg-slate-100 text-slate-700">
-                    {history.length} serie
-                  </Pill>
-                </div>
-
-                {lastHistory ? (
-                  <div className="mt-4 space-y-3">
-                    <HistoryMiniCard
-                      title="Ultima volta"
-                      item={lastHistory}
-                      tone="dark"
-                      helper={`${formatDate(lastHistory.workout_sessions?.session_date || lastHistory.created_at)} · ${relativeDateText(lastHistory)}`}
-                    />
-                    <HistoryMiniCard
-                      title="Miglior serie"
-                      item={bestHistory}
-                      tone="teal"
-                      helper={formatDate(bestHistory?.workout_sessions?.session_date || bestHistory?.created_at)}
-                    />
-                    {historyAround90Days && (
-                      <HistoryMiniCard
-                        title="Circa 3 mesi fa"
-                        item={historyAround90Days.item}
-                        tone="amber"
-                        helper={`${formatDate(historyAround90Days.item.workout_sessions?.session_date || historyAround90Days.item.created_at)} · ${historyAround90Days.days} giorni fa`}
-                      />
-                    )}
-
-                    <div className="space-y-2 pt-1">
-                      {historySessions.map((sessionGroup) => (
-                        <div key={sessionGroup.key} className="rounded-2xl bg-slate-50 p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-black text-slate-950">
-                              {formatDate(sessionGroup.date)}
-                            </p>
-                            <p className="text-xs font-bold text-slate-500">
-                              {relativeDateText(sessionGroup.dateObject)}
-                            </p>
-                          </div>
-                          <p className="mt-1 text-xs font-bold leading-5 text-slate-600">
-                            {sessionGroup.items.slice(0, 4).map(metricText).join("  |  ")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">
-                    Nessuno storico trovato per questo esercizio. Dopo i primi allenamenti compariranno ultima volta, migliore serie e confronto a 3 mesi.
-                  </p>
                 )}
-              </Card>
-            </div>
-          )}
-        </div>
 
-        <div className="shrink-0 border-t border-slate-200 bg-white px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
-          {finished ? (
-            <Button
-              type="button"
-              onClick={closeCompletedWorkout}
-              className="h-14 w-full bg-[#07111f] text-white"
-            >
-              Chiudi allenamento
-            </Button>
-          ) : exercise ? (
-            <div className="space-y-2">
-              {!resting ? (
-                <Button
+                <button
                   type="button"
                   onClick={saveCurrentSet}
-                  disabled={saving}
-                  className="h-14 w-full bg-[#07111f] text-white"
+                  disabled={saving || !currentSet}
+                  className="mt-5 w-full rounded-[1.35rem] bg-teal-300 px-4 py-4 text-base font-black text-slate-950 shadow-sm active:scale-[.98] disabled:opacity-50"
                 >
-                  {saving ? "Salvataggio..." : `Salva serie ${setIndex + 1}/${plannedSets.length}`}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={goNext}
-                  className="h-14 w-full bg-teal-300 text-slate-950"
-                >
-                  {nextActionLabel()}
-                </Button>
-              )}
-
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={goPrevious}
-                  disabled={!canGoPrevious}
-                  className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
-                >
-                  Indietro
+                  {saving ? "Salvataggio..." : "Salva serie"}
                 </button>
-                <button
-                  type="button"
-                  onClick={goNext}
-                  className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
-                >
-                  Avanti
-                </button>
-                <button
-                  type="button"
-                  onClick={requestFinishWorkout}
-                  className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700"
-                >
-                  Termina
-                </button>
-              </div>
+              </Card>
             </div>
-          ) : (
-            <Button
-              type="button"
-              onClick={onClose}
-              className="h-14 w-full bg-[#07111f] text-white"
-            >
-              Chiudi
-            </Button>
           )}
         </div>
+
+        {!finished && exercise && (
+          <div className="shrink-0 border-t border-slate-200 bg-white/95 px-4 pb-[calc(0.7rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
+            <div className="grid grid-cols-[0.9fr_1.25fr_0.9fr] gap-2">
+              <button
+                type="button"
+                onClick={goPrevious}
+                disabled={!canGoPrevious}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+              >
+                Indietro
+              </button>
+              <button
+                type="button"
+                onClick={goNext}
+                className="rounded-2xl bg-[#07111f] px-3 py-3 text-xs font-black text-white"
+              >
+                {nextActionLabel()}
+              </button>
+              <button
+                type="button"
+                onClick={requestFinishWorkout}
+                className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+              >
+                Fine
+              </button>
+            </div>
+          </div>
+        )}
+
+        {finished && (
+          <div className="shrink-0 border-t border-slate-200 bg-white/95 px-4 pb-[calc(0.7rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
+            <button
+              type="button"
+              onClick={closeCompletedWorkout}
+              className="w-full rounded-[1.35rem] bg-[#07111f] px-4 py-4 text-base font-black text-white active:scale-[.98]"
+            >
+              Chiudi allenamento
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
 
 function CoachMonitorPanel({
   selectedClient,
