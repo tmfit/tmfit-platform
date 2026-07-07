@@ -1515,6 +1515,51 @@ function isDietNoteLine(value) {
   );
 }
 
+function isDietMealNoteHeadingLine(value) {
+  const normalized = normalizeDietToken(value);
+  return (
+    normalized.startsWith("NOTE AL PASTO") ||
+    normalized.startsWith("NOTA AL PASTO")
+  );
+}
+
+function extractDietMealNoteIntro(value) {
+  const clean = cleanDietPdfLine(value);
+
+  if (!isDietMealNoteHeadingLine(clean)) return null;
+
+  return clean
+    .replace(/^note\s+al\s+pasto\s*/i, "")
+    .replace(/^nota\s+al\s+pasto\s*/i, "")
+    .replace(/^[:\-–—]+\s*/i, "")
+    .trim();
+}
+
+function splitDietItemsAndMealNotes(items = []) {
+  const foodItems = [];
+  const notes = [];
+  let readingMealNotes = false;
+
+  (items || []).map(cleanDietPdfLine).filter(Boolean).forEach((line) => {
+    const introNote = extractDietMealNoteIntro(line);
+
+    if (introNote !== null) {
+      readingMealNotes = true;
+      if (introNote) notes.push(introNote);
+      return;
+    }
+
+    if (readingMealNotes) {
+      notes.push(line);
+      return;
+    }
+
+    foodItems.push(line);
+  });
+
+  return { foodItems, notes };
+}
+
 function findDietSectionBase(line) {
   const dynamicBase = detectDynamicDietSectionBase(line);
   if (dynamicBase) return dynamicBase;
@@ -1643,7 +1688,31 @@ function dietLineLooksLikeMealFood(line) {
 }
 
 function dietSectionHasMealFood(items = []) {
-  return (items || []).some((item) => dietLineLooksLikeMealFood(item));
+  const { foodItems } = splitDietItemsAndMealNotes(items || []);
+  return foodItems.some((item) => dietLineLooksLikeMealFood(item));
+}
+
+function normalizeDietMealSection(section) {
+  if (!section) return null;
+
+  const title = section.name || section.title || "";
+  if (isDietNonMealHeading(title)) return null;
+
+  const split = splitDietItemsAndMealNotes(section.items || []);
+  const existingNotes = Array.isArray(section.notes)
+    ? section.notes.map(cleanDietPdfLine).filter(Boolean)
+    : section.notes
+    ? [cleanDietPdfLine(section.notes)].filter(Boolean)
+    : [];
+  const notes = [...existingNotes, ...split.notes].filter(Boolean);
+
+  if (!dietSectionHasMealFood(split.foodItems)) return null;
+
+  return {
+    ...section,
+    items: split.foodItems,
+    notes
+  };
 }
 
 function sanitizeExtractedDietForMeals(parsed) {
@@ -1656,11 +1725,9 @@ function sanitizeExtractedDietForMeals(parsed) {
   cloned.days = days
     .map((day) => {
       const sections = day.meals || day.sections || [];
-      const cleanSections = sections.filter((section) => {
-        const title = section.name || section.title || "";
-        if (isDietNonMealHeading(title)) return false;
-        return dietSectionHasMealFood(section.items || []);
-      });
+      const cleanSections = sections
+        .map((section) => normalizeDietMealSection(section))
+        .filter(Boolean);
 
       return {
         ...day,
@@ -1679,11 +1746,9 @@ function sanitizeExtractedDietForMeals(parsed) {
         return null;
       }
 
-      const cleanOptions = (group.options || []).filter((option) => {
-        const optionTitle = option.title || "";
-        if (isDietNonMealHeading(optionTitle)) return false;
-        return dietSectionHasMealFood(option.items || []);
-      });
+      const cleanOptions = (group.options || [])
+        .map((option) => normalizeDietMealSection(option))
+        .filter(Boolean);
 
       if (cleanOptions.length === 0) return null;
 
@@ -1769,7 +1834,15 @@ function compactDietItems(lines = []) {
 function pushDietMeal(target, meal) {
   if (!meal) return;
 
-  const items = compactDietItems(meal.items || []);
+  const split = splitDietItemsAndMealNotes(compactDietItems(meal.items || []));
+  const items = split.foodItems;
+  const existingNotes = Array.isArray(meal.notes)
+    ? meal.notes.map(cleanDietPdfLine).filter(Boolean)
+    : meal.notes
+    ? [cleanDietPdfLine(meal.notes)].filter(Boolean)
+    : [];
+  const notes = [...existingNotes, ...split.notes].filter(Boolean);
+
   if (items.length === 0) return;
   if (isDietNonMealHeading(meal.name || meal.title || "")) return;
   if (!dietSectionHasMealFood(items)) return;
@@ -1777,7 +1850,8 @@ function pushDietMeal(target, meal) {
   target.push({
     name: meal.name,
     title: meal.title || meal.name,
-    items
+    items,
+    notes
   });
 }
 
@@ -1947,7 +2021,10 @@ function parseOptionsDietLines(lines, sourceName) {
   function pushCurrentOption() {
     if (!currentOption) return;
 
-    const items = compactDietItems(currentOption.items || []);
+    const split = splitDietItemsAndMealNotes(compactDietItems(currentOption.items || []));
+    const items = split.foodItems;
+    const notes = split.notes;
+
     if (
       items.length === 0 ||
       isDietNonMealHeading(currentOption.base || currentOption.title || "") ||
@@ -1963,7 +2040,8 @@ function parseOptionsDietLines(lines, sourceName) {
 
     groupsMap.get(currentOption.base).push({
       title: currentOption.title,
-      items
+      items,
+      notes
     });
 
     currentOption = null;
@@ -2359,16 +2437,18 @@ function DietSummaryBox({ diet }) {
 }
 
 
-function buildDietFoodGroups(items = []) {
+function buildDietFoodGroups(items = [], mealNotes = []) {
   const groups = [];
-  const notes = [];
+  const split = splitDietItemsAndMealNotes(items || []);
+  const notes = [
+    ...split.notes,
+    ...(Array.isArray(mealNotes) ? mealNotes : mealNotes ? [mealNotes] : [])
+  ]
+    .map(cleanDietPdfLine)
+    .filter(Boolean)
+    .filter((note, index, array) => array.indexOf(note) === index);
 
-  items.map(cleanDietPdfLine).filter(Boolean).forEach((line) => {
-    if (isDietNoteLine(line)) {
-      notes.push(line);
-      return;
-    }
-
+  split.foodItems.forEach((line) => {
     if (isDietAlternativeLine(line) && groups.length > 0) {
       groups[groups.length - 1].alternatives.push(line);
       return;
@@ -2383,8 +2463,8 @@ function buildDietFoodGroups(items = []) {
   return { groups, notes };
 }
 
-function DietFoodLines({ items = [] }) {
-  const { groups, notes } = buildDietFoodGroups(items);
+function DietFoodLines({ items = [], notes: mealNotes = [] }) {
+  const { groups, notes } = buildDietFoodGroups(items, mealNotes);
 
   if (groups.length === 0 && notes.length === 0) {
     return (
@@ -2426,9 +2506,14 @@ function DietFoodLines({ items = [] }) {
       {notes.map((note, index) => (
         <div
           key={`${note}-${index}`}
-          className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs font-bold leading-5 text-amber-800"
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3"
         >
-          {note}
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+            Note al pasto
+          </p>
+          <p className="mt-1 text-xs font-bold leading-5 text-amber-900">
+            {note}
+          </p>
         </div>
       ))}
     </div>
@@ -2500,7 +2585,7 @@ function DietExtractedPlan({ diet, compact = false }) {
           </div>
 
         </div>
-        <DietFoodLines items={items} />
+        <DietFoodLines items={items} notes={meal.notes || []} />
       </div>
     );
   }
@@ -2524,7 +2609,7 @@ function DietExtractedPlan({ diet, compact = false }) {
           </div>
 
         </div>
-        <DietFoodLines items={items} />
+        <DietFoodLines items={items} notes={option.notes || []} />
       </div>
     );
   }
