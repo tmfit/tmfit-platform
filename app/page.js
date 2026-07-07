@@ -1883,10 +1883,61 @@ function cutDietLinesForOptions(lines) {
   return lines.slice(safeStart, endIndex > safeStart ? endIndex : undefined);
 }
 
+function splitDietEmbeddedParserLine(line) {
+  const clean = cleanDietPdfLine(line);
+  if (!clean) return [];
+
+  const dayPattern = DIET_DAY_NAMES.join("|");
+  const mealPattern =
+    "COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO";
+
+  let prepared = clean
+    .replace(/\s+/g, " ")
+    .replace(new RegExp(`([^\n\s])(${dayPattern})(?=\b)`, "g"), "$1\n$2")
+    .replace(new RegExp(`([a-zà-ÿ0-9\)])(${mealPattern})(?=\s*\d|\d|\s|$)`, "g"), "$1\n$2")
+    .replace(new RegExp(`\b(${mealPattern})(?=\d)`, "g"), "$1\n")
+    .replace(/([a-zà-ÿ0-9\)])(Opzione\s+\d+)/g, "$1\n$2")
+    .replace(/([a-zà-ÿ0-9\)])(Note\s*al\s*pasto)/gi, "$1\n$2")
+    .replace(/([a-zà-ÿ0-9\)])(Nota\s*al\s*pasto)/gi, "$1\n$2")
+    .replace(/\b(Note|Nota)\s*al\s*pasto\s*[:\-–—]?\s*/gi, "Note al pasto ")
+    .replace(/(Note\s+al\s+pasto)(?=\s*(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO|Opzione\s+\d+|Lunedì|Martedì|Mercoledì|Giovedì|Venerdì|Sabato|Domenica)\b)/gi, "$1\n")
+    .replace(/((?:COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO)\s+\d+\s*[-:][^0-9]{2,48})\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b)/gi, "$1\n");
+
+  return prepared
+    .split(/\n+/)
+    .map(cleanDietPdfLine)
+    .filter(Boolean);
+}
+
+function mergeSplitDietMealNoteHeadings(lines = []) {
+  const merged = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const current = cleanDietPdfLine(lines[index]);
+    const next = cleanDietPdfLine(lines[index + 1]);
+    const normalizedCurrent = normalizeDietToken(current);
+    const normalizedNext = normalizeDietToken(next);
+
+    if (normalizedCurrent === "NOTE" && normalizedNext.startsWith("AL PASTO")) {
+      const rest = next.replace(/^al\s+pasto\s*/i, "").trim();
+      merged.push(rest ? `Note al pasto ${rest}` : "Note al pasto");
+      index += 1;
+      continue;
+    }
+
+    merged.push(current);
+  }
+
+  return merged.filter(Boolean);
+}
+
 function expandDietLinesForParsing(lines = [], mode = "daily") {
   const expanded = [];
+  const preparedLines = mergeSplitDietMealNoteHeadings(
+    lines.flatMap((line) => splitDietEmbeddedParserLine(line))
+  );
 
-  lines.forEach((line) => {
+  preparedLines.forEach((line) => {
     const clean = cleanDietPdfLine(line);
     if (!clean) return;
 
@@ -1906,7 +1957,7 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
       if (normalized.startsWith(`${dayToken} `)) {
         expanded.push(day);
         const rest = clean.slice(day.length).trim();
-        if (rest) expanded.push(rest);
+        if (rest) expanded.push(...splitDietEmbeddedParserLine(rest));
         handled = true;
       }
     });
@@ -1941,7 +1992,7 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
     expanded.push(clean);
   });
 
-  return expanded;
+  return mergeSplitDietMealNoteHeadings(expanded);
 }
 
 function extractionHasCards(extractedDiet) {
@@ -1961,6 +2012,17 @@ function parseDailyDietLines(lines, sourceName) {
   const days = [];
   let currentDay = null;
   let currentMeal = null;
+  let readingMealNotes = false;
+
+  function addCurrentMealNote(line) {
+    if (!currentMeal) return;
+
+    const clean = cleanDietPdfLine(line);
+    if (!clean) return;
+
+    currentMeal.notes = Array.isArray(currentMeal.notes) ? currentMeal.notes : [];
+    currentMeal.notes.push(clean);
+  }
 
   scopedLines.forEach((line) => {
     const dayName = detectDietDayLine(line);
@@ -1976,6 +2038,7 @@ function parseDailyDietLines(lines, sourceName) {
         meals: []
       };
       currentMeal = null;
+      readingMealNotes = false;
       return;
     }
 
@@ -1987,14 +2050,29 @@ function parseDailyDietLines(lines, sourceName) {
       pushDietMeal(currentDay.meals, currentMeal);
       currentMeal = {
         name: mealName,
-        items: []
+        items: [],
+        notes: []
       };
+      readingMealNotes = false;
       return;
     }
 
-    if (currentMeal) {
-      currentMeal.items.push(line);
+    if (!currentMeal) return;
+
+    const introNote = extractDietMealNoteIntro(line);
+
+    if (introNote !== null) {
+      readingMealNotes = true;
+      if (introNote) addCurrentMealNote(introNote);
+      return;
     }
+
+    if (readingMealNotes) {
+      addCurrentMealNote(line);
+      return;
+    }
+
+    currentMeal.items.push(line);
   });
 
   if (currentDay) {
@@ -2017,13 +2095,29 @@ function parseOptionsDietLines(lines, sourceName) {
   const scopedLines = expandDietLinesForParsing(cutDietLinesForOptions(lines), "options");
   const groupsMap = new Map();
   let currentOption = null;
+  let readingMealNotes = false;
+
+  function addCurrentOptionNote(line) {
+    if (!currentOption) return;
+
+    const clean = cleanDietPdfLine(line);
+    if (!clean) return;
+
+    currentOption.notes = Array.isArray(currentOption.notes)
+      ? currentOption.notes
+      : [];
+    currentOption.notes.push(clean);
+  }
 
   function pushCurrentOption() {
     if (!currentOption) return;
 
     const split = splitDietItemsAndMealNotes(compactDietItems(currentOption.items || []));
     const items = split.foodItems;
-    const notes = split.notes;
+    const existingNotes = Array.isArray(currentOption.notes)
+      ? currentOption.notes.map(cleanDietPdfLine).filter(Boolean)
+      : [];
+    const notes = [...existingNotes, ...split.notes].filter(Boolean);
 
     if (
       items.length === 0 ||
@@ -2031,6 +2125,7 @@ function parseOptionsDietLines(lines, sourceName) {
       !dietSectionHasMealFood(items)
     ) {
       currentOption = null;
+      readingMealNotes = false;
       return;
     }
 
@@ -2045,6 +2140,7 @@ function parseOptionsDietLines(lines, sourceName) {
     });
 
     currentOption = null;
+    readingMealNotes = false;
   }
 
   scopedLines.forEach((line) => {
@@ -2053,7 +2149,7 @@ function parseOptionsDietLines(lines, sourceName) {
     if (optionMarker && currentOption) {
       const base = currentOption.base;
 
-      if ((currentOption.items || []).length > 0) {
+      if ((currentOption.items || []).length > 0 || (currentOption.notes || []).length > 0) {
         pushCurrentOption();
       } else {
         currentOption = null;
@@ -2062,8 +2158,10 @@ function parseOptionsDietLines(lines, sourceName) {
       currentOption = {
         base,
         title: optionMarker,
-        items: []
+        items: [],
+        notes: []
       };
+      readingMealNotes = false;
       return;
     }
 
@@ -2074,14 +2172,29 @@ function parseOptionsDietLines(lines, sourceName) {
       currentOption = {
         base: heading.base,
         title: heading.title,
-        items: []
+        items: [],
+        notes: []
       };
+      readingMealNotes = false;
       return;
     }
 
-    if (currentOption) {
-      currentOption.items.push(line);
+    if (!currentOption) return;
+
+    const introNote = extractDietMealNoteIntro(line);
+
+    if (introNote !== null) {
+      readingMealNotes = true;
+      if (introNote) addCurrentOptionNote(introNote);
+      return;
     }
+
+    if (readingMealNotes) {
+      addCurrentOptionNote(line);
+      return;
+    }
+
+    currentOption.items.push(line);
   });
 
   pushCurrentOption();
