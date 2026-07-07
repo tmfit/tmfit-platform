@@ -90,6 +90,36 @@ function isRecordActive(item) {
   return !["archived", "deleted", "inactive", "removed"].includes(status);
 }
 
+function dietStatusValue(diet) {
+  return String(diet?.status || "active").toLowerCase();
+}
+
+function isDietPublished(diet) {
+  const status = dietStatusValue(diet);
+  return ["active", "published"].includes(status);
+}
+
+function isDietDraft(diet) {
+  return dietStatusValue(diet) === "draft";
+}
+
+function isDietRemoved(diet) {
+  const status = dietStatusValue(diet);
+  return ["inactive", "removed", "archived", "deleted"].includes(status);
+}
+
+function dietStatusLabel(diet) {
+  if (isDietDraft(diet)) return "Bozza";
+  if (isDietPublished(diet)) return "Pubblicata";
+  return "Non visibile";
+}
+
+function dietStatusPillClass(diet) {
+  if (isDietDraft(diet)) return "bg-amber-300 text-slate-950";
+  if (isDietPublished(diet)) return "bg-[#07111f] text-white";
+  return "bg-slate-100 text-slate-500";
+}
+
 function sortByOrder(items = [], field = "sort_order") {
   return [...items].sort((a, b) => {
     const left = a?.[field] ?? 999;
@@ -4111,8 +4141,11 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
     clients.find((client) => String(client.id) === String(selectedClientId)) ||
     null;
 
-  const activeDietsForSelectedClient = diets.filter(isRecordActive);
-  const activeDietForSelectedClient = activeDietsForSelectedClient[0] || null;
+  const publishedDietsForSelectedClient = diets.filter(isDietPublished);
+  const draftDietsForSelectedClient = diets.filter(isDietDraft);
+  const publishedDietForSelectedClient = publishedDietsForSelectedClient[0] || null;
+  const draftDietForSelectedClient = draftDietsForSelectedClient[0] || null;
+  const activeDietForSelectedClient = draftDietForSelectedClient || publishedDietForSelectedClient || null;
 
   const previewDietForModal =
     diets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
@@ -5653,7 +5686,7 @@ try {
         start_date: dietForm.start_date || null,
         end_date: dietForm.end_date || null,
         notes: richNotes || null,
-        status: "active",
+        status: "draft",
         diet_type: dietForm.diet_type || "file"
       })
       .select("*")
@@ -5662,18 +5695,6 @@ try {
     if (error) {
       alert(error.message);
       return;
-    }
-
-    if (insertedDiet?.id) {
-      const { error: inactiveError } = await supabase
-        .from("diets")
-        .update({ status: "inactive" })
-        .eq("client_id", Number(selectedClient.id))
-        .neq("id", insertedDiet.id);
-
-      if (inactiveError) {
-        console.warn(inactiveError.message);
-      }
     }
 
     setDietForm({
@@ -5689,6 +5710,7 @@ try {
     setDietFile(null);
 
     await loadClientBundle(selectedClient.id);
+    alert("Dieta caricata come bozza. Controlla anteprima e card, poi pubblicala al cliente.");
   }
 
   async function analyzeDietPdfToCards(diet) {
@@ -5738,7 +5760,7 @@ try {
 
       await loadClientBundle(selectedClient.id);
 
-      alert("Card pasti generate e salvate. Ora il cliente le vede nel tab Pasti.");
+      alert("Card pasti generate e salvate. Controlla l’anteprima e pubblica la dieta quando è pronta.");
     } catch (error) {
       alert(error.message || "Errore durante l’analisi del PDF dieta.");
     } finally {
@@ -5748,6 +5770,15 @@ try {
 
   async function activateDietPlan(diet) {
     if (!selectedClient || !diet?.id) return;
+
+    const hasCards = Boolean(dietExtractedInfo(diet));
+    const confirmed = window.confirm(
+      hasCards
+        ? "Vuoi pubblicare questo piano al cliente? Diventerà l’unica dieta visibile nella sua area Dieta."
+        : "Questa dieta non ha ancora card Pasti generate. Il cliente vedrà riepilogo e PDF. Vuoi pubblicarla comunque?"
+    );
+
+    if (!confirmed) return;
 
     setUpdatingDietId(String(diet.id));
 
@@ -5774,6 +5805,7 @@ try {
       }
 
       await loadClientBundle(selectedClient.id);
+      alert("Dieta pubblicata. Ora è visibile al cliente.");
     } finally {
       setUpdatingDietId("");
     }
@@ -6087,7 +6119,7 @@ async function savePrivateNote(event) {
     }
 
     const activePlans = coachControlData.plans.filter(isActiveRecord);
-    const activeDiets = coachControlData.diets.filter(isActiveRecord);
+    const activeDiets = coachControlData.diets.filter(isDietPublished);
 
     const activePlanClientIds = new Set(
       activePlans.map((plan) => String(plan.client_id))
@@ -8771,10 +8803,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                       </div>
                       <div className="rounded-2xl bg-teal-300 p-3 text-slate-950">
                         <p className="text-[10px] font-black uppercase tracking-wider opacity-70">
-                          Attiva
+                          Pubblicata
                         </p>
                         <p className="mt-1 truncate text-sm font-black">
-                          {activeDietForSelectedClient ? dietTypeLabel(activeDietForSelectedClient.diet_type) : "Nessuna"}
+                          {publishedDietForSelectedClient ? dietTypeLabel(publishedDietForSelectedClient.diet_type) : "Nessuna"}
                         </p>
                       </div>
                     </div>
@@ -8792,7 +8824,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                       Carica dieta SIFA
                     </h3>
                     <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                      Usa il PDF giornaliero, settimanale o a opzioni. Il cliente lo vedrà in modo ordinato nella sua area Dieta.
+                      Usa il PDF giornaliero, settimanale o a opzioni. Il piano resta in bozza finché non controlli card/anteprima e lo pubblichi al cliente.
                     </p>
                   </div>
 
@@ -8913,7 +8945,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           {dietFile.name}
                         </p>
                         <p className="mt-2 text-xs font-bold leading-5 text-teal-900">
-                          Al caricamento proverò a leggere automaticamente tutte le pagine del PDF e a generare card dinamiche. Se il risultato va rifinito, potrai rigenerarle dallo storico.
+                          Il piano verrà caricato come bozza. Dopo il controllo potrai pubblicarlo al cliente.
                         </p>
                       </div>
                     )}
@@ -8926,10 +8958,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         <div className="rounded-xl bg-white p-3">1. Carica PDF</div>
                         <div className="rounded-xl bg-white p-3">2. Genera card</div>
                         <div className="rounded-xl bg-white p-3">3. Controlla qualità</div>
-                        <div className="rounded-xl bg-white p-3">4. Verifica in Pasti</div>
+                        <div className="rounded-xl bg-white p-3">4. Pubblica al cliente</div>
                       </div>
                       <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-                        Dopo il caricamento puoi generare la vista cliente e controllare subito la sezione Pasti prima di farla usare al cliente.
+                        Dopo il caricamento controlla la vista cliente, correggi eventuali card e pubblica solo quando il piano è pronto.
                       </p>
                     </div>
 
@@ -8952,7 +8984,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                       className="w-full bg-[#07111f] text-white hover:bg-slate-800"
                     >
                       <Upload size={17} className="mr-2" />
-                      {extractingDietPdf ? "Lettura PDF in corso..." : "Carica PDF dieta"}
+                      {extractingDietPdf ? "Lettura PDF in corso..." : "Carica bozza dieta"}
                     </Button>
                   </form>
                 </Card>
@@ -8961,10 +8993,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                   <Card className="overflow-hidden">
                     <div className="border-b border-slate-200 bg-white px-5 py-4">
                       <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Dieta attiva
+                        Controllo dieta
                       </p>
                       <h3 className="mt-1 text-xl font-black text-slate-950">
-                        Anteprima cliente
+                        Bozza e pubblicazione
                       </h3>
                     </div>
 
@@ -8974,7 +9006,9 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           <div className="flex flex-col gap-5">
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
-                                <Pill className="bg-[#07111f] text-white">Attiva</Pill>
+                                <Pill className={dietStatusPillClass(activeDietForSelectedClient)}>
+                                  {dietStatusLabel(activeDietForSelectedClient)}
+                                </Pill>
                                 <Pill className="bg-teal-100 text-teal-700">
                                   {dietTypeLabel(activeDietForSelectedClient.diet_type)}
                                 </Pill>
@@ -8989,6 +9023,18 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               <p className="mt-1 text-sm font-bold text-slate-500">
                                 {dietPeriodLabel(activeDietForSelectedClient)}
                               </p>
+
+                              {isDietDraft(activeDietForSelectedClient) && (
+                                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
+                                  Questa dieta è in bozza: puoi generare o correggere le card e pubblicarla solo quando è pronta. Il cliente non la vede ancora.
+                                </div>
+                              )}
+
+                              {isDietPublished(activeDietForSelectedClient) && (
+                                <div className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm font-bold leading-6 text-teal-800">
+                                  Questa è la dieta pubblicata e visibile al cliente.
+                                </div>
+                              )}
 
                               <div className="mt-4 space-y-3">
                                 <DietSummaryBox diet={activeDietForSelectedClient} />
@@ -9016,7 +9062,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               </div>
                             </div>
 
-                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
                               <Button
                                 onClick={() => previewDietInApp(activeDietForSelectedClient)}
                                 className="bg-teal-300 text-slate-950 hover:bg-teal-200"
@@ -9059,6 +9105,17 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               >
                                 Scarica PDF
                               </Button>
+                              {!isDietPublished(activeDietForSelectedClient) && (
+                                <Button
+                                  onClick={() => activateDietPlan(activeDietForSelectedClient)}
+                                  disabled={updatingDietId === String(activeDietForSelectedClient.id)}
+                                  className="bg-[#07111f] text-white"
+                                >
+                                  {updatingDietId === String(activeDietForSelectedClient.id)
+                                    ? "Pubblicazione..."
+                                    : "Pubblica"}
+                                </Button>
+                              )}
                               <Button
                                 onClick={() => removeDietPlan(activeDietForSelectedClient)}
                                 disabled={updatingDietId === String(activeDietForSelectedClient.id)}
@@ -9081,8 +9138,8 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         </div>
                       ) : (
                         <Empty
-                          title="Nessuna dieta attiva"
-                          text={diets.length > 0 ? "Hai diete nello storico, ma nessuna è attiva lato cliente." : "Carica un PDF SIFA per creare la visualizzazione cliente."}
+                          title="Nessuna dieta in lavorazione"
+                          text={diets.length > 0 ? "Hai diete nello storico, ma nessuna bozza o dieta pubblicata per questo cliente." : "Carica un PDF SIFA: resterà in bozza finché non lo pubblichi al cliente."}
                         />
                       )}
                     </div>
@@ -9153,7 +9210,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                     Diete caricate
                   </h3>
                   <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                    Solo una dieta alla volta resta attiva lato cliente. Le altre restano nello storico coach.
+                    Le nuove diete restano in bozza finché non le pubblichi. Il cliente vede solo la dieta pubblicata.
                   </p>
                 </div>
 
@@ -9162,8 +9219,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                     <div
                       key={diet.id}
                       className={`rounded-[1.4rem] border p-4 shadow-sm ${
-                        isRecordActive(diet)
+                        isDietPublished(diet)
                           ? "border-teal-200 bg-teal-50"
+                          : isDietDraft(diet)
+                          ? "border-amber-200 bg-amber-50"
                           : "border-slate-200 bg-white"
                       }`}
                     >
@@ -9173,11 +9232,9 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                             <p className="font-black text-slate-950">
                               {dietDisplayTitle(diet)}
                             </p>
-                            {isRecordActive(diet) ? (
-                              <Pill className="bg-[#07111f] text-white">Attiva</Pill>
-                            ) : (
-                              <Pill className="bg-slate-100 text-slate-500">Non attiva</Pill>
-                            )}
+                            <Pill className={dietStatusPillClass(diet)}>
+                              {dietStatusLabel(diet)}
+                            </Pill>
                           </div>
                           <p className="mt-1 truncate text-sm font-semibold text-slate-500">
                             {diet.file_name || "PDF dieta"}
@@ -9233,7 +9290,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           >
                             Scarica
                           </Button>
-                          {isRecordActive(diet) ? (
+                          {isDietPublished(diet) ? (
                             <Button
                               onClick={() => removeDietPlan(diet)}
                               disabled={updatingDietId === String(diet.id)}
@@ -9247,7 +9304,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               disabled={updatingDietId === String(diet.id)}
                               className="border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700"
                             >
-                              {updatingDietId === String(diet.id) ? "..." : "Attiva"}
+                              {updatingDietId === String(diet.id) ? "..." : "Pubblica"}
                             </Button>
                           )}
                         </div>
@@ -10340,10 +10397,7 @@ function CoachClientSnapshot({
     return !["archived", "deleted", "inactive"].includes(status);
   });
 
-  const activeDiets = diets.filter((diet) => {
-    const status = String(diet?.status || "active").toLowerCase();
-    return !["archived", "deleted", "inactive"].includes(status);
-  });
+  const activeDiets = diets.filter(isDietPublished);
 
   const latestCheckin = checkins[0];
   const latestMeasurement = measurements[0];
@@ -10352,7 +10406,7 @@ function CoachClientSnapshot({
   const latestPhoto = photos[0];
   const latestPrivateNote = privateNotes[0];
   const activePlan = activePlans[0];
-  const activeDiet = activeDiets[0] || diets[0];
+  const activeDiet = activeDiets[0] || null;
 
   function toDate(value) {
     if (!value) return null;
