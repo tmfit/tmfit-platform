@@ -4153,6 +4153,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   const [extractingDietPdf, setExtractingDietPdf] = useState(false);
   const [analyzingDietId, setAnalyzingDietId] = useState("");
   const [updatingDietId, setUpdatingDietId] = useState("");
+  const [deletingDietId, setDeletingDietId] = useState("");
   const [dietPreview, setDietPreview] = useState({
     dietId: "",
     url: "",
@@ -5921,6 +5922,53 @@ try {
       await loadClientBundle(selectedClient.id);
     } finally {
       setUpdatingDietId("");
+    }
+  }
+
+  async function deleteDietFromHistory(diet) {
+    if (!selectedClient || !diet?.id || String(diet.client_id) !== String(selectedClient.id)) return;
+
+    const confirmed = window.confirm(
+      "Vuoi eliminare definitivamente questa dieta dallo storico? Verranno rimossi il record della dieta e, se possibile, anche il PDF collegato. Questa azione non può essere annullata."
+    );
+
+    if (!confirmed) return;
+
+    setDeletingDietId(String(diet.id));
+
+    try {
+      const { error } = await supabase
+        .from("diets")
+        .delete()
+        .eq("id", diet.id)
+        .eq("client_id", Number(selectedClient.id));
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      if (canCoachAccessDietFile(diet, selectedClient)) {
+        const { error: storageError } = await supabase.storage
+          .from("diets")
+          .remove([diet.file_path]);
+
+        if (storageError) {
+          console.warn("PDF dieta non rimosso dallo storage", storageError.message);
+        }
+      }
+
+      if (dietPreview.dietId === String(diet.id)) {
+        setDietPreview({ dietId: "", url: "", loading: false, error: "" });
+      }
+
+      if (editingDietCardsId === String(diet.id)) {
+        cancelDietCardsEditor();
+      }
+
+      await loadClientBundle(selectedClient.id);
+    } finally {
+      setDeletingDietId("");
     }
   }
 
@@ -8881,7 +8929,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         Piano alimentare cliente
                       </h2>
                       <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-300">
-                        Carica il PDF generato da SIFA Dieta e trasformalo in una sezione consultabile in app, con riepilogo, note coach e anteprima integrata.
+                        Gestisci il piano alimentare attivo: carica, controlla, pubblica o rimuovi.
                       </p>
                     </div>
 
@@ -8925,11 +8973,11 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                       Carica dieta SIFA
                     </h3>
                     <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                      Usa il PDF giornaliero, settimanale o a opzioni. Il piano resta in bozza finché non controlli card/anteprima e lo pubblichi al cliente.
+                      Il PDF viene caricato come bozza: lo pubblichi solo quando è pronto.
                     </p>
                   </div>
 
-                  <form onSubmit={uploadDiet} className="space-y-4 p-5">
+                  <form onSubmit={uploadDiet} className="space-y-3 p-5">
                     {!selectedClient && (
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
                         Seleziona un cliente prima di caricare una dieta.
@@ -8966,9 +9014,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                             </option>
                           ))}
                         </Select>
-                        <p className="mt-2 text-[11px] font-bold leading-5 text-slate-500">
-                          Formato 1: giorni Lun-Dom. Formato 2: opzioni tipo Colazione 1, Pranzo 2, Cena 3.
-                        </p>
+
                       </Label>
 
                       <Label title="Target kcal / nota calorie">
@@ -9045,26 +9091,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         <p className="mt-1 truncate text-sm font-black text-slate-950">
                           {dietFile.name}
                         </p>
-                        <p className="mt-2 text-xs font-bold leading-5 text-teal-900">
-                          Il piano verrà caricato come bozza. Dopo il controllo potrai pubblicarlo al cliente.
-                        </p>
+
                       </div>
                     )}
 
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
-                        Comandi parser
-                      </p>
-                      <div className="mt-3 grid gap-2 text-xs font-bold leading-5 text-slate-600 sm:grid-cols-4">
-                        <div className="rounded-xl bg-white p-3">1. Carica PDF</div>
-                        <div className="rounded-xl bg-white p-3">2. Genera card</div>
-                        <div className="rounded-xl bg-white p-3">3. Controlla qualità</div>
-                        <div className="rounded-xl bg-white p-3">4. Pubblica al cliente</div>
-                      </div>
-                      <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-                        Dopo il caricamento controlla la vista cliente, correggi eventuali card e pubblica solo quando il piano è pronto.
-                      </p>
-                    </div>
 
                     <Label title="Note coach">
                       <Textarea
@@ -9125,56 +9155,39 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                 {dietPeriodLabel(activeDietForSelectedClient)}
                               </p>
 
-                              {isDietDraft(activeDietForSelectedClient) && (
-                                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
-                                  Questa dieta è in bozza: puoi generare o correggere le card e pubblicarla solo quando è pronta. Il cliente non la vede ancora.
-                                </div>
-                              )}
+                              <p className="mt-3 text-sm font-bold leading-6 text-slate-500">
+                                {isDietPublished(activeDietForSelectedClient)
+                                  ? "Piano pubblicato e visibile al cliente."
+                                  : "Bozza non visibile al cliente."}
+                              </p>
 
-                              {isDietPublished(activeDietForSelectedClient) && (
-                                <div className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm font-bold leading-6 text-teal-800">
-                                  Questa è la dieta pubblicata e visibile al cliente.
+                              <div className="mt-4 overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white">
+                                <div className="border-b border-slate-200 px-4 py-3">
+                                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+                                    Anteprima cliente
+                                  </p>
+                                  <p className="mt-1 text-sm font-black text-slate-950">
+                                    Pasti in app
+                                  </p>
                                 </div>
-                              )}
-
-                              <div className="mt-4 space-y-3">
-                                <DietSummaryBox diet={activeDietForSelectedClient} />
-                                <DietInfoGrid diet={activeDietForSelectedClient} compact />
-                                <DietParseQualityCard
-                                  diet={activeDietForSelectedClient}
-                                  compact
-                                  onAnalyze={() => analyzeDietPdfToCards(activeDietForSelectedClient)}
-                                  analyzing={analyzingDietId === String(activeDietForSelectedClient.id)}
-                                />
-                                <div className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white">
-                                  <div className="border-b border-slate-200 px-4 py-3">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
-                                      Vista cliente
-                                    </p>
-                                    <p className="mt-1 text-sm font-black text-slate-950">
-                                      Sezione Pasti
-                                    </p>
-                                  </div>
-                                  <div className="p-3">
-                                    <DietExtractedPlan diet={activeDietForSelectedClient} />
-                                  </div>
+                                <div className="p-3">
+                                  <DietExtractedPlan diet={activeDietForSelectedClient} />
                                 </div>
-                                <DietCoachNoteBox diet={activeDietForSelectedClient} emptyTitle="Nessuna nota coach" />
                               </div>
                             </div>
 
-                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                               <Button
                                 onClick={() => previewDietInApp(activeDietForSelectedClient)}
                                 className="bg-teal-300 text-slate-950 hover:bg-teal-200"
                               >
-                                Visualizza sotto
+PDF sotto
                               </Button>
                               <Button
                                 onClick={() => openDietFullscreen(activeDietForSelectedClient)}
                                 className="bg-[#07111f] text-white"
                               >
-                                Schermo interno
+Apri PDF
                               </Button>
                               <Button
                                 onClick={() => analyzeDietPdfToCards(activeDietForSelectedClient)}
@@ -9184,8 +9197,8 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                 {analyzingDietId === String(activeDietForSelectedClient.id)
                                   ? "Analisi..."
                                   : dietExtractedInfo(activeDietForSelectedClient)
-                                  ? "Rigenera vista"
-                                  : "Genera vista"}
+                                  ? "Rigenera card"
+                                  : "Genera card"}
                               </Button>
                               <Button
                                 onClick={() => openDietCardsEditor(activeDietForSelectedClient)}
@@ -9303,7 +9316,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                     Diete caricate
                   </h3>
                   <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                    Le nuove diete restano in bozza finché non le pubblichi. Il cliente vede solo la dieta pubblicata.
+                    Gestisci bozze, piani pubblicati e vecchi PDF caricati.
                   </p>
                 </div>
 
@@ -9335,23 +9348,14 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           <p className="mt-1 text-xs font-bold text-slate-400">
                             {dietTypeLabel(diet.diet_type)} · {dietStructuredInfo(diet).calorieTarget || dietPeriodLabel(diet)}
                           </p>
-
-                          <div className="mt-3">
-                            <DietParseQualityCard
-                              diet={diet}
-                              compact
-                              onAnalyze={() => analyzeDietPdfToCards(diet)}
-                              analyzing={analyzingDietId === String(diet.id)}
-                            />
-                          </div>
                         </div>
 
-                        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                           <Button
                             onClick={() => previewDietInApp(diet)}
                             className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
                           >
-                            In app
+PDF
                           </Button>
                           <Button
                             onClick={() => analyzeDietPdfToCards(diet)}
@@ -9362,7 +9366,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               ? "Analisi"
                               : dietExtractedInfo(diet)
                               ? "Rigenera"
-                              : "Genera"}
+                              : "Card"}
                           </Button>
                           <Button
                             onClick={() => openDietCardsEditor(diet)}
@@ -9396,6 +9400,14 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               {updatingDietId === String(diet.id) ? "..." : "Pubblica"}
                             </Button>
                           )}
+                          <Button
+                            onClick={() => deleteDietFromHistory(diet)}
+                            disabled={deletingDietId === String(diet.id)}
+                            className="border border-red-200 bg-white px-3 py-2 text-xs text-red-700"
+                          >
+                            <Trash2 size={13} className="mr-1" />
+                            {deletingDietId === String(diet.id) ? "..." : "Elimina"}
+                          </Button>
                         </div>
                       </div>
 
@@ -14248,7 +14260,7 @@ function getExerciseHistory(exercise) {
                                 }}
                                 className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
                               >
-                                In app
+    PDF
                               </Button>
                               <Button
                                 onClick={() =>
