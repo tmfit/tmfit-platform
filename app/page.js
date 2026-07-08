@@ -11502,6 +11502,7 @@ function WorkoutPlayerModal({
   const lastHistory = history[0] || null;
   const nextExercise = exercises[exerciseIndex + 1] || null;
   const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
+  const currentSetSaved = Boolean(draftKey && completedSetKeys.includes(draftKey));
 
   function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
@@ -11646,6 +11647,23 @@ function WorkoutPlayerModal({
     if (setIndex < plannedSets.length - 1) return "Prossima serie";
     if (nextExercise) return "Prossimo esercizio";
     return "Riepilogo";
+  }
+
+  function primaryWorkoutActionLabel() {
+    if (saving) return "Salvataggio...";
+    if (!currentSetSaved) return "Salva serie";
+    return nextActionLabel();
+  }
+
+  async function handlePrimaryWorkoutAction() {
+    if (saving) return;
+
+    if (!currentSetSaved) {
+      await saveCurrentSet();
+      return;
+    }
+
+    goNext();
   }
 
   function applyLastSet() {
@@ -12064,14 +12082,17 @@ function WorkoutPlayerModal({
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={saveCurrentSet}
-                  disabled={saving || !currentSet}
-                  className="mt-5 w-full rounded-[1.35rem] bg-teal-300 px-4 py-4 text-base font-black text-slate-950 shadow-sm active:scale-[.98] disabled:opacity-50"
+                <div
+                  className={`mt-5 rounded-[1.35rem] px-4 py-3 text-center text-sm font-black ${
+                    currentSetSaved
+                      ? "bg-teal-50 text-teal-800"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
                 >
-                  {saving ? "Salvataggio..." : "Salva serie"}
-                </button>
+                  {currentSetSaved
+                    ? "Serie salvata. Puoi passare avanti."
+                    : "Inserisci peso e reps, poi salva dalla barra in basso."}
+                </div>
               </Card>
             </div>
           )}
@@ -12131,27 +12152,33 @@ function WorkoutPlayerModal({
         )}
 
         {!finished && exercise && (
-          <div className="shrink-0 bg-transparent px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2">
-            <div className="grid grid-cols-[0.9fr_1.25fr_0.9fr] gap-2 rounded-[1.35rem] border border-slate-200 bg-white/95 p-2 shadow-[0_-10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl">
+          <div className="shrink-0 bg-slate-50/95 px-4 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-2">
+            <div className="grid grid-cols-[0.82fr_1.5fr_0.78fr] gap-2 rounded-[1.35rem] border border-slate-200 bg-white/95 p-2 shadow-[0_-10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl">
               <button
                 type="button"
                 onClick={goPrevious}
-                disabled={!canGoPrevious}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                disabled={!canGoPrevious || saving}
+                className="rounded-2xl border border-slate-200 bg-white px-2 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
               >
                 Indietro
               </button>
               <button
                 type="button"
-                onClick={goNext}
-                className="rounded-2xl bg-[#07111f] px-3 py-3 text-xs font-black text-white"
+                onClick={handlePrimaryWorkoutAction}
+                disabled={saving || !currentSet}
+                className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm active:scale-[.98] disabled:opacity-50 ${
+                  currentSetSaved
+                    ? "bg-[#07111f] text-white"
+                    : "bg-teal-300 text-slate-950"
+                }`}
               >
-                {nextActionLabel()}
+                {primaryWorkoutActionLabel()}
               </button>
               <button
                 type="button"
                 onClick={requestFinishWorkout}
-                className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+                disabled={saving}
+                className="rounded-2xl bg-slate-100 px-2 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
               >
                 Fine
               </button>
@@ -12160,7 +12187,7 @@ function WorkoutPlayerModal({
         )}
 
         {finished && (
-          <div className="shrink-0 bg-transparent px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2">
+          <div className="shrink-0 bg-slate-50/95 px-4 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-2">
             <button
               type="button"
               onClick={closeCompletedWorkout}
