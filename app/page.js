@@ -120,6 +120,35 @@ function dietStatusPillClass(diet) {
   return "bg-slate-100 text-slate-500";
 }
 
+function programStatusValue(program) {
+  return String(program?.status || "active").toLowerCase();
+}
+
+function isProgramPublished(program) {
+  return ["active", "published"].includes(programStatusValue(program));
+}
+
+function isProgramDraft(program) {
+  return programStatusValue(program) === "draft";
+}
+
+function isProgramRemoved(program) {
+  const status = programStatusValue(program);
+  return ["archived", "inactive", "removed", "deleted"].includes(status);
+}
+
+function programStatusLabel(program) {
+  if (isProgramPublished(program)) return "Pubblicata";
+  if (isProgramDraft(program)) return "Bozza";
+  return "Non visibile";
+}
+
+function programStatusPillClass(program) {
+  if (isProgramPublished(program)) return "bg-teal-300 text-slate-950";
+  if (isProgramDraft(program)) return "bg-amber-300 text-slate-950";
+  return "bg-slate-200 text-slate-700";
+}
+
 function sortByOrder(items = [], field = "sort_order") {
   return [...items].sort((a, b) => {
     const left = a?.[field] ?? 999;
@@ -4991,10 +5020,15 @@ function updateProgressionField(
 async function updateProgramStatus(program, status) {
   if (!program) return;
 
-  const label = status === "active" ? "riattivare" : "archiviare";
+  const actionLabel =
+    status === "active"
+      ? "pubblicare questa scheda e renderla visibile al cliente"
+      : status === "draft"
+      ? "riportare questa scheda in bozza"
+      : "rimuovere questa scheda dalla vista cliente";
 
   const confirmed = window.confirm(
-    `Vuoi davvero ${label} il programma "${program.title}"?`
+    `Vuoi davvero ${actionLabel}?`
   );
 
   if (!confirmed) return;
@@ -5029,8 +5063,33 @@ async function updateProgramStatus(program, status) {
       return;
     }
 
+    if (status === "active") {
+      const clientId = Number(program.client_id || selectedClient?.id);
+
+      if (clientId) {
+        const { error: archiveError } = await supabase
+          .from("workout_plans")
+          .update({ status: "archived" })
+          .eq("client_id", clientId)
+          .eq("status", "active")
+          .neq("id", program.id);
+
+        if (archiveError) {
+          console.warn(archiveError.message);
+        }
+      }
+    }
+
     if (selectedClient) {
       await loadClientBundle(selectedClient.id);
+    }
+
+    if (status === "active") {
+      alert("Scheda pubblicata. Il cliente ora vede solo questa scheda attiva.");
+    } else if (status === "draft") {
+      alert("Scheda riportata in bozza. Il cliente non la vede.");
+    } else {
+      alert("Scheda rimossa dalla vista cliente.");
     }
   } catch (error) {
     alert(error.message || "Errore imprevisto durante aggiornamento programma.");
@@ -5441,7 +5500,7 @@ try {
           duration_weeks: Number(builder.duration_weeks) || 4,
           level: builder.level || null,
           location: builder.location || null,
-          status: "active"
+          status: "draft"
         })
         .select()
         .single();
@@ -5590,7 +5649,7 @@ try {
 
       setBuilder(createSmartBuilder());
       await loadClientBundle(selectedClient.id);
-      alert("Programma salvato.");
+      alert("Programma salvato come bozza. Controllalo e poi pubblicalo al cliente dalla sezione Salvati.");
     } catch (error) {
       alert(error.message || "Errore salvataggio programma.");
     } finally {
@@ -6164,7 +6223,7 @@ async function savePrivateNote(event) {
       if (tab === "programs") setProgramPanel("builder");
     }
 
-    const activePlans = coachControlData.plans.filter(isActiveRecord);
+    const activePlans = coachControlData.plans.filter(isProgramPublished);
     const activeDiets = coachControlData.diets.filter(isDietPublished);
 
     const activePlanClientIds = new Set(
@@ -8365,7 +8424,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                             ? "Salvataggio..."
                             : editingProgramId
                             ? "Aggiorna programma"
-                            : "Salva programma"}
+                            : "Salva bozza"}
                         </Button>
                       </div>
                     </div>
@@ -9669,8 +9728,7 @@ function CoachControlCenter({
   }
 
   function isActivePlan(plan) {
-    const status = String(plan?.status || "active").toLowerCase();
-    return !["archived", "inactive", "deleted"].includes(status);
+    return isProgramPublished(plan);
   }
 
   const activePlanClientIds = new Set(
@@ -10303,7 +10361,7 @@ function BuilderQualityPanel({
               ? "Salvataggio..."
               : editingProgramId
               ? "Aggiorna programma"
-              : "Salva programma"}
+              : "Salva bozza"}
           </Button>
         </div>
       </div>
@@ -10422,10 +10480,7 @@ function CoachClientSnapshot({
   onAddNote,
   onDeleteClient
 }) {
-  const activePlans = plans.filter((plan) => {
-    const status = String(plan?.status || "active").toLowerCase();
-    return !["archived", "deleted", "inactive"].includes(status);
-  });
+  const activePlans = plans.filter(isProgramPublished);
 
   const activeDiets = diets.filter(isDietPublished);
 
@@ -10982,8 +11037,9 @@ function PlansList({
   onDuplicateProgram,
   onEditProgram
 }) {
-  const activeCount = plans.filter((plan) => (plan.status || "active") === "active").length;
-  const archivedCount = plans.length - activeCount;
+  const publishedCount = plans.filter(isProgramPublished).length;
+  const draftCount = plans.filter(isProgramDraft).length;
+  const hiddenCount = plans.filter(isProgramRemoved).length;
 
   return (
     <Card className="border border-slate-300 bg-white p-4 shadow-sm md:p-5">
@@ -10996,48 +11052,48 @@ function PlansList({
             Programmi salvati
           </h2>
           <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-            Gestisci schede attive, archiviate, duplicabili o modificabili.
+            Le schede restano in bozza finché non le pubblichi. Il cliente vede solo una scheda pubblicata alla volta.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Pill className="bg-teal-100 text-teal-800">
-            {activeCount} attivi
+            {publishedCount} pubblicate
+          </Pill>
+          <Pill className="bg-amber-100 text-amber-800">
+            {draftCount} bozze
           </Pill>
           <Pill className="bg-slate-100 text-slate-700">
-            {archivedCount} archiviati
+            {hiddenCount} non visibili
           </Pill>
         </div>
       </div>
 
       <div className="mt-4 space-y-4">
         {plans.map((plan) => {
-          const isActive = (plan.status || "active") === "active";
+          const isPublished = isProgramPublished(plan);
+          const isDraft = isProgramDraft(plan);
 
           return (
             <div
               key={plan.id}
               className={`rounded-[1.5rem] border p-4 shadow-sm ${
-                isActive
-                  ? "border-slate-300 bg-white"
-                  : "border-slate-200 bg-slate-50 opacity-90"
+                isPublished
+                  ? "border-teal-300 bg-teal-50/40"
+                  : isDraft
+                  ? "border-amber-200 bg-amber-50/40"
+                  : "border-slate-200 bg-slate-50 opacity-95"
               }`}
             >
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Pill
-                      className={
-                        isActive
-                          ? "bg-teal-300 text-slate-950"
-                          : "bg-slate-200 text-slate-700"
-                      }
-                    >
-                      {isActive ? "Attivo" : "Archiviato"}
+                    <Pill className={programStatusPillClass(plan)}>
+                      {programStatusLabel(plan)}
                     </Pill>
 
                     {plan.duration_weeks && (
-                      <Pill className="bg-slate-100 text-slate-700">
+                      <Pill className="bg-white text-slate-700">
                         {plan.duration_weeks} settimane
                       </Pill>
                     )}
@@ -11050,9 +11106,17 @@ function PlansList({
                   <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">
                     {plan.goal || "Nessun obiettivo inserito"}
                   </p>
+
+                  <p className="mt-2 text-xs font-bold text-slate-500">
+                    {isPublished
+                      ? "Visibile nella sezione Scheda del cliente."
+                      : isDraft
+                      ? "Bozza visibile solo al professionista."
+                      : "Rimossa dalla vista cliente, resta nello storico coach."}
+                  </p>
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[420px] xl:grid-cols-4">
+                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[520px] xl:grid-cols-5">
                   <Button
                     onClick={() => onEditProgram(plan)}
                     className="bg-[#07111f] text-white"
@@ -11067,25 +11131,43 @@ function PlansList({
                     Duplica
                   </Button>
 
-                  {isActive ? (
-                    <Button
-                      onClick={() => onUpdateProgramStatus(plan, "archived")}
-                      disabled={updatingProgramId === plan.id}
-                      className="border border-amber-200 bg-amber-50 text-amber-700"
-                    >
-                      {updatingProgramId === plan.id
-                        ? "Aggiornamento..."
-                        : "Archivia"}
-                    </Button>
-                  ) : (
+                  {!isPublished ? (
                     <Button
                       onClick={() => onUpdateProgramStatus(plan, "active")}
                       disabled={updatingProgramId === plan.id}
                       className="border border-teal-200 bg-teal-50 text-teal-700"
                     >
                       {updatingProgramId === plan.id
-                        ? "Aggiornamento..."
-                        : "Riattiva"}
+                        ? "Pubblicazione..."
+                        : "Pubblica"}
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => onUpdateProgramStatus(plan, "archived")}
+                      disabled={updatingProgramId === plan.id}
+                      className="border border-amber-200 bg-amber-50 text-amber-700"
+                    >
+                      {updatingProgramId === plan.id
+                        ? "Rimozione..."
+                        : "Rimuovi"}
+                    </Button>
+                  )}
+
+                  {!isDraft && !isPublished ? (
+                    <Button
+                      onClick={() => onUpdateProgramStatus(plan, "draft")}
+                      disabled={updatingProgramId === plan.id}
+                      className="border border-slate-300 bg-white text-slate-700"
+                    >
+                      Bozza
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => onUpdateProgramStatus(plan, "archived")}
+                      disabled={updatingProgramId === plan.id || !isDraft}
+                      className="border border-slate-200 bg-white text-slate-500"
+                    >
+                      Nascondi
                     </Button>
                   )}
 
@@ -11107,7 +11189,7 @@ function PlansList({
                 {plan.workout_weeks?.map((week) => (
                   <details
                     key={week.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                    className="rounded-2xl border border-slate-200 bg-white p-3"
                   >
                     <summary className="cursor-pointer text-sm font-black text-slate-900">
                       {week.title || `Settimana ${week.week_number}`}
@@ -11117,7 +11199,7 @@ function PlansList({
                       {week.workout_days?.map((day) => (
                         <div
                           key={day.id}
-                          className="rounded-2xl border border-slate-200 bg-white p-3"
+                          className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
                         >
                           <p className="text-sm font-black text-teal-700">
                             {day.title}
@@ -11129,7 +11211,7 @@ function PlansList({
                                 {block.workout_exercises?.map((exercise) => (
                                   <div
                                     key={exercise.id}
-                                    className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
+                                    className="rounded-xl border border-slate-100 bg-white p-3 text-sm"
                                   >
                                     <div className="flex min-w-0 items-start gap-3">
                                       <ExerciseMediaPreview
@@ -11141,17 +11223,9 @@ function PlansList({
                                           {exercise.exercise_name}
                                         </p>
 
-                                        <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                                          {exercise.sets || "—"} serie · {" "}
-                                          {exercise.reps || "—"} reps · recupero {" "}
-                                          {exercise.recovery_seconds || "—"}s
+                                        <p className="mt-1 text-xs font-bold text-slate-500">
+                                          {exercise.sets || "—"} serie · {exercise.reps || "—"} reps · {exercise.recovery_seconds || "—"} sec
                                         </p>
-
-                                        {exercise.has_weekly_progression && (
-                                          <Pill className="mt-2 bg-teal-100 text-teal-800">
-                                            Progressione settimanale
-                                          </Pill>
-                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -11172,13 +11246,14 @@ function PlansList({
         {plans.length === 0 && (
           <Empty
             title="Nessun programma"
-            text="Crea il primo programma completo dal builder."
+            text="Crea il primo programma completo dal builder. Verrà salvato come bozza e potrai pubblicarlo dopo il controllo."
           />
         )}
       </div>
     </Card>
   );
 }
+
 function ExerciseHistoryBox({ history = [] }) {
   const validHistory = history.filter((item) => item.load_kg || item.reps_done);
 
