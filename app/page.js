@@ -11316,6 +11316,7 @@ function WorkoutPlayerModal({
   });
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
 
   const open = player?.open;
   const plan = player?.plan;
@@ -11332,6 +11333,7 @@ function WorkoutPlayerModal({
       setFeedback({ difficulty: "", feeling: "", notes: "" });
       setSessionStartedAt(Date.now());
       setElapsedSeconds(0);
+      setHistoryModalOpen(false);
     }
   }, [open, plan?.id, day?.id]);
 
@@ -11346,6 +11348,10 @@ function WorkoutPlayerModal({
 
     return () => window.clearInterval(interval);
   }, [open, sessionStartedAt]);
+
+  useEffect(() => {
+    setHistoryModalOpen(false);
+  }, [exerciseIndex, open]);
 
   if (!open || !plan || !day) return null;
 
@@ -11670,7 +11676,7 @@ function WorkoutPlayerModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4">
           {finished ? (
-            <div className="space-y-4 pb-28">
+            <div className="space-y-4 pb-36">
               <Card className="p-5 text-center">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
                   <Check size={28} />
@@ -11746,7 +11752,7 @@ function WorkoutPlayerModal({
           ) : !exercise ? (
             <Empty title="Nessun esercizio" text="Questo allenamento non contiene esercizi." />
           ) : (
-            <div className="space-y-4 pb-32">
+            <div className="space-y-4 pb-40">
               <Card className="overflow-hidden border-none shadow-md">
                 <div className="bg-white p-5">
                   <div className="flex items-start justify-between gap-3">
@@ -11929,9 +11935,17 @@ function WorkoutPlayerModal({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setHistoryModalOpen(true)}
+                    disabled={history.length === 0}
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                  >
+                    Storico pesi
+                  </button>
+                  <button
+                    type="button"
                     onClick={applyTargetSet}
                     disabled={!currentSet}
-                    className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                    className="col-span-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
                   >
                     Usa target
                   </button>
@@ -11958,9 +11972,62 @@ function WorkoutPlayerModal({
           )}
         </div>
 
+        {historyModalOpen && exercise && (
+          <div className="fixed inset-0 z-[160] flex items-end justify-center bg-slate-950/65 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-8 backdrop-blur-sm">
+            <div className="max-h-[82dvh] w-full max-w-[440px] overflow-y-auto rounded-[1.8rem] bg-white p-4 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-[0.24em] text-teal-700">
+                    Storico pesi
+                  </p>
+                  <h3 className="mt-1 truncate text-xl font-black text-slate-950">
+                    {exercise.exercise_name || "Esercizio"}
+                  </h3>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    Ultimi carichi registrati per questo esercizio.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalOpen(false)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 active:scale-[.96]"
+                  aria-label="Chiudi storico pesi"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <ExerciseHistoryBox history={history} />
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalOpen(false)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
+                >
+                  Chiudi
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyLastSet();
+                    setHistoryModalOpen(false);
+                  }}
+                  disabled={!lastHistory}
+                  className="rounded-2xl bg-teal-300 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40"
+                >
+                  Usa ultimo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!finished && exercise && (
-          <div className="shrink-0 border-t border-slate-200 bg-white/95 px-4 pb-[calc(0.7rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
-            <div className="grid grid-cols-[0.9fr_1.25fr_0.9fr] gap-2">
+          <div className="shrink-0 bg-transparent px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2">
+            <div className="grid grid-cols-[0.9fr_1.25fr_0.9fr] gap-2 rounded-[1.35rem] border border-slate-200 bg-white/95 p-2 shadow-[0_-10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl">
               <button
                 type="button"
                 onClick={goPrevious}
@@ -11988,11 +12055,11 @@ function WorkoutPlayerModal({
         )}
 
         {finished && (
-          <div className="shrink-0 border-t border-slate-200 bg-white/95 px-4 pb-[calc(0.7rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
+          <div className="shrink-0 bg-transparent px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2">
             <button
               type="button"
               onClick={closeCompletedWorkout}
-              className="w-full rounded-[1.35rem] bg-[#07111f] px-4 py-4 text-base font-black text-white active:scale-[.98]"
+              className="w-full rounded-[1.35rem] border border-slate-200 bg-[#07111f] px-4 py-4 text-base font-black text-white shadow-[0_-10px_30px_rgba(15,23,42,0.16)] active:scale-[.98]"
             >
               Chiudi allenamento
             </button>
