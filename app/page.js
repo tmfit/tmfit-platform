@@ -13925,13 +13925,23 @@ function getExerciseHistory(exercise) {
         )}
 
         {activeTab === "checkin" && (
-          <div className="grid gap-5 lg:grid-cols-2">
-            <Card className="p-5">
-              <h2 className="text-xl font-black">Check-in</h2>
+          <div className="space-y-4">
+            <Card className="overflow-hidden">
+              <div className="border-b border-slate-200 bg-white px-5 py-4">
+                <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-700">
+                  Check-in
+                </p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">
+                  Aggiornamento settimanale
+                </h2>
+                <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                  Compila solo i dati richiesti e invia il riepilogo al coach.
+                </p>
+              </div>
 
               <form
                 onSubmit={saveCheckin}
-                className="mt-4 grid gap-3 md:grid-cols-2"
+                className="grid gap-3 p-5 sm:grid-cols-2"
               >
                 <Label title="Data">
                   <Input
@@ -13973,7 +13983,7 @@ function getExerciseHistory(exercise) {
                     <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">
                       {label} 1-10
                     </p>
-                    <div className="grid grid-cols-10 gap-1">
+                    <div className="grid grid-cols-10 gap-1 rounded-2xl bg-slate-50 p-1">
                       {Array.from({ length: 10 }, (_, index) => {
                         const value = String(index + 1);
                         const selected = String(checkinForm[field]) === value;
@@ -13988,7 +13998,7 @@ function getExerciseHistory(exercise) {
                                 [field]: value
                               })
                             }
-                            className={`h-10 rounded-xl text-xs font-black transition active:scale-[.96] ${
+                            className={`h-9 rounded-xl text-[11px] font-black transition active:scale-[.96] ${
                               selected
                                 ? "bg-[#07111f] text-white shadow-md"
                                 : "border border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
@@ -14049,21 +14059,45 @@ function getExerciseHistory(exercise) {
               </form>
             </Card>
 
-            <Card className="p-5">
-              <h2 className="text-xl font-black">Storico check-in</h2>
+            <Card className="overflow-hidden">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-700">
+                    Storico
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Check-in inviati
+                  </h2>
+                </div>
+                <Pill className="bg-teal-100 text-teal-700">
+                  {checkins.length}
+                </Pill>
+              </div>
 
-              <div className="mt-4 space-y-3">
+              <div className="max-h-[420px] space-y-3 overflow-y-auto p-5">
                 {checkins.map((checkin) => (
                   <div
                     key={checkin.id}
-                    className="rounded-2xl border border-slate-200 p-4"
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                   >
-                    <p className="font-black">{checkin.checkin_date}</p>
-
-                    <p className="text-sm font-semibold text-slate-500">
-                      Peso {checkin.weight_kg || "—"} kg · Energia{" "}
-                      {checkin.energy_level || "—"}/10
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black text-slate-950">
+                          {formatClientDate(checkin.checkin_date)}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-500">
+                          Peso {checkin.weight_kg || "—"} kg · Energia {checkin.energy_level || "—"}/10
+                        </p>
+                      </div>
+                      <Pill className="bg-white text-slate-600">
+                        Inviato
+                      </Pill>
+                    </div>
+                    {checkin.notes && (
+                      <p className="mt-3 rounded-xl bg-white p-3 text-sm font-semibold leading-6 text-slate-600">
+                        {checkin.notes}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -14127,10 +14161,17 @@ function getExerciseHistory(exercise) {
             </Card>
 
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Carica foto progressi</h2>
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-200 bg-white px-5 py-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-700">
+                    Foto progressi
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Carica nuova foto
+                  </h2>
+                </div>
 
-                <form onSubmit={uploadProgressPhoto} className="mt-4 space-y-3">
+                <form onSubmit={uploadProgressPhoto} className="space-y-3 p-5">
                   <Input
                     type="date"
                     className="text-center appearance-none"
@@ -14179,6 +14220,12 @@ function getExerciseHistory(exercise) {
                     }
                   />
 
+                  {photoFile && (
+                    <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-bold text-teal-800">
+                      File selezionato: {photoFile.name}
+                    </div>
+                  )}
+
                   <Button
                     type="submit"
                     disabled={uploadingPhoto}
@@ -14189,10 +14236,22 @@ function getExerciseHistory(exercise) {
                 </form>
               </Card>
 
-              <Card className="p-5">
-                <h2 className="text-xl font-black">Le tue foto</h2>
+              <Card className="overflow-hidden">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-700">
+                      Archivio
+                    </p>
+                    <h2 className="mt-1 text-xl font-black text-slate-950">
+                      Le tue foto
+                    </h2>
+                  </div>
+                  <Pill className="bg-teal-100 text-teal-700">
+                    {photos.length}
+                  </Pill>
+                </div>
 
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 p-5 sm:grid-cols-2">
                   {photos.map((photo) => (
                     <button
                       key={photo.id}
@@ -14200,7 +14259,7 @@ function getExerciseHistory(exercise) {
                       onClick={() =>
                         openStorageFile("progress-photos", photo.file_path)
                       }
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left"
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-teal-200 hover:bg-teal-50"
                     >
                       <Camera className="text-teal-600" />
 
@@ -14589,8 +14648,8 @@ function getExerciseHistory(exercise) {
         )}
 
         {activeTab === "posts" && (
-          <Card className="p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <Card className="overflow-hidden">
+            <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-700">
                   Comunicazioni
@@ -14604,7 +14663,7 @@ function getExerciseHistory(exercise) {
               </Pill>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="space-y-3 p-5">
               {posts.map((post) => {
                 const category = String(post.post_type || "info").toLowerCase();
                 const categoryClass =
