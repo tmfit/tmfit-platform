@@ -12848,9 +12848,10 @@ function getExerciseHistory(exercise) {
   }
 
   const activePlan = plans[0] || null;
-  const latestDiet = diets.filter(isRecordActive)[0] || null;
+  const clientPublishedDiets = diets.filter(isDietPublished);
+  const latestDiet = clientPublishedDiets[0] || null;
   const previewDietForModal =
-    diets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
+    clientPublishedDiets.find((diet) => String(diet.id) === String(dietPreview.dietId)) ||
     latestDiet ||
     null;
   const latestCheckin = checkins[0] || null;
@@ -14070,7 +14071,7 @@ function getExerciseHistory(exercise) {
                     </div>
 
                     <div className="space-y-3 p-5">
-                      {diets.map((diet, index) => (
+                      {clientPublishedDiets.map((diet, index) => (
                         <div
                           key={diet.id}
                           className={`rounded-3xl border p-4 ${
