@@ -85,6 +85,97 @@ function numberOrNull(value) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+const WORKOUT_GROUP_META_REGEX = /\[TMFIT_GROUP:([^:\]]+)(?::([^\]]*))?\]/i;
+
+function normalizeWorkoutGroupType(value) {
+  const text = String(value || "").trim().toLowerCase();
+
+  if (["superset", "superserie", "super_set"].includes(text)) {
+    return "superserie";
+  }
+
+  if (["triset", "tri_set", "tri-set"].includes(text)) {
+    return "triset";
+  }
+
+  return "";
+}
+
+function cleanWorkoutNotes(value) {
+  return String(value || "")
+    .replace(WORKOUT_GROUP_META_REGEX, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function parseWorkoutGroupFromNotes(value) {
+  const match = String(value || "").match(WORKOUT_GROUP_META_REGEX);
+
+  if (!match) {
+    return { type: "", label: "" };
+  }
+
+  return {
+    type: normalizeWorkoutGroupType(match[1]),
+    label: String(match[2] || "").trim()
+  };
+}
+
+function workoutGroupMetaForExercise(exercise = {}) {
+  const fromFields = normalizeWorkoutGroupType(
+    exercise.group_type || exercise.set_group_type || exercise.superset_type
+  );
+  const fromNotes = parseWorkoutGroupFromNotes(exercise.notes || exercise.smart_notes || "");
+  const type = fromFields || fromNotes.type;
+
+  return {
+    type,
+    label: String(
+      exercise.group_label || exercise.set_group_label || exercise.superset_label || fromNotes.label || ""
+    ).trim()
+  };
+}
+
+function workoutGroupLabel(metaOrExercise = {}) {
+  const meta = metaOrExercise.type !== undefined
+    ? metaOrExercise
+    : workoutGroupMetaForExercise(metaOrExercise);
+
+  if (!meta.type) return "";
+
+  const base = meta.type === "triset" ? "Triset" : "Superserie";
+  return meta.label ? `${base} ${meta.label}` : base;
+}
+
+function encodeWorkoutNotes(value, groupType, groupLabel) {
+  const cleaned = cleanWorkoutNotes(value);
+  const type = normalizeWorkoutGroupType(groupType);
+
+  if (!type) return cleaned;
+
+  const label = String(groupLabel || "").trim();
+  const marker = `[TMFIT_GROUP:${type}${label ? `:${label}` : ""}]`;
+
+  return [cleaned, marker].filter(Boolean).join("\n");
+}
+
+function builderWithWorkoutGroupMarkers(builder) {
+  const next = clone(builder || {});
+
+  (next.days || []).forEach((day) => {
+    (day.exercises || []).forEach((exercise) => {
+      const groupMeta = workoutGroupMetaForExercise(exercise);
+      exercise.notes = encodeWorkoutNotes(
+        exercise.notes,
+        groupMeta.type,
+        groupMeta.label
+      );
+    });
+  });
+
+  return next;
+}
+
 function isRecordActive(item) {
   const status = String(item?.status || "active").toLowerCase();
   return !["archived", "deleted", "inactive", "removed"].includes(status);
@@ -1293,6 +1384,8 @@ function defaultExerciseRow() {
     video_url: "",
     image_url: "",
     notes: "",
+    group_type: "",
+    group_label: "",
     has_weekly_progression: false,
     progressions: defaultProgressions()
   };
@@ -3482,7 +3575,7 @@ function DietParseQualityCard({ diet, compact = false, onAnalyze, analyzing = fa
         compact ? "p-3" : "p-4"
       }`}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
             Controllo card
@@ -5151,7 +5244,9 @@ function duplicateProgramToBuilder(program) {
               execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: exercise.notes || "",
+              notes: cleanWorkoutNotes(exercise.notes || ""),
+              group_type: workoutGroupMetaForExercise(exercise).type,
+              group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
               progressions: buildProgressionsFromExercise(exercise, weeks)
             })) || [];
@@ -5216,7 +5311,9 @@ function duplicateProgramToBuilder(program) {
               execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: exercise.notes || "",
+              notes: cleanWorkoutNotes(exercise.notes || ""),
+              group_type: workoutGroupMetaForExercise(exercise).type,
+              group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
               progressions: buildProgressionsFromExercise(exercise, weeks)
             })) || [];
@@ -5278,7 +5375,7 @@ function cancelProgramEditing() {
     },
     body: JSON.stringify({
       program_id: editingProgramId,
-      builder
+      builder: builderWithWorkoutGroupMarkers(builder)
     })
   });
 
@@ -5323,7 +5420,9 @@ function cancelProgramEditing() {
                   execution_mode: exercise.execution_mode || "",
                   video_url: exercise.video_url || "",
                   image_url: exercise.image_url || "",
-                  notes: exercise.notes || "",
+                  notes: cleanWorkoutNotes(exercise.notes || ""),
+                  group_type: workoutGroupMetaForExercise(exercise).type || normalizeWorkoutGroupType(exercise.group_type),
+                  group_label: workoutGroupMetaForExercise(exercise).label || exercise.group_label || "",
                   has_weekly_progression: !!exercise.has_weekly_progression,
                   progressions: Array.from({ length: weeks }).map((_, index) => {
                     const weekNumber = index + 1;
@@ -5571,6 +5670,13 @@ try {
 
           const mediaId =
             exercise.exercise_media_id || matchedMedia?.id || null;
+          const exerciseGroupType = normalizeWorkoutGroupType(exercise.group_type);
+          const exerciseGroupLabel = String(exercise.group_label || "").trim();
+          const storedExerciseNotes = encodeWorkoutNotes(
+            exercise.notes,
+            exerciseGroupType,
+            exerciseGroupLabel
+          );
 
           const { data: exerciseRow, error: exerciseError } = await supabase
             .from("workout_exercises")
@@ -5587,8 +5693,8 @@ try {
               target_rir: exercise.target_rir || null,
               video_url: exercise.video_url || null,
               image_url: exercise.image_url || matchedMedia?.image_url || null,
-              notes: exercise.notes || null,
-              smart_notes: exercise.notes || null,
+              notes: storedExerciseNotes || null,
+              smart_notes: storedExerciseNotes || null,
               sort_order: exerciseIndex + 1,
               exercise_type: "normal",
               tracking_type: "load_reps",
@@ -7936,7 +8042,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         className="overflow-hidden border border-slate-300 bg-white shadow-sm"
                       >
                         <div className="border-b border-slate-200 bg-[#07111f] p-4 text-white">
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                             <div className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1.5fr)_120px_minmax(0,1fr)]">
                               <Label title="Giorno" className="text-white [&_span]:text-slate-300">
                                 <Input
@@ -8020,7 +8126,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           </div>
                         </div>
 
-                        <div className="space-y-4 bg-slate-50 p-4">
+                        <div className="space-y-3 bg-slate-50 p-3">
                           <div className="flex flex-col gap-2 rounded-[1.25rem] border border-slate-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <p className="text-sm font-black text-slate-950">
@@ -8044,9 +8150,9 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           {day.exercises.map((exercise, exerciseIndex) => (
                             <div
                               key={exercise.temp_id}
-                              className="overflow-hidden rounded-[1.45rem] border border-slate-200 bg-white shadow-sm"
+                              className="overflow-hidden rounded-[1.15rem] border border-slate-200 bg-white shadow-sm"
                             >
-                              <div className="border-b border-slate-200 bg-slate-950 px-4 py-3 text-white">
+                              <div className="border-b border-slate-200 bg-slate-950 px-3 py-2.5 text-white">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
@@ -8060,20 +8166,22 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                       )}
                                     </div>
 
-                                    <p className="mt-2 truncate text-base font-black text-white">
+                                    <p className="mt-1 truncate text-sm font-black text-white">
                                       {exercise.exercise_name?.trim() || "Nuovo esercizio"}
                                     </p>
-                                    <p className="mt-0.5 text-xs font-bold text-slate-400">
-                                      Compila i campi principali. I dettagli restano opzionali.
-                                    </p>
+                                    {workoutGroupLabel(exercise) && (
+                                      <p className="mt-1 inline-flex rounded-full bg-teal-300/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-teal-300">
+                                        {workoutGroupLabel(exercise)}
+                                      </p>
+                                    )}
                                   </div>
 
-                                  <div className="grid grid-cols-[42px_42px_minmax(0,1fr)_42px] gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
+                                  <div className="grid grid-cols-[36px_36px_minmax(0,1fr)_36px] gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
                                     <Button
                                       type="button"
                                       onClick={() => moveExerciseRow(dayIndex, exerciseIndex, -1)}
                                       disabled={exerciseIndex === 0}
-                                      className="w-full border border-white/10 bg-white/10 px-2 py-2 text-xs text-white sm:w-auto"
+                                      className="w-full border border-white/10 bg-white/10 px-2 py-1.5 text-xs text-white sm:w-auto"
                                     >
                                       ↑
                                     </Button>
@@ -8081,21 +8189,21 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                       type="button"
                                       onClick={() => moveExerciseRow(dayIndex, exerciseIndex, 1)}
                                       disabled={exerciseIndex === day.exercises.length - 1}
-                                      className="w-full border border-white/10 bg-white/10 px-2 py-2 text-xs text-white sm:w-auto"
+                                      className="w-full border border-white/10 bg-white/10 px-2 py-1.5 text-xs text-white sm:w-auto"
                                     >
                                       ↓
                                     </Button>
                                     <Button
                                       type="button"
                                       onClick={() => duplicateExerciseRow(dayIndex, exerciseIndex)}
-                                      className="w-full border border-white/10 bg-white/10 px-3 py-2 text-xs text-white sm:w-auto"
+                                      className="w-full border border-white/10 bg-white/10 px-2.5 py-1.5 text-xs text-white sm:w-auto"
                                     >
                                       Duplica
                                     </Button>
                                     <Button
                                       type="button"
                                       onClick={() => removeExerciseRow(dayIndex, exerciseIndex)}
-                                      className="w-full border border-red-200 bg-white px-3 py-2 text-xs text-red-600 sm:w-auto"
+                                      className="w-full border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-600 sm:w-auto"
                                     >
                                       <X size={14} />
                                     </Button>
@@ -8103,10 +8211,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                 </div>
                               </div>
 
-                              <div className="p-4">
-                                <div className="rounded-3xl border border-slate-200 bg-slate-50/90 p-3 ring-1 ring-white">
-                                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
-                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-4">
+                              <div className="p-3">
+                                <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50/90 p-2.5 ring-1 ring-white">
+                                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-12">
+                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-3">
                                       <Input
                                         placeholder="Panca piana, Squat, Lat machine..."
                                         value={exercise.exercise_name}
@@ -8118,7 +8226,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                             event.currentTarget.value
                                           )
                                         }
-                                        className="bg-white"
+                                        className="h-10 bg-white py-2 text-sm"
                                       />
                                     </Label>
 
@@ -8129,7 +8237,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                           updateExerciseField(dayIndex, exerciseIndex, "sets", event.target.value)
                                         }
                                         placeholder="3"
-                                        className="bg-white text-center"
+                                        className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
 
@@ -8140,11 +8248,11 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                           updateExerciseField(dayIndex, exerciseIndex, "reps", event.target.value)
                                         }
                                         placeholder="8-10"
-                                        className="bg-white text-center"
+                                        className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
 
-                                    <Label title="Recupero" className="lg:col-span-2">
+                                    <Label title="Rec." className="lg:col-span-1">
                                       <Input
                                         value={exercise.recovery_seconds || ""}
                                         onChange={(event) =>
@@ -8155,8 +8263,8 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                             event.target.value
                                           )
                                         }
-                                        placeholder="90 sec"
-                                        className="bg-white text-center"
+                                        placeholder="90"
+                                        className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
 
@@ -8167,25 +8275,55 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                           updateExerciseField(dayIndex, exerciseIndex, "target_rpe", event.target.value)
                                         }
                                         placeholder="8"
-                                        className="bg-white text-center"
+                                        className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
 
-                                    <Label title="RIR" className="lg:col-span-2">
+                                    <Label title="RIR" className="lg:col-span-1">
                                       <Input
                                         value={exercise.target_rir || ""}
                                         onChange={(event) =>
                                           updateExerciseField(dayIndex, exerciseIndex, "target_rir", event.target.value)
                                         }
                                         placeholder="1-2"
-                                        className="bg-white text-center"
+                                        className="h-10 bg-white py-2 text-center text-sm"
+                                      />
+                                    </Label>
+
+                                    <Label title="Tipo" className="lg:col-span-1">
+                                      <Select
+                                        value={exercise.group_type || ""}
+                                        onChange={(event) => {
+                                          const nextType = event.target.value;
+                                          updateExerciseField(dayIndex, exerciseIndex, "group_type", nextType);
+                                          if (!nextType) {
+                                            updateExerciseField(dayIndex, exerciseIndex, "group_label", "");
+                                          }
+                                        }}
+                                        className="h-10 rounded-xl px-2 py-2 text-xs"
+                                      >
+                                        <option value="">Singolo</option>
+                                        <option value="superserie">Superset</option>
+                                        <option value="triset">Triset</option>
+                                      </Select>
+                                    </Label>
+
+                                    <Label title="Gruppo" className="lg:col-span-2">
+                                      <Input
+                                        value={exercise.group_label || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "group_label", event.target.value.toUpperCase())
+                                        }
+                                        placeholder={exercise.group_type ? "A" : "—"}
+                                        disabled={!exercise.group_type}
+                                        className="h-10 bg-white py-2 text-center text-sm disabled:bg-slate-100"
                                       />
                                     </Label>
                                   </div>
                                 </div>
 
-                                <details className="mt-3 rounded-3xl border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.03)]">
-                                  <summary className="flex cursor-pointer flex-col gap-2 px-4 py-3 text-sm font-black text-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                                <details className="mt-2 rounded-[1.1rem] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+                                  <summary className="flex cursor-pointer flex-col gap-2 px-3 py-2.5 text-sm font-black text-slate-800 sm:flex-row sm:items-center sm:justify-between">
                                     <span>Dettagli opzionali</span>
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
                                       Video · Note · Progressione
@@ -9320,11 +9458,11 @@ Apri PDF
                   </p>
                 </div>
 
-                <div className="grid gap-3 p-5 lg:grid-cols-2">
+                <div className="grid gap-3 p-4">
                   {diets.map((diet, index) => (
                     <div
                       key={diet.id}
-                      className={`rounded-[1.4rem] border p-4 shadow-sm ${
+                      className={`rounded-[1.25rem] border p-3 shadow-sm ${
                         isDietPublished(diet)
                           ? "border-teal-200 bg-teal-50"
                           : isDietDraft(diet)
@@ -9332,7 +9470,7 @@ Apri PDF
                           : "border-slate-200 bg-white"
                       }`}
                     >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex flex-col gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-black text-slate-950">
@@ -9350,7 +9488,7 @@ Apri PDF
                           </p>
                         </div>
 
-                        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                        <div className="flex w-full flex-wrap gap-2 [&_button]:min-h-9 [&_button]:px-3 [&_button]:py-2 [&_button]:text-xs">
                           <Button
                             onClick={() => previewDietInApp(diet)}
                             className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
@@ -11231,9 +11369,16 @@ function PlansList({
                                       />
 
                                       <div className="min-w-0 flex-1">
-                                        <p className="break-words font-black text-slate-950">
-                                          {exercise.exercise_name}
-                                        </p>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <p className="break-words font-black text-slate-950">
+                                            {exercise.exercise_name}
+                                          </p>
+                                          {workoutGroupLabel(exercise) && (
+                                            <Pill className="bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                                              {workoutGroupLabel(exercise)}
+                                            </Pill>
+                                          )}
+                                        </div>
 
                                         <p className="mt-1 text-xs font-bold text-slate-500">
                                           {exercise.sets || "—"} serie · {exercise.reps || "—"} reps · {exercise.recovery_seconds || "—"} sec
@@ -11477,6 +11622,9 @@ function WorkoutPlayerModal({
     .filter(Boolean);
 
   const exercise = exercises[exerciseIndex] || null;
+  const exerciseGroupMeta = exercise ? workoutGroupMetaForExercise(exercise) : { type: "", label: "" };
+  const exerciseGroupText = workoutGroupLabel(exerciseGroupMeta);
+  const exerciseCoachNotes = cleanWorkoutNotes(exercise?.notes || "");
   const plannedSets = exercise ? plannedSetsForExercise(exercise) : [];
   const currentSet = plannedSets[setIndex] || null;
   const totalPlannedSets = exercises.reduce(
@@ -11898,6 +12046,11 @@ function WorkoutPlayerModal({
                       <h3 className="mt-2 text-2xl font-black leading-tight text-slate-950">
                         {exercise.exercise_name || "Esercizio"}
                       </h3>
+                      {exerciseGroupText && (
+                        <div className="mt-2 inline-flex rounded-full bg-teal-50 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-teal-700 ring-1 ring-teal-100">
+                          {exerciseGroupText}
+                        </div>
+                      )}
                     </div>
                     <div className="rounded-2xl bg-teal-50 px-3 py-2 text-center text-teal-800">
                       <p className="text-base font-black">
@@ -11928,12 +12081,12 @@ function WorkoutPlayerModal({
                     </div>
                   )}
 
-                  {(exercise.notes || exercise.execution_mode || videoUrl) && (
+                  {(exerciseCoachNotes || exercise.execution_mode || videoUrl) && (
                     <div className="mt-4 grid gap-2">
-                      {exercise.notes && (
+                      {exerciseCoachNotes && (
                         <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
                           <span className="font-black">Note coach: </span>
-                          {exercise.notes}
+                          {exerciseCoachNotes}
                         </div>
                       )}
                       {exercise.execution_mode && (
