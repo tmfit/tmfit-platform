@@ -12384,6 +12384,7 @@ function CoachMonitorPanel({
   const visiblePhotos = clientId
     ? photos.filter((item) => String(item.client_id) === clientId)
     : photos;
+  const [selectedCheckinDetail, setSelectedCheckinDetail] = useState(null);
 
   function formatDate(value) {
     if (!value) return "—";
@@ -12437,6 +12438,21 @@ function CoachMonitorPanel({
   const latestPhotoDays = daysFrom(latestPhoto?.photo_date || latestPhoto?.created_at);
   const latestLogDays = daysFrom(latestLog?.created_at || latestLog?.session_date);
   const alerts = getCheckinAlerts(latestCheckin);
+
+  const selectedCheckinMetrics = selectedCheckinDetail
+    ? [
+        ["Peso", selectedCheckinDetail.weight_kg ? `${selectedCheckinDetail.weight_kg} kg` : "—"],
+        ["Energia", selectedCheckinDetail.energy_level ? `${selectedCheckinDetail.energy_level}/10` : "—"],
+        ["Sonno", selectedCheckinDetail.sleep_quality ? `${selectedCheckinDetail.sleep_quality}/10` : "—"],
+        ["Fame", selectedCheckinDetail.hunger_level ? `${selectedCheckinDetail.hunger_level}/10` : "—"],
+        ["Stress", selectedCheckinDetail.stress_level ? `${selectedCheckinDetail.stress_level}/10` : "—"],
+        ["Digestione", selectedCheckinDetail.digestion_level ? `${selectedCheckinDetail.digestion_level}/10` : "—"],
+        ["Aderenza dieta", selectedCheckinDetail.diet_adherence ? `${selectedCheckinDetail.diet_adherence}/10` : "—"],
+        ["Aderenza allenamento", selectedCheckinDetail.training_adherence ? `${selectedCheckinDetail.training_adherence}/10` : "—"],
+        ["Acqua", selectedCheckinDetail.water_liters ? `${selectedCheckinDetail.water_liters} L` : "—"],
+        ["Passi", selectedCheckinDetail.steps ? `${selectedCheckinDetail.steps}` : "—"]
+      ]
+    : [];
 
   const kpis = [
     {
@@ -12527,14 +12543,24 @@ function CoachMonitorPanel({
           <h3 className="text-lg font-black text-slate-950">Check-in recenti</h3>
           <div className="mt-3 space-y-2">
             {visibleCheckins.slice(0, 6).map((checkin) => (
-              <div key={checkin.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <button
+                key={checkin.id}
+                type="button"
+                onClick={() => setSelectedCheckinDetail(checkin)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-teal-200 hover:bg-teal-50/50 active:scale-[.99]"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-black text-slate-950">
                     {formatDate(checkin.checkin_date || checkin.created_at)}
                   </p>
-                  <Pill className="bg-white text-slate-700">
-                    Peso {checkin.weight_kg || "—"} kg
-                  </Pill>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Pill className="bg-white text-slate-700">
+                      Peso {checkin.weight_kg || "—"} kg
+                    </Pill>
+                    <span className="rounded-full bg-[#07111f] px-3 py-1 text-[11px] font-black text-white">
+                      Vedi tutto
+                    </span>
+                  </div>
                 </div>
                 <p className="mt-2 text-sm font-bold text-slate-600">
                   Energia {checkin.energy_level || "—"}/10 · Sonno {checkin.sleep_quality || "—"}/10 · Stress {checkin.stress_level || "—"}/10
@@ -12543,11 +12569,11 @@ function CoachMonitorPanel({
                   Dieta {checkin.diet_adherence || "—"}/10 · Allenamento {checkin.training_adherence || "—"}/10
                 </p>
                 {checkin.notes && (
-                  <p className="mt-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">
+                  <p className="mt-2 line-clamp-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">
                     {checkin.notes}
                   </p>
                 )}
-              </div>
+              </button>
             ))}
 
             {visibleCheckins.length === 0 && (
@@ -12619,6 +12645,90 @@ function CoachMonitorPanel({
           )}
         </div>
       </Card>
+
+      {selectedCheckinDetail && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/70 px-3 pb-4 pt-10 backdrop-blur-sm md:items-center md:px-6 md:py-8">
+          <button
+            type="button"
+            aria-label="Chiudi dettaglio check-in"
+            onClick={() => setSelectedCheckinDetail(null)}
+            className="absolute inset-0"
+          />
+
+          <div className="relative z-[121] max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/10 bg-white p-5 shadow-2xl md:p-6">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
+                  Dettaglio check-in
+                </p>
+                <h3 className="mt-2 text-2xl font-black text-slate-950">
+                  {formatDate(selectedCheckinDetail.checkin_date || selectedCheckinDetail.created_at)}
+                </h3>
+                <p className="mt-1 text-sm font-bold text-slate-500">
+                  {selectedClient ? fullName(selectedClient) : clientId ? `Cliente #${clientId}` : "Cliente"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedCheckinDetail(null)}
+                className="rounded-2xl bg-slate-100 p-3 text-slate-700 transition hover:bg-slate-200"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {selectedCheckinMetrics.map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                    {label}
+                  </p>
+                  <p className="mt-2 text-xl font-black text-slate-950">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+                  Note cliente
+                </p>
+                <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
+                  {selectedCheckinDetail.notes || "Nessuna nota inserita dal cliente."}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+                  Feedback coach
+                </p>
+                <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
+                  {selectedCheckinDetail.coach_feedback || "Nessun feedback salvato su questo check-in."}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2 rounded-3xl bg-[#07111f] p-4 text-white md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-black">Check-in completo</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">
+                  Tutti i valori inviati dal cliente sono visibili in questa finestra.
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={() => setSelectedCheckinDetail(null)}
+                className="bg-teal-300 text-slate-950 hover:bg-teal-200"
+              >
+                Chiudi
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -12658,6 +12768,8 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   });
 
   const [photoFile, setPhotoFile] = useState(null);
+  const [photoInputKey, setPhotoInputKey] = useState(() => uid());
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoForm, setPhotoForm] = useState({
     photo_date: today(),
     photo_type: "front",
@@ -12991,47 +13103,76 @@ function getExerciseHistory(exercise) {
   async function uploadProgressPhoto(event) {
     event.preventDefault();
 
-    if (!client || !photoFile) {
+    if (uploadingPhoto) return;
+
+    if (!client || !session?.user?.id) {
+      alert("Sessione cliente non valida. Esci e rientra prima di caricare la foto.");
+      return;
+    }
+
+    if (!photoFile) {
       alert("Seleziona una foto.");
       return;
     }
 
-    const safeName = photoFile.name.replaceAll(" ", "-");
-    const path = `${client.id}/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("progress-photos")
-      .upload(path, photoFile);
-
-    if (uploadError) {
-      alert(uploadError.message);
+    if (photoFile.type && !photoFile.type.startsWith("image/")) {
+      alert("Il file selezionato non sembra essere un’immagine.");
       return;
     }
 
-    const { error } = await supabase.from("progress_photos").insert({
-      client_id: Number(client.id),
-      user_id: session.user.id,
-      photo_date: photoForm.photo_date || today(),
-      photo_type: photoForm.photo_type,
-      file_path: path,
-      notes: photoForm.notes || null,
-      visible_to_client: true
-    });
+    setUploadingPhoto(true);
 
-    if (error) {
-      alert(error.message);
-      return;
+    let uploadedPath = "";
+
+    try {
+      const originalName = photoFile.name || "foto-progressi.jpg";
+      const extension = originalName.includes(".")
+        ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg"
+        : "jpg";
+      const path = `${client.id}/${session.user.id}/${Date.now()}-${uid()}.${extension}`;
+      uploadedPath = path;
+
+      const { error: uploadError } = await supabase.storage
+        .from("progress-photos")
+        .upload(path, photoFile, {
+          cacheControl: "3600",
+          contentType: photoFile.type || "image/jpeg",
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { error } = await supabase.from("progress_photos").insert({
+        client_id: Number(client.id),
+        user_id: session.user.id,
+        photo_date: photoForm.photo_date || today(),
+        photo_type: photoForm.photo_type,
+        file_path: path,
+        notes: photoForm.notes || null
+      });
+
+      if (error) {
+        if (uploadedPath) {
+          await supabase.storage.from("progress-photos").remove([uploadedPath]);
+        }
+        throw error;
+      }
+
+      setPhotoFile(null);
+      setPhotoInputKey(uid());
+      setPhotoForm({
+        photo_date: today(),
+        photo_type: "front",
+        notes: ""
+      });
+
+      await loadClientArea();
+      alert("Foto caricata correttamente.");
+    } catch (error) {
+      alert(error.message || "Errore durante il caricamento della foto.");
+    } finally {
+      setUploadingPhoto(false);
     }
-
-    setPhotoFile(null);
-
-    setPhotoForm({
-      photo_date: today(),
-      photo_type: "front",
-      notes: ""
-    });
-
-    await loadClientArea();
   }
 
   async function openStorageFile(bucket, path) {
@@ -14018,6 +14159,7 @@ function getExerciseHistory(exercise) {
                   </Select>
 
                   <input
+                    key={photoInputKey}
                     type="file"
                     accept="image/*"
                     onChange={(event) =>
@@ -14037,8 +14179,12 @@ function getExerciseHistory(exercise) {
                     }
                   />
 
-                  <Button type="submit" className="w-full bg-[#07111f] text-white">
-                    Carica foto
+                  <Button
+                    type="submit"
+                    disabled={uploadingPhoto}
+                    className="w-full bg-[#07111f] text-white"
+                  >
+                    {uploadingPhoto ? "Caricamento..." : "Carica foto"}
                   </Button>
                 </form>
               </Card>
