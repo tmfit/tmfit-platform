@@ -1356,6 +1356,28 @@ function safePdfDownloadName(value, fallback = "TMFIT-piano-alimentare.pdf") {
   return clean.toLowerCase().endsWith(".pdf") ? clean : `${clean}.pdf`;
 }
 
+function storagePathBelongsToClient(path, clientId) {
+  if (!path || clientId === null || clientId === undefined) return false;
+
+  const cleanPath = String(path).replace(/^\/+/, "");
+  const cleanClientId = String(clientId);
+
+  return cleanPath === cleanClientId || cleanPath.startsWith(`${cleanClientId}/`);
+}
+
+function canCoachAccessDietFile(diet, selectedClient) {
+  if (!diet?.file_path || !selectedClient?.id) return false;
+  if (String(diet.client_id) !== String(selectedClient.id)) return false;
+  return storagePathBelongsToClient(diet.file_path, selectedClient.id);
+}
+
+function canClientAccessPublishedDietFile(diet, client) {
+  if (!diet?.file_path || !client?.id) return false;
+  if (!isDietPublished(diet)) return false;
+  if (String(diet.client_id) !== String(client.id)) return false;
+  return storagePathBelongsToClient(diet.file_path, client.id);
+}
+
 const DIET_EXTRACT_START = "TMFIT_DIET_EXTRACT_START";
 const DIET_EXTRACT_END = "TMFIT_DIET_EXTRACT_END";
 const DIET_PARSER_SKIP_INTRO_PAGES = 6;
@@ -5714,8 +5736,8 @@ try {
   }
 
   async function analyzeDietPdfToCards(diet) {
-    if (!selectedClient || !diet?.file_path) {
-      alert("Seleziona una dieta PDF valida.");
+    if (!canCoachAccessDietFile(diet, selectedClient)) {
+      alert("PDF dieta non disponibile per il cliente selezionato.");
       return;
     }
 
@@ -5724,7 +5746,7 @@ try {
     try {
       const { data, error } = await supabase.storage
         .from("diets")
-        .createSignedUrl(diet.file_path, 3600);
+        .createSignedUrl(diet.file_path, 600);
 
       if (error) {
         alert(error.message);
@@ -5769,7 +5791,7 @@ try {
   }
 
   async function activateDietPlan(diet) {
-    if (!selectedClient || !diet?.id) return;
+    if (!selectedClient || !diet?.id || String(diet.client_id) !== String(selectedClient.id)) return;
 
     const hasCards = Boolean(dietExtractedInfo(diet));
     const confirmed = window.confirm(
@@ -5812,7 +5834,7 @@ try {
   }
 
   async function removeDietPlan(diet) {
-    if (!selectedClient || !diet?.id) return;
+    if (!selectedClient || !diet?.id || String(diet.client_id) !== String(selectedClient.id)) return;
 
     const confirmed = window.confirm(
       "Vuoi rimuovere questo piano dalla sezione Dieta del cliente? Il PDF resterà nello storico coach, ma non sarà più visibile come dieta attiva."
@@ -5861,7 +5883,7 @@ try {
   }
 
   async function saveDietCardsEditor(diet) {
-    if (!selectedClient || !diet?.id || !editingDietCardsDraft) return;
+    if (!selectedClient || !diet?.id || String(diet.client_id) !== String(selectedClient.id) || !editingDietCardsDraft) return;
 
     const cleanedExtract = sanitizeExtractedDietForMeals({
       ...editingDietCardsDraft,
@@ -6031,8 +6053,29 @@ async function savePrivateNote(event) {
     }
   }
 
+  async function downloadDietPdf(diet) {
+    if (!canCoachAccessDietFile(diet, selectedClient)) {
+      alert("PDF dieta non disponibile per il cliente selezionato.");
+      return;
+    }
+
+    await downloadStorageFile(
+      "diets",
+      diet.file_path,
+      diet.file_name || dietDisplayTitle(diet)
+    );
+  }
+
   async function previewDietInApp(diet) {
-    if (!diet?.file_path) return;
+    if (!canCoachAccessDietFile(diet, selectedClient)) {
+      setDietPreview({
+        dietId: diet?.id ? String(diet.id) : "",
+        url: "",
+        loading: false,
+        error: "PDF dieta non disponibile per il cliente selezionato."
+      });
+      return;
+    }
 
     setDietPreview({
       dietId: String(diet.id),
@@ -6043,7 +6086,7 @@ async function savePrivateNote(event) {
 
     const { data, error } = await supabase.storage
       .from("diets")
-      .createSignedUrl(diet.file_path, 3600);
+      .createSignedUrl(diet.file_path, 300);
 
     if (error) {
       setDietPreview({
@@ -6064,9 +6107,12 @@ async function savePrivateNote(event) {
   }
 
   function openDietFullscreen(diet) {
-    setDietFullscreenOpen(true);
+    if (!canCoachAccessDietFile(diet, selectedClient)) {
+      alert("PDF dieta non disponibile per il cliente selezionato.");
+      return;
+    }
 
-    if (!diet?.file_path) return;
+    setDietFullscreenOpen(true);
 
     if (dietPreview.dietId === String(diet.id) && dietPreview.url) return;
 
@@ -8760,11 +8806,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                 onClose={() => setDietFullscreenOpen(false)}
                 onOpenExternal={() => {
                   if (previewDietForModal?.file_path) {
-                    downloadStorageFile(
-                      "diets",
-                      previewDietForModal.file_path,
-                      previewDietForModal.file_name || dietDisplayTitle(previewDietForModal)
-                    );
+                    downloadDietPdf(previewDietForModal);
                   }
                 }}
               />
@@ -9095,11 +9137,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               </Button>
                               <Button
                                 onClick={() =>
-                                  downloadStorageFile(
-                                    "diets",
-                                    activeDietForSelectedClient.file_path,
-                                    activeDietForSelectedClient.file_name || dietDisplayTitle(activeDietForSelectedClient)
-                                  )
+                                  downloadDietPdf(activeDietForSelectedClient)
                                 }
                                 className="border border-slate-200 bg-white text-slate-950"
                               >
@@ -9175,11 +9213,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           onOpenFull={() => setDietFullscreenOpen(true)}
                           onOpenExternal={() => {
                             if (previewDietForModal?.file_path) {
-                              downloadStorageFile(
-                                "diets",
-                                previewDietForModal.file_path,
-                                previewDietForModal.file_name || dietDisplayTitle(previewDietForModal)
-                              );
+                              downloadDietPdf(previewDietForModal);
                             }
                           }}
                         />
@@ -9280,11 +9314,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           </Button>
                           <Button
                             onClick={() =>
-                              downloadStorageFile(
-                                "diets",
-                                diet.file_path,
-                                diet.file_name || dietDisplayTitle(diet)
-                              )
+                              downloadDietPdf(diet)
                             }
                             className="bg-[#07111f] px-3 py-2 text-xs text-white"
                           >
@@ -12783,8 +12813,29 @@ function getExerciseHistory(exercise) {
     }
   }
 
+  async function downloadClientDietPdf(diet) {
+    if (!canClientAccessPublishedDietFile(diet, client)) {
+      alert("PDF dieta non disponibile.");
+      return;
+    }
+
+    await downloadStorageFile(
+      "diets",
+      diet.file_path,
+      diet.file_name || dietDisplayTitle(diet)
+    );
+  }
+
   async function previewDietInApp(diet) {
-    if (!diet?.file_path) return;
+    if (!canClientAccessPublishedDietFile(diet, client)) {
+      setDietPreview({
+        dietId: diet?.id ? String(diet.id) : "",
+        url: "",
+        loading: false,
+        error: "PDF dieta non disponibile."
+      });
+      return;
+    }
 
     setDietPreview({
       dietId: String(diet.id),
@@ -12795,7 +12846,7 @@ function getExerciseHistory(exercise) {
 
     const { data, error } = await supabase.storage
       .from("diets")
-      .createSignedUrl(diet.file_path, 3600);
+      .createSignedUrl(diet.file_path, 300);
 
     if (error) {
       setDietPreview({
@@ -12816,9 +12867,12 @@ function getExerciseHistory(exercise) {
   }
 
   function openDietFullscreen(diet) {
-    setDietFullscreenOpen(true);
+    if (!canClientAccessPublishedDietFile(diet, client)) {
+      alert("PDF dieta non disponibile.");
+      return;
+    }
 
-    if (!diet?.file_path) return;
+    setDietFullscreenOpen(true);
 
     if (dietPreview.dietId === String(diet.id) && dietPreview.url) return;
 
@@ -13764,11 +13818,7 @@ function getExerciseHistory(exercise) {
               onClose={() => setDietFullscreenOpen(false)}
               onOpenExternal={() => {
                 if (previewDietForModal?.file_path) {
-                  downloadStorageFile(
-                    "diets",
-                    previewDietForModal.file_path,
-                    previewDietForModal.file_name || dietDisplayTitle(previewDietForModal)
-                  );
+                  downloadClientDietPdf(previewDietForModal);
                 }
               }}
             />
@@ -13934,11 +13984,7 @@ function getExerciseHistory(exercise) {
 
                         <Button
                           onClick={() =>
-                            downloadStorageFile(
-                              "diets",
-                              latestDiet.file_path,
-                              latestDiet.file_name || dietDisplayTitle(latestDiet)
-                            )
+                            downloadClientDietPdf(latestDiet)
                           }
                           className="w-full border border-slate-200 bg-white text-slate-950"
                         >
@@ -13989,11 +14035,7 @@ function getExerciseHistory(exercise) {
                         </Button>
                         <Button
                           onClick={() =>
-                            downloadStorageFile(
-                              "diets",
-                              latestDiet.file_path,
-                              latestDiet.file_name || dietDisplayTitle(latestDiet)
-                            )
+                            downloadClientDietPdf(latestDiet)
                           }
                           className="border border-slate-200 bg-white text-slate-950"
                         >
@@ -14021,11 +14063,7 @@ function getExerciseHistory(exercise) {
                           title={latestDiet.file_name || "PDF dieta cliente"}
                           onOpenFull={() => setDietFullscreenOpen(true)}
                           onOpenExternal={() =>
-                            downloadStorageFile(
-                              "diets",
-                              latestDiet.file_path,
-                              latestDiet.file_name || dietDisplayTitle(latestDiet)
-                            )
+                            downloadClientDietPdf(latestDiet)
                           }
                         />
                       )}
@@ -14112,11 +14150,7 @@ function getExerciseHistory(exercise) {
                               </Button>
                               <Button
                                 onClick={() =>
-                                  downloadStorageFile(
-                                    "diets",
-                                    diet.file_path,
-                                    diet.file_name || dietDisplayTitle(diet)
-                                  )
+                                  downloadClientDietPdf(diet)
                                 }
                                 className="bg-[#07111f] px-3 py-2 text-xs text-white"
                               >
