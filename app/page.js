@@ -9805,6 +9805,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         <ClientProgramPreviewPanel
                           builder={builder}
                           selectedClient={selectedClient}
+                          editingProgramId={editingProgramId}
                         />
                       </div>
                     </details>
@@ -9908,6 +9909,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
               {programPanel === "saved" && (
                 <PlansList
                   plans={plans}
+                  selectedClient={selectedClient}
                   onDeleteProgram={deleteProgram}
                   deletingProgramId={deletingProgramId}
                   onUpdateProgramStatus={updateProgramStatus}
@@ -11584,77 +11586,289 @@ function BuilderWorkflowNav({ activeStep, onChange, quality }) {
 }
 
 
-function ClientProgramPreviewPanel({ builder, selectedClient }) {
-  const firstDay = builder.days?.[0] || null;
-  const visibleExercises = firstDay?.exercises?.filter((exercise) =>
-    String(exercise.exercise_name || "").trim()
-  ) || [];
+function ClientProgramPreviewPanel({ builder, selectedClient, editingProgramId = "" }) {
+  const days = (builder.days || [])
+    .map((day, dayIndex) => ({
+      ...day,
+      previewIndex: dayIndex,
+      exercises: (day.exercises || []).filter((exercise) =>
+        String(exercise.exercise_name || "").trim()
+      )
+    }))
+    .filter((day) => day.exercises.length > 0);
+
+  const totalExercises = days.reduce((sum, day) => sum + day.exercises.length, 0);
+  const groupLabels = new Set(
+    days.flatMap((day) =>
+      day.exercises
+        .map((exercise) => workoutGroupLabel(exercise))
+        .filter(Boolean)
+    )
+  );
+  const statusLabel = editingProgramId ? "Bozza in modifica" : "Bozza non salvata";
+
+  function previewRecovery(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return "—";
+    if (/sec|second|\"/i.test(text)) return text;
+    return `${text} sec`;
+  }
+
+  function previewSetsReps(exercise) {
+    const sets = String(exercise?.sets || "").trim();
+    const reps = String(exercise?.reps || "").trim();
+    if (!sets && !reps) return "Serie/reps da completare";
+    if (sets && reps) return `${sets} x ${reps}`;
+    return sets || reps;
+  }
+
+  function meaningfulProgressions(exercise) {
+    return (exercise.progressions || []).filter((progression) =>
+      [
+        progression.target_load_text,
+        progression.target_sets,
+        progression.target_reps,
+        progression.target_rpe,
+        progression.target_rir,
+        progression.recovery_seconds,
+        progression.notes
+      ].some((value) => String(value || "").trim())
+    );
+  }
+
+  function progressionMainText(progression) {
+    const direct = String(progression.target_load_text || "").trim();
+    if (direct) return direct;
+
+    const sets = String(progression.target_sets || "").trim();
+    const reps = String(progression.target_reps || "").trim();
+    const parts = [];
+
+    if (sets && reps) parts.push(`${sets} x ${reps}`);
+    else if (sets || reps) parts.push(sets || reps);
+    if (progression.target_rir) parts.push(`RIR ${progression.target_rir}`);
+    if (progression.target_rpe) parts.push(`RPE ${progression.target_rpe}`);
+    if (progression.notes) parts.push(progression.notes);
+
+    return parts.join(" · ") || "—";
+  }
 
   return (
     <Card className="overflow-hidden border-2 border-[#07111f]/10 bg-white shadow-md">
       <div className="bg-[#07111f] p-4 text-white md:p-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
               Anteprima cliente
             </p>
-            <h3 className="mt-2 text-xl font-black">
-              Come vedrà la scheda il cliente
+            <h3 className="mt-2 text-2xl font-black tracking-tight">
+              {builder.title || "Programma allenamento"}
             </h3>
-            <p className="mt-1 text-sm font-semibold text-slate-300">
-              {selectedClient ? fullName(selectedClient) : "Cliente non selezionato"} · {builder.title || "Programma allenamento"}
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
+              Questa è la vista di controllo lato professionista: ti mostra la scheda come sarà organizzata nell’app del cliente prima della pubblicazione.
             </p>
           </div>
 
-          <Pill className="bg-teal-300 text-slate-950">
-            Preview app
-          </Pill>
+          <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[340px]">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                Scheda associata a
+              </p>
+              <p className="mt-1 truncate text-sm font-black text-white">
+                {selectedClient ? fullName(selectedClient) : "Cliente non selezionato"}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                Stato visibilità
+              </p>
+              <p className="mt-1 truncate text-sm font-black text-white">
+                {statusLabel} · Cliente: no
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-4 p-4 lg:grid-cols-[.8fr_1.2fr]">
-        <div className="rounded-3xl bg-slate-50 p-4">
-          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
-            Prossimo allenamento
-          </p>
-          <h4 className="mt-2 text-2xl font-black text-slate-950">
-            {firstDay?.title || "Allenamento A"}
-          </h4>
-          <p className="mt-2 text-sm font-bold text-slate-500">
-            {visibleExercises.length} esercizi · {firstDay?.estimated_minutes || 60} min · {builder.duration_weeks || 4} settimane
-          </p>
-          <div className="mt-4 rounded-2xl bg-[#07111f] px-4 py-3 text-center text-sm font-black text-white">
-            Inizia allenamento
+      <div className="border-b border-slate-200 bg-slate-50 p-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              Allenamenti
+            </p>
+            <p className="mt-1 text-xl font-black text-slate-950">{days.length}</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              Esercizi
+            </p>
+            <p className="mt-1 text-xl font-black text-slate-950">{totalExercises}</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              Durata
+            </p>
+            <p className="mt-1 text-xl font-black text-slate-950">
+              {builder.duration_weeks || 4} sett.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              Superset/Triset
+            </p>
+            <p className="mt-1 text-xl font-black text-slate-950">{groupLabels.size}</p>
           </div>
         </div>
 
-        <div className="space-y-2">
-          {visibleExercises.slice(0, 6).map((exercise, index) => (
-            <div
-              key={exercise.temp_id || index}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-black text-slate-950">
-                  {index + 1}. {exercise.exercise_name}
-                </p>
-                <p className="mt-1 text-xs font-bold text-slate-500">
-                  {exercise.sets || "—"} serie · {exercise.reps || "—"} reps · recupero {exercise.recovery_seconds || 90}s
-                </p>
-              </div>
-              {exercise.has_weekly_progression && (
-                <Pill className="bg-teal-100 text-teal-700">Progressione</Pill>
-              )}
-            </div>
-          ))}
-
-          {visibleExercises.length === 0 && (
-            <Empty
-              title="Anteprima vuota"
-              text="Inserisci almeno un esercizio per vedere come apparirà lato cliente."
-            />
-          )}
+        <div className="mt-3 rounded-2xl border border-teal-100 bg-teal-50 p-3">
+          <p className="text-xs font-bold leading-5 text-teal-800">
+            Quando salvi, la scheda rimane in bozza. Il cliente selezionato la vedrà solo dopo la pubblicazione e solo se il client_id corrisponde al suo profilo.
+          </p>
         </div>
+      </div>
+
+      <div className="bg-white p-4 md:p-5">
+        {days.length === 0 ? (
+          <Empty
+            title="Anteprima vuota"
+            text="Importa un Excel o inserisci almeno un esercizio nel builder per vedere la preview cliente."
+          />
+        ) : (
+          <div className="space-y-5">
+            {days.map((day, dayIndex) => (
+              <div
+                key={day.temp_id || dayIndex}
+                className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-slate-50"
+              >
+                <div className="flex flex-col gap-3 border-b border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                      Allenamento {dayIndex + 1}
+                    </p>
+                    <h4 className="mt-1 truncate text-xl font-black text-slate-950">
+                      {day.title || `Allenamento ${dayIndex + 1}`}
+                    </h4>
+                    <p className="mt-1 text-sm font-bold text-slate-500">
+                      {day.exercises.length} esercizi · {day.estimated_minutes || 60} min
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-[#07111f] px-4 py-3 text-center text-sm font-black text-white">
+                    Inizia allenamento
+                  </div>
+                </div>
+
+                <div className="space-y-3 p-3 md:p-4">
+                  {day.exercises.map((exercise, exerciseIndex) => {
+                    const groupLabel = workoutGroupLabel(exercise);
+                    const progressions = meaningfulProgressions(exercise);
+                    const cleanNotes = cleanWorkoutNotes(exercise.notes || "");
+
+                    return (
+                      <div
+                        key={exercise.temp_id || exerciseIndex}
+                        className="rounded-[1.35rem] border border-slate-200 bg-white p-3 shadow-sm md:p-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-xs font-black text-slate-600">
+                            {exerciseIndex + 1}
+                          </span>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h5 className="break-words text-base font-black text-slate-950">
+                                {exercise.exercise_name}
+                              </h5>
+
+                              {groupLabel && (
+                                <Pill className="bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                                  {groupLabel}
+                                </Pill>
+                              )}
+                            </div>
+
+                            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                              <div className="rounded-2xl bg-slate-50 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                  Serie/Rip
+                                </p>
+                                <p className="mt-1 text-sm font-black text-slate-950">
+                                  {previewSetsReps(exercise)}
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl bg-slate-50 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                  Recupero
+                                </p>
+                                <p className="mt-1 text-sm font-black text-slate-950">
+                                  {previewRecovery(exercise.recovery_seconds)}
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl bg-slate-50 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                  Intensità
+                                </p>
+                                <p className="mt-1 text-sm font-black text-slate-950">
+                                  {exercise.target_rir ? `RIR ${exercise.target_rir}` : exercise.target_rpe ? `RPE ${exercise.target_rpe}` : "—"}
+                                </p>
+                              </div>
+                            </div>
+
+                            {(exercise.execution_mode || cleanNotes) && (
+                              <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                  Modalità esecuzione
+                                </p>
+                                <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
+                                  {exercise.execution_mode || cleanNotes}
+                                </p>
+                              </div>
+                            )}
+
+                            {progressions.length > 0 && (
+                              <div className="mt-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-3">
+                                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-[10px] font-black uppercase tracking-wider text-teal-700">
+                                    Progressione settimanale
+                                  </p>
+                                  <Pill className="bg-white text-teal-700 ring-1 ring-teal-100">
+                                    {progressions.length} sett.
+                                  </Pill>
+                                </div>
+
+                                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                  {progressions.slice(0, 4).map((progression) => (
+                                    <div
+                                      key={progression.temp_id || progression.week_number}
+                                      className="rounded-2xl bg-white p-3"
+                                    >
+                                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                        Sett. {progression.week_number}
+                                      </p>
+                                      <p className="mt-1 text-xs font-black leading-5 text-slate-800">
+                                        {progressionMainText(progression)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -12456,6 +12670,7 @@ function TemplatesPanel({
 }
 function PlansList({
   plans,
+  selectedClient,
   onDeleteProgram,
   deletingProgramId,
   onUpdateProgramStatus,
@@ -12491,6 +12706,25 @@ function PlansList({
           </Pill>
           <Pill className="bg-slate-100 text-slate-700">
             {hiddenCount} non visibili
+          </Pill>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-[1.35rem] border border-teal-100 bg-teal-50 p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-700">
+              Associazione cliente
+            </p>
+            <p className="mt-1 text-sm font-black text-slate-950">
+              Schede filtrate su: {selectedClient ? fullName(selectedClient) : "nessun cliente selezionato"}
+            </p>
+            <p className="mt-1 text-xs font-bold leading-5 text-teal-800">
+              Il cliente vede solo la scheda con il suo client_id e stato Pubblicata/Attiva. Bozze e schede rimosse restano visibili solo qui lato professionista.
+            </p>
+          </div>
+          <Pill className="bg-white text-teal-700 ring-1 ring-teal-100">
+            client_id: {selectedClient?.id || "—"}
           </Pill>
         </div>
       </div>
@@ -12540,6 +12774,15 @@ function PlansList({
                       ? "Bozza visibile solo al professionista."
                       : "Rimossa dalla vista cliente, resta nello storico coach."}
                   </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Pill className="bg-white text-slate-700 ring-1 ring-slate-200">
+                      Associata a: {selectedClient ? fullName(selectedClient) : "cliente selezionato"}
+                    </Pill>
+                    <Pill className={isPublished ? "bg-teal-100 text-teal-800" : "bg-slate-100 text-slate-600"}>
+                      Cliente la vede: {isPublished ? "Sì" : "No"}
+                    </Pill>
+                  </div>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[520px] xl:grid-cols-5">
