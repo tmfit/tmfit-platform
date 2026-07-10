@@ -5288,6 +5288,12 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   const [importingWorkoutPdf, setImportingWorkoutPdf] = useState(false);
   const [importingWorkoutExcel, setImportingWorkoutExcel] = useState(false);
   const [workoutImportSummary, setWorkoutImportSummary] = useState(null);
+  const [programPreviewModal, setProgramPreviewModal] = useState({
+    open: false,
+    builder: null,
+    statusText: "",
+    sourceLabel: ""
+  });
 
   const [dietForm, setDietForm] = useState({
     title: "",
@@ -6386,6 +6392,98 @@ function buildProgressionsFromExercise(exercise, weeks) {
       recovery_seconds: found?.recovery_seconds || "",
       notes: found?.notes || ""
     };
+  });
+}
+
+function programToBuilderSnapshot(program, options = {}) {
+  const weeks = Number(program?.duration_weeks) || 4;
+  const titleSuffix = options.copyTitleSuffix || "";
+
+  const days =
+    program?.workout_weeks
+      ?.flatMap((week) => week.workout_days || [])
+      ?.map((day, dayIndex) => {
+        const exercises =
+          day.workout_blocks
+            ?.flatMap((block) => block.workout_exercises || [])
+            ?.map((exercise) => ({
+              temp_id: uid(),
+              exercise_name: exercise.exercise_name || "",
+              exercise_media_id:
+                exercise.exercise_media_id ||
+                exercise.exercise_media_library?.id ||
+                "",
+              sets: exercise.sets || "3",
+              reps: exercise.reps || "8-10",
+              recovery_seconds: exercise.recovery_seconds || 90,
+              target_rpe: exercise.target_rpe || "",
+              target_rir: exercise.target_rir || "",
+              execution_mode: exercise.execution_mode || "",
+              video_url: exercise.video_url || "",
+              image_url: exercise.image_url || "",
+              notes: cleanWorkoutNotes(exercise.notes || ""),
+              group_type: workoutGroupMetaForExercise(exercise).type,
+              group_label: workoutGroupMetaForExercise(exercise).label,
+              has_weekly_progression: !!exercise.has_weekly_progression,
+              progressions: buildProgressionsFromExercise(exercise, weeks)
+            })) || [];
+
+        return {
+          temp_id: uid(),
+          title: day.title || `Allenamento ${String.fromCharCode(65 + dayIndex)}`,
+          estimated_minutes: day.estimated_minutes || 60,
+          notes: day.notes || "",
+          exercises: exercises.length ? exercises : [defaultExerciseRow()]
+        };
+      }) || [];
+
+  return {
+    title: `${program?.title || "Programma allenamento"}${titleSuffix}`,
+    goal: program?.goal || "",
+    start_date: program?.start_date || today(),
+    end_date: program?.end_date || "",
+    duration_weeks: weeks,
+    level: program?.level || "intermedio",
+    location: program?.location || "palestra",
+    notes: program?.notes || "",
+    days: days.length ? days : [defaultWorkoutDay("A")]
+  };
+}
+
+function openBuilderClientPreview() {
+  setProgramPreviewModal({
+    open: true,
+    builder: clone(builder),
+    statusText: editingProgramId
+      ? "Bozza in modifica · Cliente: no"
+      : "Bozza non salvata · Cliente: no",
+    sourceLabel: "Builder"
+  });
+}
+
+function openSavedProgramClientPreview(program) {
+  if (!program) return;
+
+  const isPublished = isProgramPublished(program);
+
+  setProgramPreviewModal({
+    open: true,
+    builder: programToBuilderSnapshot(program),
+    statusText: isPublished
+      ? "Pubblicata · Cliente: sì"
+      : isProgramDraft(program)
+      ? "Bozza · Cliente: no"
+      : "Non visibile · Cliente: no",
+    sourceLabel: isPublished ? "Scheda pubblicata" : "Archivio professionista"
+  });
+}
+
+function closeProgramClientPreview() {
+  setProgramPreviewModal({
+    open: false,
+    builder: null,
+    statusText: "",
+    sourceLabel: ""
   });
 }
 
@@ -8250,6 +8348,14 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
   onLogout={onLogout}
   userProfile={userProfile}
 />
+<ProgramClientPreviewModal
+  open={programPreviewModal.open}
+  onClose={closeProgramClientPreview}
+  builder={programPreviewModal.builder}
+  selectedClient={selectedClient}
+  statusText={programPreviewModal.statusText}
+  sourceLabel={programPreviewModal.sourceLabel}
+/>
     <main
   className={`mx-auto grid gap-4 p-3 pb-28 md:p-5 ${
     activeTab === "programs" || activeTab === "dashboard"
@@ -8976,6 +9082,14 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         >
                           <Save size={16} className="mr-2" />
                           {savingTemplate ? "Salvataggio..." : "Template"}
+                        </Button>
+
+                        <Button
+                          type="button"
+                          onClick={openBuilderClientPreview}
+                          className="w-full border border-slate-300 bg-white text-slate-900 sm:w-auto"
+                        >
+                          Anteprima
                         </Button>
 
                         <Button
@@ -9879,6 +9993,14 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         </Button>
 
                         <Button
+                          type="button"
+                          onClick={openBuilderClientPreview}
+                          className="w-full border border-slate-300 bg-white px-4 py-2.5 text-slate-900 sm:w-auto"
+                        >
+                          Anteprima
+                        </Button>
+
+                        <Button
                           type="submit"
                           disabled={savingPlan || builderQuality.warnings.length > 0}
                           className="w-full bg-[#07111f] px-5 py-2.5 text-white sm:w-auto"
@@ -9916,6 +10038,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                   updatingProgramId={updatingProgramId}
                   onDuplicateProgram={duplicateProgramToBuilder}
                   onEditProgram={editProgramInBuilder}
+                  onPreviewProgram={openSavedProgramClientPreview}
                 />
               )}
             </div>
@@ -11586,7 +11709,13 @@ function BuilderWorkflowNav({ activeStep, onChange, quality }) {
 }
 
 
-function ClientProgramPreviewPanel({ builder, selectedClient, editingProgramId = "" }) {
+function ClientProgramPreviewPanel({
+  builder,
+  selectedClient,
+  editingProgramId = "",
+  previewStatusText = "",
+  previewContextText = ""
+}) {
   const days = (builder.days || [])
     .map((day, dayIndex) => ({
       ...day,
@@ -11605,7 +11734,7 @@ function ClientProgramPreviewPanel({ builder, selectedClient, editingProgramId =
         .filter(Boolean)
     )
   );
-  const statusLabel = editingProgramId ? "Bozza in modifica" : "Bozza non salvata";
+  const statusLabel = previewStatusText || (editingProgramId ? "Bozza in modifica · Cliente: no" : "Bozza non salvata · Cliente: no");
 
   function previewRecovery(value) {
     const text = String(value ?? "").trim();
@@ -11665,7 +11794,7 @@ function ClientProgramPreviewPanel({ builder, selectedClient, editingProgramId =
               {builder.title || "Programma allenamento"}
             </h3>
             <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
-              Questa è la vista di controllo lato professionista: ti mostra la scheda come sarà organizzata nell’app del cliente prima della pubblicazione.
+              {previewContextText || "Questa è la vista di controllo lato professionista: ti mostra la scheda esattamente come sarà organizzata nell’app del cliente."}
             </p>
           </div>
 
@@ -11684,7 +11813,7 @@ function ClientProgramPreviewPanel({ builder, selectedClient, editingProgramId =
                 Stato visibilità
               </p>
               <p className="mt-1 truncate text-sm font-black text-white">
-                {statusLabel} · Cliente: no
+                {statusLabel}
               </p>
             </div>
           </div>
@@ -11871,6 +12000,55 @@ function ClientProgramPreviewPanel({ builder, selectedClient, editingProgramId =
         )}
       </div>
     </Card>
+  );
+}
+
+function ProgramClientPreviewModal({
+  open,
+  onClose,
+  builder,
+  selectedClient,
+  statusText = "",
+  sourceLabel = ""
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[90] bg-slate-950/75 p-3 backdrop-blur-sm md:p-6">
+      <div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-slate-100 shadow-2xl">
+        <div className="flex flex-col gap-3 border-b border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-teal-700">
+              Anteprima app cliente
+            </p>
+            <h2 className="mt-1 text-xl font-black text-slate-950 md:text-2xl">
+              Visualizzazione scheda
+            </h2>
+            <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+              {sourceLabel || "Controllo professionista"} · questa finestra simula la vista cliente senza modificare lo stato della scheda.
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            onClick={onClose}
+            className="border border-slate-200 bg-white text-slate-900"
+          >
+            <X size={16} className="mr-2" />
+            Chiudi
+          </Button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-5">
+          <ClientProgramPreviewPanel
+            builder={builder || createSmartBuilder()}
+            selectedClient={selectedClient}
+            previewStatusText={statusText}
+            previewContextText="Questa è l’anteprima reale della scheda come verrà mostrata nella sezione cliente. Puoi aprirla sia prima della pubblicazione sia dopo la pubblicazione."
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -12676,7 +12854,8 @@ function PlansList({
   onUpdateProgramStatus,
   updatingProgramId,
   onDuplicateProgram,
-  onEditProgram
+  onEditProgram,
+  onPreviewProgram
 }) {
   const publishedCount = plans.filter(isProgramPublished).length;
   const draftCount = plans.filter(isProgramDraft).length;
@@ -12785,7 +12964,14 @@ function PlansList({
                   </div>
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[520px] xl:grid-cols-5">
+                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[620px] xl:grid-cols-6">
+                  <Button
+                    onClick={() => onPreviewProgram(plan)}
+                    className="border border-slate-300 bg-white text-slate-900"
+                  >
+                    Anteprima
+                  </Button>
+
                   <Button
                     onClick={() => onEditProgram(plan)}
                     className="bg-[#07111f] text-white"
