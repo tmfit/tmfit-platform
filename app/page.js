@@ -1651,6 +1651,10 @@ function cleanDietPdfLine(value) {
     .trim();
 }
 
+function escapeDietRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\]/g, "\$&");
+}
+
 function titleCaseDietLabel(value) {
   return String(value || "")
     .toLowerCase()
@@ -1924,7 +1928,7 @@ function sanitizeExtractedDietForMeals(parsed) {
   const hiddenWarnings = [];
 
   const days = Array.isArray(cloned.days) ? cloned.days : [];
-  cloned.days = mergeDuplicateDietDays(
+  const normalizedDays = mergeDuplicateDietDays(
     days
       .map((day) => {
         const sections = day.meals || day.sections || [];
@@ -1944,6 +1948,8 @@ function sanitizeExtractedDietForMeals(parsed) {
       })
       .filter((day) => (day.meals || day.sections || []).length > 0)
   );
+  cloned.days = Array.from(normalizedDays || []);
+  hiddenWarnings.push(...(normalizedDays?.warnings || []));
 
   const optionGroups = Array.isArray(cloned.optionGroups) ? cloned.optionGroups : [];
   cloned.optionGroups = optionGroups
@@ -2040,14 +2046,14 @@ function canonicalDietDayName(value) {
 }
 
 function mergeDuplicateDietDays(days = []) {
-  const merged = [];
-  const indexByDay = new Map();
+  const normalizedDays = [];
+  const warnings = [];
 
   (days || []).forEach((day) => {
     if (!day) return;
 
     const rawLabel = day.day || day.title || "";
-    const label = canonicalDietDayName(rawLabel);
+    const label = canonicalDietDayName(rawLabel) || rawLabel;
     const key = normalizeDietToken(label || rawLabel);
     const meals = Array.isArray(day.meals || day.sections)
       ? (day.meals || day.sections).filter(Boolean)
@@ -2055,29 +2061,37 @@ function mergeDuplicateDietDays(days = []) {
 
     if (!key || meals.length === 0) return;
 
-    if (!indexByDay.has(key)) {
-      indexByDay.set(key, merged.length);
-      merged.push({
-        ...day,
-        day: label || rawLabel,
-        title: label || day.title || rawLabel,
-        meals: [...meals],
-        sections: [...meals]
-      });
+    const previous = normalizedDays[normalizedDays.length - 1];
+    const previousKey = previous ? normalizeDietToken(previous.day || previous.title || "") : "";
+
+    // Uniamo solo blocchi consecutivi dello stesso giorno: tipico caso di pagina spezzata.
+    // Non uniamo mai un Lunedì trovato dopo Martedì/Mercoledì, perché il contenuto deve
+    // finire appena inizia il giorno successivo. Questo evita di trascinare pasti nel giorno sbagliato.
+    if (previous && previousKey === key) {
+      const previousMeals = Array.isArray(previous.meals || previous.sections)
+        ? previous.meals || previous.sections
+        : [];
+      const combinedMeals = [...previousMeals, ...meals];
+      previous.meals = combinedMeals;
+      previous.sections = combinedMeals;
       return;
     }
 
-    const existing = merged[indexByDay.get(key)];
-    const previousMeals = Array.isArray(existing.meals || existing.sections)
-      ? existing.meals || existing.sections
-      : [];
-    const combinedMeals = [...previousMeals, ...meals];
+    if (normalizedDays.some((item) => normalizeDietToken(item.day || item.title || "") === key)) {
+      warnings.push(`Giorno ripetuto non consecutivo mantenuto separato per non mischiare i pasti: ${label}.`);
+    }
 
-    existing.meals = combinedMeals;
-    existing.sections = combinedMeals;
+    normalizedDays.push({
+      ...day,
+      day: label,
+      title: label || day.title || rawLabel,
+      meals: [...meals],
+      sections: [...meals]
+    });
   });
 
-  return merged;
+  normalizedDays.warnings = warnings;
+  return normalizedDays;
 }
 
 function countDietDailyMeals(extractedDiet) {
@@ -2214,19 +2228,23 @@ function splitDietEmbeddedParserLine(line) {
   const clean = cleanDietPdfLine(line);
   if (!clean) return [];
 
-  const dayPattern = DIET_DAY_NAMES.join("|");
+  const dayPattern = DIET_DAY_NAMES.map(escapeDietRegex).join("|");
   const mealPattern = DIET_MEAL_RAW_PATTERN;
 
   let prepared = clean
     .replace(/\s+/g, " ")
-    .replace(new RegExp(`([^\n\s])(${dayPattern})(?=\b)`, "g"), "$1\n$2")
-    .replace(new RegExp(`([a-zà-ÿ0-9\)])(${mealPattern})(?=\s*\d|\d|\s|$)`, "g"), "$1\n$2")
-    .replace(new RegExp(`\b(${mealPattern})(?=\d)`, "g"), "$1\n")
-    .replace(/([a-zà-ÿ0-9\)])(Opzione\s+\d+)/g, "$1\n$2")
-    .replace(/([a-zà-ÿ0-9\)])(Note\s*al\s*pasto)/gi, "$1\n$2")
-    .replace(/([a-zà-ÿ0-9\)])(Nota\s*al\s*pasto)/gi, "$1\n$2")
+    // Se un giorno compare dopo del testo, quello è sempre un confine netto.
+    // Esempio: "... 10g olio Martedì COLAZIONE" => chiude Lunedì e apre Martedì.
+    .replace(new RegExp(`([^\\n\\s])\\s*(${dayPattern})(?=\\s|$)`, "gi"), "$1\n$2")
+    // Se il giorno è seguito dal primo pasto sulla stessa riga, separiamo giorno e pasto.
+    .replace(new RegExp(`(^|\\n|\\s)(${dayPattern})\\s+(${mealPattern})(?=\\s|$|\\d)`, "gi"), "$1$2\n$3")
+    .replace(new RegExp(`([a-zà-ÿ0-9\\)])\\s*(${mealPattern})(?=\\s*\\d|\\d|\\s|$)`, "gi"), "$1\n$2")
+    .replace(new RegExp(`\\b(${mealPattern})(?=\\d)`, "gi"), "$1\n")
+    .replace(/([a-zà-ÿ0-9\)])\s*(Opzione\s+\d+)/gi, "$1\n$2")
+    .replace(/([a-zà-ÿ0-9\)])\s*(Note\s*al\s*pasto)/gi, "$1\n$2")
+    .replace(/([a-zà-ÿ0-9\)])\s*(Nota\s*al\s*pasto)/gi, "$1\n$2")
     .replace(/\b(Note|Nota)\s*al\s*pasto\s*[:\-–—]?\s*/gi, "Note al pasto ")
-    .replace(new RegExp(`(Note\\s+al\\s+pasto)(?=\\s*(${DIET_MEAL_LOOKAHEAD_RAW_PATTERN}|Opzione\\s+\\d+|Lunedì|Martedì|Mercoledì|Giovedì|Venerdì|Sabato|Domenica)\\b)`, "gi"), "$1\n")
+    .replace(new RegExp(`(Note\\s+al\\s+pasto)(?=\\s*(${DIET_MEAL_LOOKAHEAD_RAW_PATTERN}|Opzione\\s+\\d+|${dayPattern})\\b)`, "gi"), "$1\n")
     .replace(new RegExp(`((?:${DIET_MEAL_RAW_PATTERN})\\s+\\d+\\s*[-:][^0-9]{2,48})\\s+(?=\\d+[,.]?\\d*\\s*(?:g|gr|kg|ml|l)\\b)`, "gi"), "$1\n");
 
   return prepared
@@ -2452,14 +2470,18 @@ function parseDailyDietLines(lines, sourceName) {
     days.push(currentDay);
   }
 
+  const parsedDays = days.filter((day) => day.meals.length > 0);
+
   return {
     version: 1,
     format: "daily_pdf",
     sourceName,
     extractedAt: new Date().toISOString(),
-    days: days.filter((day) => day.meals.length > 0),
+    days: parsedDays,
     optionGroups: [],
-    warnings: days.length === 0 ? ["Nessun giorno riconosciuto nel PDF."] : []
+    warnings: parsedDays.length === 0
+      ? ["Nessun giorno riconosciuto nel PDF."]
+      : ["Parsing giornaliero stretto: ogni giorno termina appena viene riconosciuto il giorno successivo."]
   };
 }
 
