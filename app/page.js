@@ -1652,7 +1652,7 @@ function cleanDietPdfLine(value) {
 }
 
 function escapeDietRegex(value) {
-  return String(value || "").replace(/[.*+?^${}()|[\]\]/g, "\$&");
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function titleCaseDietLabel(value) {
