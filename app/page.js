@@ -1962,6 +1962,7 @@ function detectDietGenericHeading(line) {
   const clean = cleanDietPdfLine(line);
 
   if (!clean) return null;
+  if (lineLooksLikeDietWeeklyMatrixHeader(clean)) return null;
   if (clean.length > 72) return null;
   if (isDietNonMealHeading(clean)) return null;
   if (isDietFoodStart(clean) || isDietAlternativeLine(clean) || isDietNoteLine(clean)) return null;
@@ -1980,6 +1981,58 @@ function detectDietGenericHeading(line) {
 function detectDietDayLine(line) {
   const normalized = normalizeDietToken(line);
   return DIET_DAY_NAMES.find((day) => normalizeDietToken(day) === normalized) || null;
+}
+
+function countDietDayNamesInLine(line) {
+  const normalized = normalizeDietToken(line);
+  if (!normalized) return 0;
+
+  return DIET_DAY_NAMES.reduce((sum, day) => {
+    const token = normalizeDietToken(day);
+    const pattern = new RegExp(`(^|\\s)${token}(?=\\s|$)`, "i");
+    return sum + (pattern.test(normalized) ? 1 : 0);
+  }, 0);
+}
+
+function lineLooksLikeDietWeeklyMatrixHeader(line) {
+  return countDietDayNamesInLine(line) >= 3;
+}
+
+function countUniqueDietDayNames(lines = []) {
+  const found = new Set();
+
+  (lines || []).forEach((line) => {
+    const normalized = normalizeDietToken(line);
+    if (!normalized) return;
+
+    DIET_DAY_NAMES.forEach((day) => {
+      const token = normalizeDietToken(day);
+      const pattern = new RegExp(`(^|\\s)${token}(?=\\s|$)`, "i");
+      if (pattern.test(normalized)) found.add(token);
+    });
+  });
+
+  return found.size;
+}
+
+function countDietDailyMeals(extractedDiet) {
+  const days = Array.isArray(extractedDiet?.days) ? extractedDiet.days : [];
+
+  return days.reduce(
+    (sum, day) => sum + ((day.meals || day.sections || []).length || 0),
+    0
+  );
+}
+
+function countDietOptionCards(extractedDiet) {
+  const optionGroups = Array.isArray(extractedDiet?.optionGroups)
+    ? extractedDiet.optionGroups
+    : [];
+
+  return optionGroups.reduce(
+    (sum, group) => sum + ((group.options || []).length || 0),
+    0
+  );
 }
 
 function detectDailyMealHeading(line) {
@@ -2016,6 +2069,7 @@ function compactDietItems(lines = []) {
     .filter(Boolean)
     .filter((line) => {
       const normalized = normalizeDietToken(line);
+      if (lineLooksLikeDietWeeklyMatrixHeader(line)) return false;
       if (isDietNonMealHeading(line)) return false;
       return !ignoredStarts.some((start) => normalized.startsWith(start));
     })
@@ -2216,6 +2270,10 @@ function parseDailyDietLines(lines, sourceName) {
   }
 
   scopedLines.forEach((line) => {
+    if (lineLooksLikeDietWeeklyMatrixHeader(line)) {
+      return;
+    }
+
     const dayName = detectDietDayLine(line);
 
     if (dayName) {
@@ -2335,6 +2393,15 @@ function parseOptionsDietLines(lines, sourceName) {
   }
 
   scopedLines.forEach((line) => {
+    const dayName = detectDietDayLine(line);
+
+    if (dayName || lineLooksLikeDietWeeklyMatrixHeader(line)) {
+      pushCurrentOption();
+      currentOption = null;
+      readingMealNotes = false;
+      return;
+    }
+
     const optionMarker = detectDietOptionMarker(line);
 
     if (optionMarker && currentOption) {
@@ -2587,8 +2654,45 @@ async function extractDietPdfForApp(file, dietType) {
   const fallback = wantsOptions ? daily : options;
   const primaryScore = scoreDietExtraction(primary);
   const fallbackScore = scoreDietExtraction(fallback);
+  const uniqueDayCount = countUniqueDietDayNames(lines);
+  const dailyDayCount = Array.isArray(daily.days) ? daily.days.length : 0;
+  const dailyMealCount = countDietDailyMeals(daily);
 
-  if (primaryScore > 0 && primaryScore >= fallbackScore * 0.72) {
+  if (uniqueDayCount >= 3 || dailyDayCount >= 2) {
+    if (dailyDayCount >= 2 && dailyMealCount > 0) {
+      return {
+        ...daily,
+        ...extractionMeta,
+        format: "daily_pdf",
+        parseScore: scoreDietExtraction(daily),
+        alternativeScore: scoreDietExtraction(options),
+        warnings: [
+          ...(daily.warnings || []),
+          ...(wantsOptions
+            ? ["Sono stati riconosciuti giorni settimanali: la dieta è stata organizzata per giorno, non come opzioni generiche."]
+            : [])
+        ].filter(Boolean)
+      };
+    }
+
+    return {
+      version: 1,
+      format: "daily_pdf",
+      sourceName: file.name,
+      extractedAt: new Date().toISOString(),
+      days: [],
+      optionGroups: [],
+      ...extractionMeta,
+      parseScore: 0,
+      alternativeScore: scoreDietExtraction(options),
+      warnings: [
+        "Nel PDF sono stati riconosciuti i giorni della settimana, ma il testo sembra una tabella orizzontale. Le card non sono state generate per evitare di mischiare Lunedì, Martedì e gli altri giorni in Colazione/Pranzo/Merenda/Cena.",
+        "Usa il PDF con lista giornaliera verticale oppure importa la dieta da Excel per una lettura perfetta."
+      ]
+    };
+  }
+
+  if (primaryScore > 0 && primaryScore >= fallbackScore * 0.92) {
     return {
       ...primary,
       ...extractionMeta,
