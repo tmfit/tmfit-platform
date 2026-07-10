@@ -1924,20 +1924,26 @@ function sanitizeExtractedDietForMeals(parsed) {
   const hiddenWarnings = [];
 
   const days = Array.isArray(cloned.days) ? cloned.days : [];
-  cloned.days = days
-    .map((day) => {
-      const sections = day.meals || day.sections || [];
-      const cleanSections = sections
-        .map((section) => normalizeDietMealSection(section))
-        .filter(Boolean);
+  cloned.days = mergeDuplicateDietDays(
+    days
+      .map((day) => {
+        const sections = day.meals || day.sections || [];
+        const cleanSections = sections
+          .map((section) => normalizeDietMealSection(section))
+          .filter(Boolean);
 
-      return {
-        ...day,
-        meals: cleanSections,
-        sections: cleanSections
-      };
-    })
-    .filter((day) => (day.meals || day.sections || []).length > 0);
+        const cleanDayName = canonicalDietDayName(day.day || day.title || "");
+
+        return {
+          ...day,
+          day: cleanDayName || day.day || day.title,
+          title: cleanDayName || day.title || day.day,
+          meals: cleanSections,
+          sections: cleanSections
+        };
+      })
+      .filter((day) => (day.meals || day.sections || []).length > 0)
+  );
 
   const optionGroups = Array.isArray(cloned.optionGroups) ? cloned.optionGroups : [];
   cloned.optionGroups = optionGroups
@@ -2024,6 +2030,54 @@ function countUniqueDietDayNames(lines = []) {
   });
 
   return found.size;
+}
+
+function canonicalDietDayName(value) {
+  const normalized = normalizeDietToken(value);
+  if (!normalized) return "";
+
+  return DIET_DAY_NAMES.find((day) => normalizeDietToken(day) === normalized) || cleanDietPdfLine(value);
+}
+
+function mergeDuplicateDietDays(days = []) {
+  const merged = [];
+  const indexByDay = new Map();
+
+  (days || []).forEach((day) => {
+    if (!day) return;
+
+    const rawLabel = day.day || day.title || "";
+    const label = canonicalDietDayName(rawLabel);
+    const key = normalizeDietToken(label || rawLabel);
+    const meals = Array.isArray(day.meals || day.sections)
+      ? (day.meals || day.sections).filter(Boolean)
+      : [];
+
+    if (!key || meals.length === 0) return;
+
+    if (!indexByDay.has(key)) {
+      indexByDay.set(key, merged.length);
+      merged.push({
+        ...day,
+        day: label || rawLabel,
+        title: label || day.title || rawLabel,
+        meals: [...meals],
+        sections: [...meals]
+      });
+      return;
+    }
+
+    const existing = merged[indexByDay.get(key)];
+    const previousMeals = Array.isArray(existing.meals || existing.sections)
+      ? existing.meals || existing.sections
+      : [];
+    const combinedMeals = [...previousMeals, ...meals];
+
+    existing.meals = combinedMeals;
+    existing.sections = combinedMeals;
+  });
+
+  return merged;
 }
 
 function countDietDailyMeals(extractedDiet) {
