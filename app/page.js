@@ -1731,6 +1731,43 @@ function extractDietMealNoteIntro(value) {
     .trim();
 }
 
+function stripDietMealNotePrefix(value) {
+  const clean = cleanDietPdfLine(value);
+  if (!clean) return "";
+
+  return clean
+    .replace(/^note\s+al\s+pasto\s*/i, "")
+    .replace(/^nota\s+al\s+pasto\s*/i, "")
+    .replace(/^note\s*/i, "")
+    .replace(/^nota\s*/i, "")
+    .replace(/^[:\-–—]+\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactDietMealNoteLines(notes = []) {
+  const parts = [];
+
+  (Array.isArray(notes) ? notes : notes ? [notes] : [])
+    .map(cleanDietPdfLine)
+    .filter(Boolean)
+    .forEach((line) => {
+      const intro = extractDietMealNoteIntro(line);
+      const clean = stripDietMealNotePrefix(intro !== null ? intro : line);
+
+      if (!clean) return;
+      if (parts[parts.length - 1] === clean) return;
+      parts.push(clean);
+    });
+
+  const merged = parts
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return merged ? [merged] : [];
+}
+
 function splitDietItemsAndMealNotes(items = []) {
   const foodItems = [];
   const notes = [];
@@ -1753,7 +1790,7 @@ function splitDietItemsAndMealNotes(items = []) {
     foodItems.push(line);
   });
 
-  return { foodItems, notes };
+  return { foodItems, notes: compactDietMealNoteLines(notes) };
 }
 
 function findDietSectionBase(line) {
@@ -1961,10 +1998,10 @@ function normalizeDietMealSection(section) {
     : section.notes
     ? [cleanDietPdfLine(section.notes)].filter(Boolean)
     : [];
-  const notes = [
+  const notes = compactDietMealNoteLines([
     ...existingNotes,
     ...(hasInlineMealNotes ? [] : split.notes)
-  ].filter(Boolean);
+  ]);
   const options = Array.isArray(section.options)
     ? section.options.map((option) => normalizeDietMealSection(option)).filter(Boolean)
     : [];
@@ -2267,10 +2304,10 @@ function pushDietMeal(target, meal) {
     : meal.notes
     ? [cleanDietPdfLine(meal.notes)].filter(Boolean)
     : [];
-  const notes = [
+  const notes = compactDietMealNoteLines([
     ...existingNotes,
     ...(hasInlineMealNotes ? [] : split.notes)
-  ].filter(Boolean);
+  ]);
   const options = Array.isArray(meal.options)
     ? meal.options
         .map((option) => normalizeDietMealSection(option))
@@ -2632,7 +2669,7 @@ function parseOptionsDietLines(lines, sourceName) {
     const existingNotes = Array.isArray(currentOption.notes)
       ? currentOption.notes.map(cleanDietPdfLine).filter(Boolean)
       : [];
-    const notes = [...existingNotes, ...split.notes].filter(Boolean);
+    const notes = compactDietMealNoteLines([...existingNotes, ...split.notes]);
 
     if (
       items.length === 0 ||
@@ -4182,6 +4219,23 @@ function buildDietFoodGroups(items = [], mealNotes = []) {
     });
   }
 
+  function pushNote(line) {
+    const clean = stripDietMealNotePrefix(line);
+    if (!clean) return;
+
+    const previous = blocks[blocks.length - 1];
+    if (previous?.type === "note") {
+      const merged = compactDietMealNoteLines([previous.text, clean]);
+      previous.text = merged[0] || previous.text;
+      return;
+    }
+
+    blocks.push({
+      type: "note",
+      text: clean
+    });
+  }
+
   (items || []).map(cleanDietPdfLine).filter(Boolean).forEach((line) => {
     const optionMarker = detectDietOptionMarker(line);
 
@@ -4198,35 +4252,21 @@ function buildDietFoodGroups(items = [], mealNotes = []) {
 
     if (introNote !== null) {
       readingInlineNotes = true;
-      if (introNote) {
-        blocks.push({
-          type: "note",
-          text: introNote
-        });
-      }
+      if (introNote) pushNote(introNote);
       return;
     }
 
     if (readingInlineNotes) {
-      blocks.push({
-        type: "note",
-        text: line
-      });
+      pushNote(line);
       return;
     }
 
     pushFood(line);
   });
 
-  (Array.isArray(mealNotes) ? mealNotes : mealNotes ? [mealNotes] : [])
-    .map(cleanDietPdfLine)
-    .filter(Boolean)
-    .forEach((note) => {
-      blocks.push({
-        type: "note",
-        text: note
-      });
-    });
+  compactDietMealNoteLines(mealNotes).forEach((note) => {
+    pushNote(note);
+  });
 
   const dedupedBlocks = blocks.filter((block, index, array) => {
     if (block.type !== "note") return true;
