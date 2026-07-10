@@ -1831,6 +1831,65 @@ function isDietNonMealHeading(line) {
   return blockedStarts.some((item) => normalized.startsWith(normalizeDietToken(item)));
 }
 
+
+function isDietDailyTailStopLine(line) {
+  const normalized = normalizeDietToken(line);
+
+  if (!normalized) return false;
+
+  const stopStarts = [
+    "DIETA",
+    "WEEK",
+    "SETTIMANA",
+    "LISTA ALIMENTI",
+    "LISTA DELLA SPESA",
+    "SOSTITUZIONI",
+    "BANCA DATI",
+    "TABELLA",
+    "ALTRO",
+    "CARNE",
+    "CEREALI E TUBERI",
+    "DOLCI",
+    "FARINE",
+    "FRUTTA",
+    "FRUTTA SECCA",
+    "GRASSI E CONDIMENTI",
+    "LATTE E DERIVATI",
+    "LEGUMI",
+    "ORTAGGI E VERDURE",
+    "PESCE",
+    "UOVA"
+  ];
+
+  return stopStarts.some((item) => normalized.startsWith(normalizeDietToken(item)));
+}
+
+function shouldStopDailyDietAfterSunday(currentDay, currentMeal, line) {
+  const currentDayName = canonicalDietDayName(currentDay?.day || currentDay?.title || "");
+
+  if (normalizeDietToken(currentDayName) !== normalizeDietToken("Domenica")) {
+    return false;
+  }
+
+  const hasSundayContent =
+    Boolean(currentMeal) ||
+    ((currentDay?.meals || currentDay?.sections || []).length || 0) > 0;
+
+  if (!hasSundayContent) return false;
+
+  const nextDayName = detectDietDayLine(line);
+
+  if (nextDayName && normalizeDietToken(nextDayName) !== normalizeDietToken("Domenica")) {
+    return true;
+  }
+
+  if (lineLooksLikeDietWeeklyMatrixHeader(line)) {
+    return true;
+  }
+
+  return isDietDailyTailStopLine(line);
+}
+
 function dietLineLooksLikeMealFood(line) {
   const normalized = normalizeDietToken(line);
 
@@ -1921,6 +1980,42 @@ function normalizeDietMealSection(section) {
   };
 }
 
+
+function trimSundayMealsAfterDietTail(dayName, meals = [], warnings = []) {
+  const cleanDay = canonicalDietDayName(dayName || "");
+
+  if (normalizeDietToken(cleanDay) !== normalizeDietToken("Domenica")) {
+    return meals;
+  }
+
+  const normalizedNames = (meals || []).map((meal) =>
+    normalizeDietToken(meal?.name || meal?.title || "")
+  );
+  const preNannaIndex = normalizedNames.findIndex((name) => name.startsWith("PRE NANNA"));
+
+  if (preNannaIndex >= 0 && preNannaIndex < meals.length - 1) {
+    warnings.push("Contenuto dopo Pre nanna di Domenica escluso: probabile tabella o banca alimenti successiva al piano.");
+    return meals.slice(0, preNannaIndex + 1);
+  }
+
+  const cenaIndex = normalizedNames.findIndex((name) => name.startsWith("CENA"));
+  const restartAfterCena = cenaIndex >= 0 && normalizedNames
+    .slice(cenaIndex + 1)
+    .some((name) =>
+      name.startsWith("COLAZIONE") ||
+      name.startsWith("PRANZO") ||
+      name.startsWith("SPUNTINO") ||
+      name.startsWith("MERENDA")
+    );
+
+  if (restartAfterCena) {
+    warnings.push("Contenuto dopo Cena di Domenica escluso: probabile tabella successiva al piano settimanale.");
+    return meals.slice(0, cenaIndex + 1);
+  }
+
+  return meals;
+}
+
 function sanitizeExtractedDietForMeals(parsed) {
   if (!parsed || typeof parsed !== "object") return parsed;
 
@@ -1937,13 +2032,18 @@ function sanitizeExtractedDietForMeals(parsed) {
           .filter(Boolean);
 
         const cleanDayName = canonicalDietDayName(day.day || day.title || "");
+        const visibleSections = trimSundayMealsAfterDietTail(
+          cleanDayName || day.day || day.title,
+          cleanSections,
+          hiddenWarnings
+        );
 
         return {
           ...day,
           day: cleanDayName || day.day || day.title,
           title: cleanDayName || day.title || day.day,
-          meals: cleanSections,
-          sections: cleanSections
+          meals: visibleSections,
+          sections: visibleSections
         };
       })
       .filter((day) => (day.meals || day.sections || []).length > 0)
@@ -2400,7 +2500,27 @@ function parseDailyDietLines(lines, sourceName) {
     target.items.push(clean);
   }
 
+  let stopParsingDaily = false;
+
   scopedLines.forEach((line) => {
+    if (stopParsingDaily) return;
+
+    if (shouldStopDailyDietAfterSunday(currentDay, currentMeal, line)) {
+      if (currentDay) {
+        pushDietMeal(currentDay.meals, currentMeal);
+        if ((currentDay.meals || []).length > 0) {
+          days.push(currentDay);
+        }
+      }
+
+      currentDay = null;
+      currentMeal = null;
+      currentMealOption = null;
+      readingMealNotes = false;
+      stopParsingDaily = true;
+      return;
+    }
+
     if (lineLooksLikeDietWeeklyMatrixHeader(line)) {
       return;
     }
@@ -2481,7 +2601,7 @@ function parseDailyDietLines(lines, sourceName) {
     optionGroups: [],
     warnings: parsedDays.length === 0
       ? ["Nessun giorno riconosciuto nel PDF."]
-      : ["Parsing giornaliero stretto: ogni giorno termina appena viene riconosciuto il giorno successivo."]
+      : ["Parsing giornaliero stretto: ogni giorno termina appena viene riconosciuto il giorno successivo; Domenica chiude il piano prima di tabelle o banche alimenti successive."]
   };
 }
 
