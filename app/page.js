@@ -2677,21 +2677,62 @@ function normalizeWorkoutPdfLines(lines = []) {
   return lines.flatMap(splitWorkoutPdfLine).map(cleanWorkoutPdfLine).filter(Boolean);
 }
 
+function pdfTextItemsToWorkoutRows(items = []) {
+  const rows = [];
+
+  items.forEach((item) => {
+    const text = cleanWorkoutPdfLine(item?.str || "");
+    if (!text) return;
+
+    const transform = item?.transform || [];
+    const x = Number(transform[4] || 0);
+    const y = Number(transform[5] || 0);
+    const existing = rows.find((row) => Math.abs(row.y - y) < 3);
+
+    if (existing) {
+      existing.items.push({ x, text });
+    } else {
+      rows.push({ y, items: [{ x, text }] });
+    }
+  });
+
+  return rows
+    .sort((a, b) => b.y - a.y)
+    .map((row, index) => {
+      const items = row.items.sort((a, b) => a.x - b.x);
+
+      return {
+        index,
+        y: row.y,
+        text: cleanWorkoutPdfLine(items.map((item) => item.text).join(" ")),
+        items
+      };
+    })
+    .filter((row) => row.text);
+}
+
 async function extractWorkoutTextFromPdfFile(file) {
   const pdfjsLib = await loadPdfJsForDietExtraction();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   const pageCount = Number(pdf.numPages || 0);
   const pages = [];
+  const workoutPages = [];
 
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
-    pages.push(...pdfTextItemsToLines(content.items || []));
+    const items = content.items || [];
+    pages.push(...pdfTextItemsToLines(items));
+    workoutPages.push({
+      pageNumber,
+      rows: pdfTextItemsToWorkoutRows(items)
+    });
   }
 
   return {
     lines: normalizeWorkoutPdfLines(pages),
+    pages: workoutPages,
     pageCount
   };
 }
@@ -2756,6 +2797,9 @@ function isWorkoutBadExerciseTitle(line) {
   if (compact.startsWith("ALLENAMENTO")) return true;
   if (isWorkoutTableHeader(clean)) return true;
   if (text.includes("CIRCUITO") || text.includes("SUPERSET;") || text.includes("ECCENTRICA") || text.includes("ISOMETRIA")) return true;
+  if (/^(RIR|RPE|REST|DROP|CLUSTER|ELASTICO|MINI-BAND|PARZIALI|DENSITY|TEMPO|MECHANICAL|CONCENTRICA|ANTI-ROTAZIONE|ANTI-ESTENSIONE)\b/i.test(clean)) return true;
+  if (/^\d+(?:-\d+)?\s*(?:x|sec|reps?|giri?)\b/i.test(clean)) return true;
+  if (/\b(RIR|RPE)\b/i.test(clean) && !/[a-zA-ZÀ-ÿ]{4,}\s+[a-zA-ZÀ-ÿ]{4,}/.test(clean)) return true;
   return false;
 }
 
@@ -2938,6 +2982,316 @@ function extractWorkoutAthleteName(lines = []) {
   return "";
 }
 
+
+function workoutRowText(row) {
+  return cleanWorkoutPdfLine(row?.text || "");
+}
+
+function workoutItemsText(items = []) {
+  return cleanWorkoutPdfLine(items.map((item) => item.text).join(" "));
+}
+
+function workoutColumnItems(row, minX, maxX = Infinity) {
+  return (row?.items || []).filter((item) => item.x >= minX && item.x < maxX);
+}
+
+function workoutColumnText(row, minX, maxX = Infinity) {
+  return workoutItemsText(workoutColumnItems(row, minX, maxX));
+}
+
+function workoutExerciseColumnText(row) {
+  return workoutColumnText(row, 0, 235);
+}
+
+function isWorkoutExerciseTitleFromRow(row) {
+  const title = workoutExerciseColumnText(row);
+  if (!title) return false;
+  return !isWorkoutBadExerciseTitle(title);
+}
+
+function extractWorkoutDayMetaFromRow(row) {
+  const compact = compactWorkoutPdfText(workoutRowText(row));
+  const letter = compact.match(/ALLENAMENTO([A-Z])/)?.[1] || "";
+  if (!letter) return null;
+
+  const text = workoutRowText(row);
+  const exercises = Number(text.match(/(\d+)\s*esercizi/i)?.[1] || 0) || 0;
+  const supersets = Number(text.match(/(\d+)\s*superset/i)?.[1] || 0) || 0;
+
+  return { letter, exercises, supersets };
+}
+
+function normalizeWorkoutHyphenation(value) {
+  return cleanWorkoutPdfLine(
+    String(value || "")
+      .replace(/([A-Za-zÀ-ÿ])\-\s+([A-Za-zÀ-ÿ])/g, "$1$2")
+      .replace(/\s+\-/g, "-")
+  );
+}
+
+function parseWorkoutSeriesByColumns(rows = []) {
+  const weekValues = new Map();
+  let leftWeek = 0;
+  let rightWeek = 0;
+
+  rows.forEach((row) => {
+    const seriesItems = workoutColumnItems(row, 235, 410);
+    if (seriesItems.length === 0) return;
+
+    const leftText = workoutItemsText(seriesItems.filter((item) => item.x < 305));
+    const rightText = workoutItemsText(seriesItems.filter((item) => item.x >= 305));
+
+    const processSide = (text, side) => {
+      const clean = cleanWorkoutPdfLine(text);
+      if (!clean) return;
+
+      const labelMatch = clean.match(/^Sett\.?\s*(\d+)\s*(.*)$/i);
+      if (labelMatch) {
+        const weekNumber = Number(labelMatch[1]) || 0;
+        if (side === "left") leftWeek = weekNumber;
+        if (side === "right") rightWeek = weekNumber;
+
+        const remainder = cleanWorkoutPdfLine(labelMatch[2] || "");
+        if (remainder) {
+          const previous = weekValues.get(weekNumber) || "";
+          weekValues.set(weekNumber, cleanWorkoutPdfLine(`${previous} ${remainder}`));
+        }
+        return;
+      }
+
+      const weekNumber = side === "left" ? leftWeek : rightWeek;
+      if (!weekNumber) return;
+
+      const previous = weekValues.get(weekNumber) || "";
+      weekValues.set(weekNumber, cleanWorkoutPdfLine(`${previous} ${clean}`));
+    };
+
+    processSide(leftText, "left");
+    processSide(rightText, "right");
+  });
+
+  Array.from(weekValues.keys()).forEach((weekNumber) => {
+    weekValues.set(weekNumber, normalizeWorkoutHyphenation(weekValues.get(weekNumber)));
+  });
+
+  return weekValues;
+}
+
+function parseWorkoutExerciseRows(rowSegment = [], titleRowIndex = 0, durationWeeks = 4) {
+  const titleRow = rowSegment[titleRowIndex] || rowSegment.find(isWorkoutExerciseTitleFromRow) || null;
+  const exerciseName = cleanWorkoutPdfLine(workoutExerciseColumnText(titleRow));
+  if (!exerciseName) return null;
+
+  const weekValues = parseWorkoutSeriesByColumns(rowSegment);
+  const recoveryLine = cleanWorkoutPdfLine(
+    rowSegment
+      .map((row) => workoutColumnText(row, 410, 480))
+      .filter(Boolean)
+      .join(" ")
+  );
+  const recoverySeconds = recoveryLine ? workoutRecoverySeconds(recoveryLine) : 90;
+  const executionMode = normalizeWorkoutHyphenation(
+    rowSegment
+      .map((row) => workoutColumnText(row, 480, 760))
+      .filter(Boolean)
+      .join(" ")
+  );
+  const supersetText = cleanWorkoutPdfLine(
+    rowSegment
+      .map((row) => workoutColumnText(row, 760, Infinity))
+      .filter(Boolean)
+      .join(" ")
+  );
+  const supersetMatch = supersetText.match(/SS\s*\d+/i);
+  const groupLabel = supersetMatch ? supersetMatch[0].replace(/\s+/g, "").toUpperCase() : "";
+  const lastWeek = Math.max(0, ...Array.from(weekValues.keys()));
+  const baseWeekValue = weekValues.get(Math.min(4, lastWeek)) || weekValues.get(lastWeek) || "";
+  const parsedBase = parseWorkoutSetsReps(baseWeekValue);
+  const hasSuperset = Boolean(groupLabel) || /\bSUPERSET\b/i.test(executionMode);
+  const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, lastWeek || 4);
+
+  const progressions = Array.from({ length: safeDurationWeeks }).map((_, index) => {
+    const weekNumber = index + 1;
+    const value = weekValues.get(weekNumber) || "";
+    const parsed = parseWorkoutSetsReps(value);
+
+    return {
+      temp_id: uid(),
+      week_number: weekNumber,
+      target_sets: parsed.sets,
+      target_reps: parsed.reps,
+      target_load_text: value,
+      target_load_kg: "",
+      target_rpe: parsed.target_rpe,
+      target_rir: parsed.target_rir,
+      recovery_seconds: recoveryLine ? String(recoverySeconds) : "",
+      notes: value && !parsed.sets && !parsed.reps ? value : ""
+    };
+  });
+
+  return {
+    temp_id: uid(),
+    exercise_name: exerciseName,
+    exercise_media_id: "",
+    sets: parsedBase.sets || "3",
+    reps: parsedBase.reps || baseWeekValue || "8-10",
+    recovery_seconds: recoverySeconds,
+    target_rpe: parsedBase.target_rpe,
+    target_rir: parsedBase.target_rir,
+    execution_mode: executionMode,
+    video_url: "",
+    image_url: "",
+    notes: executionMode,
+    group_type: hasSuperset ? "superserie" : "",
+    group_label: hasSuperset ? groupLabel || "SS" : "",
+    has_weekly_progression: weekValues.size > 0,
+    progressions
+  };
+}
+
+function nearestWorkoutSegmentStart(rows, titleIndex, previousTitleIndex) {
+  let start = titleIndex;
+  const minIndex = Math.max(previousTitleIndex + 1, titleIndex - 6);
+
+  for (let index = titleIndex - 1; index >= minIndex; index -= 1) {
+    const row = rows[index];
+    const exerciseColumn = workoutExerciseColumnText(row);
+    const seriesColumn = workoutColumnText(row, 235, 410);
+    const rowText = workoutRowText(row);
+
+    if (exerciseColumn) break;
+    if (isWorkoutTableHeader(rowText)) break;
+    if (extractWorkoutDayMetaFromRow(row)) break;
+    if (seriesColumn || /Sett\.?\s*\d+/i.test(rowText)) {
+      start = index;
+      continue;
+    }
+  }
+
+  return start;
+}
+
+function parseWorkoutRowsForDay(rows = [], durationWeeks = 4, expectedCount = 0) {
+  const cleanRows = rows.filter((row) => !isWorkoutTableHeader(workoutRowText(row)));
+  const titleIndexes = [];
+
+  cleanRows.forEach((row, index) => {
+    if (isWorkoutExerciseTitleFromRow(row)) titleIndexes.push(index);
+  });
+
+  const segmentStarts = titleIndexes.map((titleIndex, position) =>
+    nearestWorkoutSegmentStart(cleanRows, titleIndex, titleIndexes[position - 1] ?? -1)
+  );
+
+  const exercises = titleIndexes
+    .map((titleIndex, position) => {
+      const start = segmentStarts[position];
+      const end = segmentStarts[position + 1] ?? cleanRows.length;
+      const segment = cleanRows.slice(start, end);
+      const localTitleIndex = Math.max(0, titleIndex - start);
+      return parseWorkoutExerciseRows(segment, localTitleIndex, durationWeeks);
+    })
+    .filter(Boolean);
+
+  if (expectedCount && exercises.length > expectedCount) {
+    return exercises.slice(0, expectedCount);
+  }
+
+  return exercises;
+}
+
+function parseWorkoutPdfPagesForBuilder(pages = [], lines = [], sourceName = "scheda.pdf") {
+  const normalizedLines = normalizeWorkoutPdfLines(lines);
+  const durationWeeks = extractWorkoutProgramDuration(normalizedLines);
+  const goal = extractWorkoutProgramGoal(normalizedLines);
+  const athleteName = extractWorkoutAthleteName(normalizedLines);
+  const flatRows = [];
+
+  (pages || []).forEach((page) => {
+    (page.rows || []).forEach((row) => {
+      flatRows.push({ ...row, pageNumber: page.pageNumber });
+    });
+  });
+
+  const dayHeaders = [];
+  flatRows.forEach((row, index) => {
+    const meta = extractWorkoutDayMetaFromRow(row);
+    if (meta) dayHeaders.push({ index, ...meta });
+  });
+
+  const days = dayHeaders.map((header, position) => {
+    const end = dayHeaders[position + 1]?.index ?? flatRows.length;
+    const dayRows = flatRows.slice(header.index + 1, end);
+    const exercises = parseWorkoutRowsForDay(dayRows, durationWeeks, header.exercises);
+
+    return {
+      temp_id: uid(),
+      title: `Allenamento ${header.letter}`,
+      estimated_minutes: 60,
+      notes: [
+        `Importato da PDF${sourceName ? `: ${sourceName}` : ""}`,
+        header.exercises ? `PDF: ${header.exercises} esercizi${header.supersets ? ` · ${header.supersets} superset` : ""}.` : ""
+      ].filter(Boolean).join("\n"),
+      exercises: exercises.length ? exercises : [defaultExerciseRow()]
+    };
+  });
+
+  const totalExercises = days.reduce((sum, day) => sum + day.exercises.filter((exercise) => exercise.exercise_name).length, 0);
+  const expectedExercises = dayHeaders.reduce((sum, header) => sum + (Number(header.exercises) || 0), 0);
+  const supersetCount = days.reduce(
+    (sum, day) =>
+      sum + new Set(day.exercises.map((exercise) => exercise.group_label).filter(Boolean)).size,
+    0
+  );
+  const foundWeeks = days.reduce(
+    (max, day) =>
+      Math.max(
+        max,
+        ...day.exercises.flatMap((exercise) =>
+          (exercise.progressions || []).filter((progression) => progression.target_load_text).map((progression) => Number(progression.week_number) || 0)
+        )
+      ),
+    0
+  );
+
+  return {
+    builder: {
+      title: athleteName ? `Scheda ${athleteName}` : "Programma importato da PDF",
+      goal: goal || "",
+      start_date: today(),
+      end_date: "",
+      duration_weeks: durationWeeks,
+      level: "intermedio",
+      location: "palestra",
+      notes: [
+        `Importato da PDF: ${sourceName || "scheda allenamento"}.`,
+        expectedExercises ? `Conteggio PDF: ${expectedExercises} esercizi totali.` : "",
+        foundWeeks && foundWeeks < durationWeeks
+          ? `Nel PDF sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa manualmente le settimane restanti se necessario.`
+          : "Controlla la bozza prima della pubblicazione al cliente."
+      ].filter(Boolean).join("\n"),
+      days: days.length ? days : [defaultWorkoutDay("A")]
+    },
+    summary: {
+      sourceName,
+      pageCount: pages?.length || 0,
+      days: days.length,
+      exercises: totalExercises,
+      expectedExercises,
+      groups: supersetCount,
+      durationWeeks,
+      foundWeeks,
+      warnings: [
+        days.length === 0 ? "Nessun allenamento riconosciuto nel PDF." : "",
+        expectedExercises && totalExercises !== expectedExercises
+          ? `Controlla la bozza: letti ${totalExercises} esercizi su ${expectedExercises} indicati nel PDF.`
+          : "",
+        totalExercises === 0 ? "Nessun esercizio riconosciuto: verifica che il PDF sia esportato come testo." : ""
+      ].filter(Boolean)
+    }
+  };
+}
+
 function parseWorkoutPdfLinesForBuilder(lines = [], sourceName = "scheda.pdf") {
   const normalizedLines = normalizeWorkoutPdfLines(lines);
   const durationWeeks = extractWorkoutProgramDuration(normalizedLines);
@@ -3016,13 +3370,22 @@ function parseWorkoutPdfLinesForBuilder(lines = [], sourceName = "scheda.pdf") {
 
 async function extractWorkoutPdfForBuilder(file) {
   const extraction = await extractWorkoutTextFromPdfFile(file);
-  const parsed = parseWorkoutPdfLinesForBuilder(extraction.lines || [], file?.name || "scheda.pdf");
+  const rowParsed = parseWorkoutPdfPagesForBuilder(
+    extraction.pages || [],
+    extraction.lines || [],
+    file?.name || "scheda.pdf"
+  );
+  const lineParsed = parseWorkoutPdfLinesForBuilder(extraction.lines || [], file?.name || "scheda.pdf");
+  const rowScore = Number(rowParsed.summary?.exercises || 0);
+  const lineScore = Number(lineParsed.summary?.exercises || 0);
+  const parsed = rowScore >= lineScore ? rowParsed : lineParsed;
 
   return {
     ...parsed,
     summary: {
       ...parsed.summary,
-      pageCount: extraction.pageCount || 0
+      pageCount: extraction.pageCount || 0,
+      parserMode: rowScore >= lineScore ? "rows" : "lines"
     }
   };
 }
@@ -8316,7 +8679,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           Trasforma una scheda PDF in bozza modificabile
                         </h3>
                         <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                          Riconosce Allenamento A/B/C, esercizi, recuperi, progressioni settimanali e sigle superset tipo SS1. Controlla sempre la bozza prima di pubblicarla.
+                          Legge la scheda come tabella: ogni riga viene trattata come esercizio, usando anche il conteggio scritto accanto ad Allenamento A/B/C. Controlla sempre la bozza prima di pubblicarla.
                         </p>
                       </div>
 
@@ -8347,7 +8710,8 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                             {workoutImportSummary.days || 0} sedute
                           </Pill>
                           <Pill className="bg-slate-100 text-slate-700">
-                            {workoutImportSummary.exercises || 0} esercizi
+                            {workoutImportSummary.exercises || 0}
+                            {workoutImportSummary.expectedExercises ? `/${workoutImportSummary.expectedExercises}` : ""} esercizi
                           </Pill>
                           <Pill className="bg-slate-100 text-slate-700">
                             {workoutImportSummary.groups || 0} gruppi SS
