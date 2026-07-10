@@ -1889,20 +1889,30 @@ function normalizeDietMealSection(section) {
   const title = section.name || section.title || "";
   if (isDietNonMealHeading(title)) return null;
 
-  const split = splitDietItemsAndMealNotes(section.items || []);
+  const rawItems = (section.items || []).map(cleanDietPdfLine).filter(Boolean);
+  const hasInlineMealNotes = rawItems.some((line) => isDietMealNoteHeadingLine(line));
+  const split = splitDietItemsAndMealNotes(rawItems);
   const existingNotes = Array.isArray(section.notes)
     ? section.notes.map(cleanDietPdfLine).filter(Boolean)
     : section.notes
     ? [cleanDietPdfLine(section.notes)].filter(Boolean)
     : [];
-  const notes = [...existingNotes, ...split.notes].filter(Boolean);
+  const notes = [
+    ...existingNotes,
+    ...(hasInlineMealNotes ? [] : split.notes)
+  ].filter(Boolean);
+  const options = Array.isArray(section.options)
+    ? section.options.map((option) => normalizeDietMealSection(option)).filter(Boolean)
+    : [];
+  const items = hasInlineMealNotes ? rawItems : split.foodItems;
 
-  if (!dietSectionHasMealFood(split.foodItems)) return null;
+  if (!dietSectionHasMealFood(items) && options.length === 0) return null;
 
   return {
     ...section,
-    items: split.foodItems,
-    notes
+    items,
+    notes,
+    options
   };
 }
 
@@ -2079,24 +2089,35 @@ function compactDietItems(lines = []) {
 function pushDietMeal(target, meal) {
   if (!meal) return;
 
-  const split = splitDietItemsAndMealNotes(compactDietItems(meal.items || []));
-  const items = split.foodItems;
+  const compactItems = compactDietItems(meal.items || []);
+  const hasInlineMealNotes = compactItems.some((line) => isDietMealNoteHeadingLine(line));
+  const split = splitDietItemsAndMealNotes(compactItems);
+  const items = hasInlineMealNotes ? compactItems : split.foodItems;
   const existingNotes = Array.isArray(meal.notes)
     ? meal.notes.map(cleanDietPdfLine).filter(Boolean)
     : meal.notes
     ? [cleanDietPdfLine(meal.notes)].filter(Boolean)
     : [];
-  const notes = [...existingNotes, ...split.notes].filter(Boolean);
+  const notes = [
+    ...existingNotes,
+    ...(hasInlineMealNotes ? [] : split.notes)
+  ].filter(Boolean);
+  const options = Array.isArray(meal.options)
+    ? meal.options
+        .map((option) => normalizeDietMealSection(option))
+        .filter(Boolean)
+    : [];
 
-  if (items.length === 0) return;
+  if (items.length === 0 && options.length === 0) return;
   if (isDietNonMealHeading(meal.name || meal.title || "")) return;
-  if (!dietSectionHasMealFood(items)) return;
+  if (!dietSectionHasMealFood(items) && options.length === 0) return;
 
   target.push({
     name: meal.name,
     title: meal.title || meal.name,
     items,
-    notes
+    notes,
+    options
   });
 }
 
@@ -2257,16 +2278,48 @@ function parseDailyDietLines(lines, sourceName) {
   const days = [];
   let currentDay = null;
   let currentMeal = null;
+  let currentMealOption = null;
   let readingMealNotes = false;
 
-  function addCurrentMealNote(line) {
+  function activeDailyMealTarget() {
+    return currentMealOption || currentMeal;
+  }
+
+  function startMealOption(title) {
     if (!currentMeal) return;
+
+    const cleanTitle = cleanDietPdfLine(title) || `Opzione ${(currentMeal.options || []).length + 1}`;
+    currentMeal.options = Array.isArray(currentMeal.options) ? currentMeal.options : [];
+    currentMealOption = {
+      name: cleanTitle,
+      title: cleanTitle,
+      items: [],
+      notes: []
+    };
+    currentMeal.options.push(currentMealOption);
+    readingMealNotes = false;
+  }
+
+  function addCurrentMealNote(line) {
+    const target = activeDailyMealTarget();
+    if (!target) return;
 
     const clean = cleanDietPdfLine(line);
     if (!clean) return;
 
-    currentMeal.notes = Array.isArray(currentMeal.notes) ? currentMeal.notes : [];
-    currentMeal.notes.push(clean);
+    target.notes = Array.isArray(target.notes) ? target.notes : [];
+    target.notes.push(clean);
+  }
+
+  function addCurrentMealItem(line) {
+    const target = activeDailyMealTarget();
+    if (!target) return;
+
+    const clean = cleanDietPdfLine(line);
+    if (!clean) return;
+
+    target.items = Array.isArray(target.items) ? target.items : [];
+    target.items.push(clean);
   }
 
   scopedLines.forEach((line) => {
@@ -2287,6 +2340,7 @@ function parseDailyDietLines(lines, sourceName) {
         meals: []
       };
       currentMeal = null;
+      currentMealOption = null;
       readingMealNotes = false;
       return;
     }
@@ -2300,13 +2354,22 @@ function parseDailyDietLines(lines, sourceName) {
       currentMeal = {
         name: mealName,
         items: [],
-        notes: []
+        notes: [],
+        options: []
       };
+      currentMealOption = null;
       readingMealNotes = false;
       return;
     }
 
     if (!currentMeal) return;
+
+    const optionMarker = detectDietOptionMarker(line);
+
+    if (optionMarker) {
+      startMealOption(optionMarker);
+      return;
+    }
 
     const introNote = extractDietMealNoteIntro(line);
 
@@ -2321,7 +2384,7 @@ function parseDailyDietLines(lines, sourceName) {
       return;
     }
 
-    currentMeal.items.push(line);
+    addCurrentMealItem(line);
   });
 
   if (currentDay) {
@@ -2339,6 +2402,7 @@ function parseDailyDietLines(lines, sourceName) {
     warnings: days.length === 0 ? ["Nessun giorno riconosciuto nel PDF."] : []
   };
 }
+
 
 function parseOptionsDietLines(lines, sourceName) {
   const scopedLines = expandDietLinesForParsing(cutDietLinesForOptions(lines), "options");
@@ -3897,35 +3961,83 @@ function DietSummaryBox({ diet }) {
 
 
 function buildDietFoodGroups(items = [], mealNotes = []) {
-  const groups = [];
-  const split = splitDietItemsAndMealNotes(items || []);
-  const notes = [
-    ...split.notes,
-    ...(Array.isArray(mealNotes) ? mealNotes : mealNotes ? [mealNotes] : [])
-  ]
-    .map(cleanDietPdfLine)
-    .filter(Boolean)
-    .filter((note, index, array) => array.indexOf(note) === index);
+  const blocks = [];
+  let readingInlineNotes = false;
 
-  split.foodItems.forEach((line) => {
-    if (isDietAlternativeLine(line) && groups.length > 0) {
-      groups[groups.length - 1].alternatives.push(line);
-      return;
+  function pushFood(line) {
+    if (isDietAlternativeLine(line)) {
+      const lastFood = [...blocks].reverse().find((block) => block.type === "food");
+      if (lastFood) {
+        lastFood.alternatives.push(line);
+        return;
+      }
     }
 
-    groups.push({
+    blocks.push({
+      type: "food",
       text: line,
       alternatives: []
     });
+  }
+
+  (items || []).map(cleanDietPdfLine).filter(Boolean).forEach((line) => {
+    const optionMarker = detectDietOptionMarker(line);
+
+    if (optionMarker) {
+      readingInlineNotes = false;
+      blocks.push({
+        type: "option",
+        title: optionMarker
+      });
+      return;
+    }
+
+    const introNote = extractDietMealNoteIntro(line);
+
+    if (introNote !== null) {
+      readingInlineNotes = true;
+      if (introNote) {
+        blocks.push({
+          type: "note",
+          text: introNote
+        });
+      }
+      return;
+    }
+
+    if (readingInlineNotes) {
+      blocks.push({
+        type: "note",
+        text: line
+      });
+      return;
+    }
+
+    pushFood(line);
   });
 
-  return { groups, notes };
+  (Array.isArray(mealNotes) ? mealNotes : mealNotes ? [mealNotes] : [])
+    .map(cleanDietPdfLine)
+    .filter(Boolean)
+    .forEach((note) => {
+      blocks.push({
+        type: "note",
+        text: note
+      });
+    });
+
+  const dedupedBlocks = blocks.filter((block, index, array) => {
+    if (block.type !== "note") return true;
+    return array.findIndex((item) => item.type === "note" && item.text === block.text) === index;
+  });
+
+  return { blocks: dedupedBlocks };
 }
 
 function DietFoodLines({ items = [], notes: mealNotes = [] }) {
-  const { groups, notes } = buildDietFoodGroups(items, mealNotes);
+  const { blocks } = buildDietFoodGroups(items, mealNotes);
 
-  if (groups.length === 0 && notes.length === 0) {
+  if (blocks.length === 0) {
     return (
       <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold text-slate-400">
         Nessun alimento disponibile in questa card.
@@ -3935,46 +4047,66 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
 
   return (
     <div className="mt-3 space-y-2.5">
-      {groups.map((group, index) => (
-        <div
-          key={`${group.text}-${index}`}
-          className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm"
-        >
-          <div className="flex gap-2.5">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-500" />
-            <p className="min-w-0 break-words text-sm font-black leading-6 text-slate-800">
-              {group.text}
-            </p>
-          </div>
-
-          {group.alternatives.length > 0 && (
-            <div className="mt-2 space-y-1.5 border-l-2 border-slate-200 pl-4">
-              {group.alternatives.map((alternative, altIndex) => (
-                <p
-                  key={`${alternative}-${altIndex}`}
-                  className="break-words text-xs font-bold leading-5 text-slate-500"
-                >
-                  {alternative}
-                </p>
-              ))}
+      {blocks.map((block, index) => {
+        if (block.type === "option") {
+          return (
+            <div
+              key={`${block.title}-${index}`}
+              className="rounded-2xl border border-teal-200 bg-teal-50 px-3.5 py-3"
+            >
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                Opzione
+              </p>
+              <p className="mt-1 text-sm font-black text-slate-950">
+                {block.title}
+              </p>
             </div>
-          )}
-        </div>
-      ))}
+          );
+        }
 
-      {notes.map((note, index) => (
-        <div
-          key={`${note}-${index}`}
-          className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3"
-        >
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
-            Note al pasto
-          </p>
-          <p className="mt-1 break-words text-xs font-bold leading-5 text-amber-900">
-            {note}
-          </p>
-        </div>
-      ))}
+        if (block.type === "note") {
+          return (
+            <div
+              key={`${block.text}-${index}`}
+              className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3"
+            >
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+                Note al pasto
+              </p>
+              <p className="mt-1 break-words text-xs font-bold leading-5 text-amber-900">
+                {block.text}
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={`${block.text}-${index}`}
+            className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm"
+          >
+            <div className="flex gap-2.5">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-500" />
+              <p className="min-w-0 break-words text-sm font-black leading-6 text-slate-800">
+                {block.text}
+              </p>
+            </div>
+
+            {block.alternatives.length > 0 && (
+              <div className="mt-2 space-y-1.5 border-l-2 border-slate-200 pl-4">
+                {block.alternatives.map((alternative, altIndex) => (
+                  <p
+                    key={`${alternative}-${altIndex}`}
+                    className="break-words text-xs font-bold leading-5 text-slate-500"
+                  >
+                    {alternative}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -4029,6 +4161,12 @@ function DietExtractedPlan({ diet, compact = false }) {
 
   function renderMealCard(meal, key) {
     const items = meal.items || [];
+    const mealOptions = Array.isArray(meal.options)
+      ? meal.options.filter((option) =>
+          ((option.items || []).length > 0) || ((option.notes || []).length > 0)
+        )
+      : [];
+    const hasStandaloneContent = items.length > 0 || (meal.notes || []).length > 0;
 
     return (
       <div
@@ -4040,14 +4178,46 @@ function DietExtractedPlan({ diet, compact = false }) {
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
               {meal.name || meal.title || "Pasto"}
             </p>
+            {mealOptions.length > 0 && (
+              <p className="mt-1 text-xs font-bold text-slate-400">
+                {mealOptions.length} opzioni riconosciute dal file
+              </p>
+            )}
 
           </div>
 
         </div>
-        <DietFoodLines items={items} notes={meal.notes || []} />
+
+        {hasStandaloneContent && (
+          <DietFoodLines items={items} notes={meal.notes || []} />
+        )}
+
+        {mealOptions.length > 0 && (
+          <div className="mt-3 space-y-3">
+            {mealOptions.map((option, optionIndex) => (
+              <div
+                key={`${option.title || option.name || "opzione"}-${optionIndex}`}
+                className="rounded-[1.15rem] border border-teal-100 bg-teal-50/50 p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                      Opzione
+                    </p>
+                    <p className="mt-1 text-sm font-black text-slate-950">
+                      {option.title || option.name || `Opzione ${optionIndex + 1}`}
+                    </p>
+                  </div>
+                </div>
+                <DietFoodLines items={option.items || []} notes={option.notes || []} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
+
 
   function renderOptionCard(group, option, optionIndex) {
     const items = option.items || [];
@@ -4472,6 +4642,45 @@ function DietManualCardsEditor({
     });
   }
 
+  function updateMealOption(dayIndex, mealIndex, optionIndex, field, value) {
+    updateDraft((next) => {
+      const meal = next.days[dayIndex].meals[mealIndex];
+      meal.options = Array.isArray(meal.options) ? meal.options : [];
+      meal.options[optionIndex][field] = value;
+      if (field === "name") meal.options[optionIndex].title = value;
+      if (field === "title") meal.options[optionIndex].name = value;
+    });
+  }
+
+  function updateMealOptionLines(dayIndex, mealIndex, optionIndex, field, value) {
+    updateDraft((next) => {
+      const meal = next.days[dayIndex].meals[mealIndex];
+      meal.options = Array.isArray(meal.options) ? meal.options : [];
+      meal.options[optionIndex][field] = dietTextareaToLines(value);
+    });
+  }
+
+  function addMealOption(dayIndex, mealIndex) {
+    updateDraft((next) => {
+      const meal = next.days[dayIndex].meals[mealIndex];
+      meal.options = Array.isArray(meal.options) ? meal.options : [];
+      meal.options.push({
+        name: `Opzione ${meal.options.length + 1}`,
+        title: `Opzione ${meal.options.length + 1}`,
+        items: [],
+        notes: []
+      });
+    });
+  }
+
+  function removeMealOption(dayIndex, mealIndex, optionIndex) {
+    updateDraft((next) => {
+      const meal = next.days[dayIndex].meals[mealIndex];
+      meal.options = Array.isArray(meal.options) ? meal.options : [];
+      meal.options.splice(optionIndex, 1);
+    });
+  }
+
   function updateOptionGroup(groupIndex, value) {
     updateDraft((next) => {
       next.optionGroups[groupIndex].meal = value;
@@ -4612,6 +4821,88 @@ function DietManualCardsEditor({
                             className="min-h-44 border-amber-200 bg-amber-50 font-semibold leading-6"
                           />
                         </Label>
+                      </div>
+
+                      <div className="mt-3 space-y-3 rounded-[1.1rem] border border-teal-100 bg-teal-50/60 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                              Opzioni dentro il pasto
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Se nel file c’è scritto “Opzione”, resterà visibile anche lato cliente.
+                            </p>
+                          </div>
+                          <Button
+                            onClick={() => addMealOption(dayIndex, mealIndex)}
+                            className="shrink-0 border border-teal-200 bg-white px-3 py-2 text-xs text-teal-700"
+                          >
+                            Aggiungi opzione
+                          </Button>
+                        </div>
+
+                        {(meal.options || []).map((option, optionIndex) => (
+                          <div
+                            key={`${option.title || option.name}-${optionIndex}`}
+                            className="rounded-[1rem] border border-teal-100 bg-white p-3"
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                              <Label title="Titolo opzione" className="flex-1">
+                                <Input
+                                  value={option.title || option.name || ""}
+                                  onChange={(event) =>
+                                    updateMealOption(
+                                      dayIndex,
+                                      mealIndex,
+                                      optionIndex,
+                                      "title",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </Label>
+                              <Button
+                                onClick={() => removeMealOption(dayIndex, mealIndex, optionIndex)}
+                                className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                              >
+                                Rimuovi opzione
+                              </Button>
+                            </div>
+
+                            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                              <Label title="Alimenti opzione, uno per riga">
+                                <Textarea
+                                  value={(option.items || []).join("\n")}
+                                  onChange={(event) =>
+                                    updateMealOptionLines(
+                                      dayIndex,
+                                      mealIndex,
+                                      optionIndex,
+                                      "items",
+                                      event.target.value
+                                    )
+                                  }
+                                  className="min-h-36 font-semibold leading-6"
+                                />
+                              </Label>
+                              <Label title="Note opzione, una per riga">
+                                <Textarea
+                                  value={(option.notes || []).join("\n")}
+                                  onChange={(event) =>
+                                    updateMealOptionLines(
+                                      dayIndex,
+                                      mealIndex,
+                                      optionIndex,
+                                      "notes",
+                                      event.target.value
+                                    )
+                                  }
+                                  className="min-h-36 border-amber-200 bg-amber-50 font-semibold leading-6"
+                                />
+                              </Label>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
