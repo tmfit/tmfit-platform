@@ -2637,6 +2637,396 @@ async function extractDietPdfFromUrlForApp(url, sourceName, dietType) {
   return extractDietPdfForApp(file, dietType);
 }
 
+
+function cleanWorkoutPdfLine(value) {
+  return String(value || "")
+    .replace(/\uFFFC/g, "")
+    .replace(/[\u0000-\u001f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
+}
+
+function normalizeWorkoutPdfText(value) {
+  return cleanWorkoutPdfLine(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function compactWorkoutPdfText(value) {
+  return normalizeWorkoutPdfText(value).replace(/[^A-Z0-9]/g, "");
+}
+
+function splitWorkoutPdfLine(line) {
+  const clean = cleanWorkoutPdfLine(line);
+  if (!clean) return [];
+
+  return clean
+    .replace(/\b(A\s*L\s*L\s*E\s*N\s*A\s*M\s*E\s*N\s*T\s*O\s+[A-Z])\b/gi, "\n$1\n")
+    .replace(/\b(ALLENAMENTO\s+[A-Z])\b/gi, "\n$1\n")
+    .replace(/\b(ESERCIZIO\s+SERIE\/RIP\s+RECUPERO\s+MODALIT[ÀA]\s+ESECUZIONE\s+SUPERSET)\b/gi, "\n$1\n")
+    .replace(/\b(Sett\.?\s*\d+)\b/gi, "\n$1\n")
+    .replace(/\b(SS\s*\d+)\b/gi, "\n$1\n")
+    .split("\n")
+    .map(cleanWorkoutPdfLine)
+    .filter(Boolean);
+}
+
+function normalizeWorkoutPdfLines(lines = []) {
+  return lines.flatMap(splitWorkoutPdfLine).map(cleanWorkoutPdfLine).filter(Boolean);
+}
+
+async function extractWorkoutTextFromPdfFile(file) {
+  const pdfjsLib = await loadPdfJsForDietExtraction();
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const pageCount = Number(pdf.numPages || 0);
+  const pages = [];
+
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(...pdfTextItemsToLines(content.items || []));
+  }
+
+  return {
+    lines: normalizeWorkoutPdfLines(pages),
+    pageCount
+  };
+}
+
+function extractWorkoutDayLetter(line) {
+  const compact = compactWorkoutPdfText(line);
+  const match = compact.match(/ALLENAMENTO([A-Z])/);
+  return match?.[1] || "";
+}
+
+function isWorkoutTableHeader(line) {
+  const compact = compactWorkoutPdfText(line);
+  return (
+    compact.includes("ESERCIZIOSERIE") ||
+    compact.includes("SERIERIP") ||
+    compact.includes("RECUPERO") ||
+    compact.includes("MODALITAESECUZIONE") ||
+    compact === "SUPERSET"
+  );
+}
+
+function isWorkoutRecoveryLine(line) {
+  const text = normalizeWorkoutPdfText(line);
+  if (text === "—" || text === "-") return true;
+  return /\b\d+\s*(-|–)?\s*\d*\s*SEC\b/.test(text) || /\bSEC\s+TRA\s+GIRI\b/.test(text);
+}
+
+function workoutRecoverySeconds(line) {
+  const text = String(line || "");
+  const range = text.match(/(\d+)\s*(?:-|–)\s*(\d+)\s*sec/i);
+  if (range) return Number(range[1]) || Number(range[2]) || 90;
+
+  const single = text.match(/(\d+)\s*sec/i);
+  if (single) return Number(single[1]) || 90;
+
+  return 90;
+}
+
+function isWorkoutSupersetToken(line) {
+  return /^SS\s*\d+$/i.test(cleanWorkoutPdfLine(line));
+}
+
+function isWorkoutBadExerciseTitle(line) {
+  const clean = cleanWorkoutPdfLine(line);
+  const text = normalizeWorkoutPdfText(clean);
+  const compact = compactWorkoutPdfText(clean);
+
+  if (!clean || clean.length < 3) return true;
+  if (/^SETT\.?\s*\d+/i.test(clean)) return true;
+  if (isWorkoutRecoveryLine(clean) || isWorkoutSupersetToken(clean)) return true;
+  if (compact.includes("PIANODIALLENAMENTO")) return true;
+  if (compact.includes("METODOPROGRESSIONERISULTATI")) return true;
+  if (compact.includes("PROGRAMMA")) return true;
+  if (compact.includes("ATLETA")) return true;
+  if (compact.includes("DURATA")) return true;
+  if (compact.includes("OBIETTIVO")) return true;
+  if (compact.includes("ALLENAMENTI")) return true;
+  if (compact.includes("DISCIPLINA")) return true;
+  if (compact.includes("ALLENAMENTOGUIDATO")) return true;
+  if (compact.includes("DRMATTEOTROBBIANI")) return true;
+  if (compact.includes("BIOLOGONUTRIZIONISTA")) return true;
+  if (compact.startsWith("ALLENAMENTO")) return true;
+  if (isWorkoutTableHeader(clean)) return true;
+  if (text.includes("CIRCUITO") || text.includes("SUPERSET;") || text.includes("ECCENTRICA") || text.includes("ISOMETRIA")) return true;
+  return false;
+}
+
+function isWorkoutExerciseStart(lines, index) {
+  const line = lines[index];
+  if (isWorkoutBadExerciseTitle(line)) return false;
+
+  for (let offset = 1; offset <= 6; offset += 1) {
+    const next = lines[index + offset] || "";
+    if (/^Sett\.?\s*1/i.test(next)) return true;
+  }
+
+  return false;
+}
+
+function parseWorkoutSetsReps(value) {
+  const text = cleanWorkoutPdfLine(value).replace(/×/g, "x");
+  const result = {
+    sets: "",
+    reps: "",
+    target_rir: "",
+    target_rpe: ""
+  };
+
+  const rir = text.match(/\bRIR\s*([0-9]+(?:\s*(?:-|–)\s*[0-9]+)?)/i);
+  if (rir) result.target_rir = rir[1].replace(/\s+/g, "");
+
+  const rpe = text.match(/\bRPE\s*([0-9]+(?:\s*(?:-|–)\s*[0-9]+)?)/i);
+  if (rpe) result.target_rpe = rpe[1].replace(/\s+/g, "");
+
+  const setRep = text.match(/(\d+)\s*x\s*([^;]+)/i);
+  if (setRep) {
+    result.sets = setRep[1];
+    result.reps = cleanWorkoutPdfLine(
+      setRep[2]
+        .replace(/\bRIR\b.*$/i, "")
+        .replace(/\bRPE\b.*$/i, "")
+    );
+    return result;
+  }
+
+  const seconds = text.match(/(\d+\s*(?:-|–)?\s*\d*\s*sec(?:\/lato)?)/i);
+  if (seconds) {
+    result.sets = "1";
+    result.reps = seconds[1].replace(/\s+/g, " ");
+    return result;
+  }
+
+  const giri = text.match(/(\d+\s*giri?)/i);
+  if (giri) {
+    result.sets = "1";
+    result.reps = giri[1];
+    return result;
+  }
+
+  return result;
+}
+
+function parseWorkoutExerciseSegment(segment = [], durationWeeks = 4) {
+  const cleanSegment = segment.map(cleanWorkoutPdfLine).filter(Boolean);
+  const exerciseName = cleanSegment[0] || "";
+  const supersetLine = [...cleanSegment].reverse().find(isWorkoutSupersetToken) || "";
+  const groupLabel = supersetLine.replace(/\s+/g, "").toUpperCase();
+  const recoveryIndex = cleanSegment.findIndex((line, index) => index > 0 && isWorkoutRecoveryLine(line));
+  const recoveryLine = recoveryIndex >= 0 ? cleanSegment[recoveryIndex] : "";
+  const recoverySeconds = recoveryLine ? workoutRecoverySeconds(recoveryLine) : 90;
+  const weekValues = new Map();
+
+  for (let index = 0; index < cleanSegment.length; index += 1) {
+    const line = cleanSegment[index];
+    const weekMatch = line.match(/^Sett\.?\s*(\d+)\s*(.*)$/i);
+    if (!weekMatch) continue;
+
+    const weekNumber = Number(weekMatch[1]) || 0;
+    const parts = [];
+    if (weekMatch[2]) parts.push(weekMatch[2]);
+
+    for (let inner = index + 1; inner < cleanSegment.length; inner += 1) {
+      const next = cleanSegment[inner];
+      if (/^Sett\.?\s*\d+/i.test(next)) break;
+      if (isWorkoutRecoveryLine(next)) break;
+      if (isWorkoutSupersetToken(next)) break;
+      if (parts.length >= 3) break;
+      parts.push(next);
+    }
+
+    weekValues.set(weekNumber, cleanWorkoutPdfLine(parts.join(" ")));
+  }
+
+  const recoveryStart = recoveryIndex >= 0 ? recoveryIndex + 1 : cleanSegment.length;
+  const executionLines = cleanSegment
+    .slice(recoveryStart)
+    .filter((line) => !isWorkoutSupersetToken(line) && line !== "—" && line !== "-")
+    .filter((line) => !/^Sett\.?\s*\d+/i.test(line));
+  const executionMode = cleanWorkoutPdfLine(executionLines.join(" "));
+  const lastWeek = Math.max(0, ...Array.from(weekValues.keys()));
+  const baseWeekValue = weekValues.get(Math.min(4, lastWeek)) || weekValues.get(lastWeek) || "";
+  const parsedBase = parseWorkoutSetsReps(baseWeekValue);
+  const hasSuperset = Boolean(groupLabel) || /\bSUPERSET\b/i.test(executionMode);
+  const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, lastWeek || 4);
+
+  const progressions = Array.from({ length: safeDurationWeeks }).map((_, index) => {
+    const weekNumber = index + 1;
+    const value = weekValues.get(weekNumber) || "";
+    const parsed = parseWorkoutSetsReps(value);
+
+    return {
+      temp_id: uid(),
+      week_number: weekNumber,
+      target_sets: parsed.sets,
+      target_reps: parsed.reps,
+      target_load_text: value,
+      target_load_kg: "",
+      target_rpe: parsed.target_rpe,
+      target_rir: parsed.target_rir,
+      recovery_seconds: recoveryLine ? String(recoverySeconds) : "",
+      notes: value && !parsed.sets && !parsed.reps ? value : ""
+    };
+  });
+
+  return {
+    temp_id: uid(),
+    exercise_name: exerciseName,
+    exercise_media_id: "",
+    sets: parsedBase.sets || "3",
+    reps: parsedBase.reps || baseWeekValue || "8-10",
+    recovery_seconds: recoverySeconds,
+    target_rpe: parsedBase.target_rpe,
+    target_rir: parsedBase.target_rir,
+    execution_mode: executionMode,
+    video_url: "",
+    image_url: "",
+    notes: executionMode,
+    group_type: hasSuperset ? "superserie" : "",
+    group_label: hasSuperset ? groupLabel || "SS" : "",
+    has_weekly_progression: weekValues.size > 0,
+    progressions
+  };
+}
+
+function parseWorkoutDayLines(dayLines = [], durationWeeks = 4) {
+  const lines = dayLines.filter((line) => !isWorkoutTableHeader(line));
+  const starts = [];
+
+  lines.forEach((line, index) => {
+    if (isWorkoutExerciseStart(lines, index)) starts.push(index);
+  });
+
+  return starts
+    .map((start, position) => {
+      const end = starts[position + 1] ?? lines.length;
+      return parseWorkoutExerciseSegment(lines.slice(start, end), durationWeeks);
+    })
+    .filter((exercise) => exercise.exercise_name);
+}
+
+function extractWorkoutProgramGoal(lines = []) {
+  const joined = lines.slice(0, 60).join(" ");
+  const match = joined.match(/OBIETTIVO\s+(.+?)\s+ALLENAMENTI/i);
+  if (match) return cleanWorkoutPdfLine(match[1]);
+
+  const index = lines.findIndex((line) => /^OBIETTIVO$/i.test(cleanWorkoutPdfLine(line)));
+  if (index >= 0) {
+    return cleanWorkoutPdfLine(lines.slice(index + 1, index + 4).join(" "));
+  }
+
+  return "";
+}
+
+function extractWorkoutProgramDuration(lines = []) {
+  const joined = lines.slice(0, 80).join(" ");
+  const match = joined.match(/(\d+)\s*settimane/i);
+  return match ? Number(match[1]) || 4 : 4;
+}
+
+function extractWorkoutAthleteName(lines = []) {
+  const joined = lines.slice(0, 40).join(" ");
+  const match = joined.match(/ATLETA\s+(.+?)\s+DURATA/i);
+  if (match) return cleanWorkoutPdfLine(match[1]);
+  return "";
+}
+
+function parseWorkoutPdfLinesForBuilder(lines = [], sourceName = "scheda.pdf") {
+  const normalizedLines = normalizeWorkoutPdfLines(lines);
+  const durationWeeks = extractWorkoutProgramDuration(normalizedLines);
+  const goal = extractWorkoutProgramGoal(normalizedLines);
+  const athleteName = extractWorkoutAthleteName(normalizedLines);
+  const dayHeaderIndexes = [];
+
+  normalizedLines.forEach((line, index) => {
+    const letter = extractWorkoutDayLetter(line);
+    if (letter) dayHeaderIndexes.push({ index, letter });
+  });
+
+  const days = dayHeaderIndexes.map((header, position) => {
+    const end = dayHeaderIndexes[position + 1]?.index ?? normalizedLines.length;
+    const dayLines = normalizedLines.slice(header.index + 1, end);
+    const exercises = parseWorkoutDayLines(dayLines, durationWeeks);
+
+    return {
+      temp_id: uid(),
+      title: `Allenamento ${header.letter}`,
+      estimated_minutes: 60,
+      notes: `Importato da PDF${sourceName ? `: ${sourceName}` : ""}`,
+      exercises: exercises.length ? exercises : [defaultExerciseRow()]
+    };
+  });
+
+  const totalExercises = days.reduce((sum, day) => sum + day.exercises.filter((exercise) => exercise.exercise_name).length, 0);
+  const supersetCount = days.reduce(
+    (sum, day) =>
+      sum + new Set(day.exercises.map((exercise) => exercise.group_label).filter(Boolean)).size,
+    0
+  );
+  const foundWeeks = days.reduce(
+    (max, day) =>
+      Math.max(
+        max,
+        ...day.exercises.flatMap((exercise) =>
+          (exercise.progressions || []).filter((progression) => progression.target_load_text).map((progression) => Number(progression.week_number) || 0)
+        )
+      ),
+    0
+  );
+
+  return {
+    builder: {
+      title: athleteName ? `Scheda ${athleteName}` : "Programma importato da PDF",
+      goal: goal || "",
+      start_date: today(),
+      end_date: "",
+      duration_weeks: durationWeeks,
+      level: "intermedio",
+      location: "palestra",
+      notes: [
+        `Importato da PDF: ${sourceName || "scheda allenamento"}.`,
+        foundWeeks && foundWeeks < durationWeeks
+          ? `Nel PDF sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa manualmente le settimane restanti se necessario.`
+          : "Controlla la bozza prima della pubblicazione al cliente."
+      ].filter(Boolean).join("\n"),
+      days: days.length ? days : [defaultWorkoutDay("A")]
+    },
+    summary: {
+      sourceName,
+      pageCount: 0,
+      days: days.length,
+      exercises: totalExercises,
+      groups: supersetCount,
+      durationWeeks,
+      foundWeeks,
+      warnings: [
+        days.length === 0 ? "Nessun allenamento riconosciuto nel PDF." : "",
+        totalExercises === 0 ? "Nessun esercizio riconosciuto: verifica che il PDF sia esportato come testo." : ""
+      ].filter(Boolean)
+    }
+  };
+}
+
+async function extractWorkoutPdfForBuilder(file) {
+  const extraction = await extractWorkoutTextFromPdfFile(file);
+  const parsed = parseWorkoutPdfLinesForBuilder(extraction.lines || [], file?.name || "scheda.pdf");
+
+  return {
+    ...parsed,
+    summary: {
+      ...parsed.summary,
+      pageCount: extraction.pageCount || 0
+    }
+  };
+}
+
 function dietExtractToNotesBlock(extractedDiet) {
   if (!extractedDiet) return null;
 
@@ -4232,6 +4622,9 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
 
   const [builder, setBuilder] = useState(createSmartBuilder());
   const [savingPlan, setSavingPlan] = useState(false);
+  const [workoutPdfFile, setWorkoutPdfFile] = useState(null);
+  const [importingWorkoutPdf, setImportingWorkoutPdf] = useState(false);
+  const [workoutImportSummary, setWorkoutImportSummary] = useState(null);
 
   const [dietForm, setDietForm] = useState({
     title: "",
@@ -4806,6 +5199,63 @@ function getBuilderQualityReport() {
         });
       });
     });
+  }
+
+  async function importWorkoutPdfIntoBuilder() {
+    if (!workoutPdfFile) {
+      alert("Seleziona un PDF scheda da importare.");
+      return;
+    }
+
+    if (!workoutPdfFile.type?.includes("pdf") && !workoutPdfFile.name?.toLowerCase().endsWith(".pdf")) {
+      alert("Carica un file PDF della scheda allenamento.");
+      return;
+    }
+
+    const hasExistingExercises = builder.days.some((day) =>
+      day.exercises.some((exercise) => String(exercise.exercise_name || "").trim())
+    );
+
+    if (hasExistingExercises) {
+      const confirmed = window.confirm(
+        "L’importazione sostituirà la bozza attuale nel builder. Vuoi continuare?"
+      );
+
+      if (!confirmed) return;
+    }
+
+    setImportingWorkoutPdf(true);
+    setWorkoutImportSummary(null);
+
+    try {
+      const extracted = await extractWorkoutPdfForBuilder(workoutPdfFile);
+      const importedBuilder = extracted.builder;
+      const summary = extracted.summary;
+
+      if (!summary.exercises) {
+        alert(
+          "PDF letto, ma non ho riconosciuto esercizi sufficienti. Verifica che il PDF sia esportato come testo e non come immagine."
+        );
+        setWorkoutImportSummary(summary);
+        return;
+      }
+
+      setEditingProgramId("");
+      setEditingProgramTitle("");
+      setBuilder(importedBuilder);
+      setBuilderStep("setup");
+      setProgramPanel("builder");
+      setWorkoutImportSummary(summary);
+      setWorkoutPdfFile(null);
+
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 100);
+    } catch (error) {
+      alert(error.message || "Errore durante l’importazione della scheda PDF.");
+    } finally {
+      setImportingWorkoutPdf(false);
+    }
   }
 
   function addWorkoutDay() {
@@ -7852,6 +8302,66 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                             </span>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </Card>
+
+                  <Card className="border border-teal-200 bg-teal-50/60 p-3 shadow-sm sm:p-4">
+                    <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                          Importa scheda PDF
+                        </p>
+                        <h3 className="mt-1 text-lg font-black text-slate-950">
+                          Trasforma una scheda PDF in bozza modificabile
+                        </h3>
+                        <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                          Riconosce Allenamento A/B/C, esercizi, recuperi, progressioni settimanali e sigle superset tipo SS1. Controlla sempre la bozza prima di pubblicarla.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] xl:min-w-[520px]">
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={(event) => setWorkoutPdfFile(event.target.files?.[0] || null)}
+                          className="w-full rounded-2xl border border-teal-200 bg-white px-3 py-3 text-xs font-black text-slate-700 file:mr-3 file:rounded-xl file:border-0 file:bg-teal-300 file:px-3 file:py-2 file:text-xs file:font-black file:text-slate-950"
+                        />
+
+                        <Button
+                          type="button"
+                          onClick={importWorkoutPdfIntoBuilder}
+                          disabled={!workoutPdfFile || importingWorkoutPdf}
+                          className="bg-[#07111f] text-white"
+                        >
+                          <Upload size={16} className="mr-2" />
+                          {importingWorkoutPdf ? "Importo..." : "Importa"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {workoutImportSummary && (
+                      <div className="mt-3 rounded-2xl border border-teal-200 bg-white p-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Pill className="bg-teal-300 text-slate-950">
+                            {workoutImportSummary.days || 0} sedute
+                          </Pill>
+                          <Pill className="bg-slate-100 text-slate-700">
+                            {workoutImportSummary.exercises || 0} esercizi
+                          </Pill>
+                          <Pill className="bg-slate-100 text-slate-700">
+                            {workoutImportSummary.groups || 0} gruppi SS
+                          </Pill>
+                          <Pill className="bg-slate-100 text-slate-700">
+                            {workoutImportSummary.durationWeeks || 4} settimane
+                          </Pill>
+                        </div>
+
+                        {workoutImportSummary.warnings?.length > 0 && (
+                          <p className="mt-2 text-xs font-bold leading-5 text-amber-700">
+                            {workoutImportSummary.warnings.join(" ")}
+                          </p>
+                        )}
                       </div>
                     )}
                   </Card>
