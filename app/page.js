@@ -1638,6 +1638,7 @@ function normalizeDietToken(value) {
   return String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\-–—_/]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
@@ -2149,13 +2150,18 @@ function cutDietLinesForOptions(lines) {
   return lines.slice(safeStart, endIndex > safeStart ? endIndex : undefined);
 }
 
+const DIET_MEAL_RAW_PATTERN =
+  "COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE[-\\s]*WORKOUT|POST[-\\s]*WORKOUT|INTRA[-\\s]*WORKOUT|PRE[-\\s]*NANNA|CENA|PASTO[-\\s]*LIBERO";
+
+const DIET_MEAL_LOOKAHEAD_RAW_PATTERN =
+  "COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE[-\\s]*WORKOUT|POST[-\\s]*WORKOUT|INTRA[-\\s]*WORKOUT|PRE[-\\s]*NANNA|CENA|PASTO[-\\s]*LIBERO";
+
 function splitDietEmbeddedParserLine(line) {
   const clean = cleanDietPdfLine(line);
   if (!clean) return [];
 
   const dayPattern = DIET_DAY_NAMES.join("|");
-  const mealPattern =
-    "COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO";
+  const mealPattern = DIET_MEAL_RAW_PATTERN;
 
   let prepared = clean
     .replace(/\s+/g, " ")
@@ -2166,8 +2172,8 @@ function splitDietEmbeddedParserLine(line) {
     .replace(/([a-zà-ÿ0-9\)])(Note\s*al\s*pasto)/gi, "$1\n$2")
     .replace(/([a-zà-ÿ0-9\)])(Nota\s*al\s*pasto)/gi, "$1\n$2")
     .replace(/\b(Note|Nota)\s*al\s*pasto\s*[:\-–—]?\s*/gi, "Note al pasto ")
-    .replace(/(Note\s+al\s+pasto)(?=\s*(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO|Opzione\s+\d+|Lunedì|Martedì|Mercoledì|Giovedì|Venerdì|Sabato|Domenica)\b)/gi, "$1\n")
-    .replace(/((?:COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO)\s+\d+\s*[-:][^0-9]{2,48})\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b)/gi, "$1\n");
+    .replace(new RegExp(`(Note\\s+al\\s+pasto)(?=\\s*(${DIET_MEAL_LOOKAHEAD_RAW_PATTERN}|Opzione\\s+\\d+|Lunedì|Martedì|Mercoledì|Giovedì|Venerdì|Sabato|Domenica)\\b)`, "gi"), "$1\n")
+    .replace(new RegExp(`((?:${DIET_MEAL_RAW_PATTERN})\\s+\\d+\\s*[-:][^0-9]{2,48})\\s+(?=\\d+[,.]?\\d*\\s*(?:g|gr|kg|ml|l)\\b)`, "gi"), "$1\n");
 
   return prepared
     .split(/\n+/)
