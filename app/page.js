@@ -2830,14 +2830,21 @@ function parseWorkoutSetsReps(value) {
   const rpe = text.match(/\bRPE\s*([0-9]+(?:\s*(?:-|–)\s*[0-9]+)?)/i);
   if (rpe) result.target_rpe = rpe[1].replace(/\s+/g, "");
 
-  const setRep = text.match(/(\d+)\s*x\s*([^;]+)/i);
+  const setRep = text.match(/(\d+(?:\s*(?:-|–)\s*\d+)?)\s*x\s*([^;]+)/i);
   if (setRep) {
-    result.sets = setRep[1];
+    result.sets = setRep[1].replace(/\s+/g, "");
     result.reps = cleanWorkoutPdfLine(
       setRep[2]
         .replace(/\bRIR\b.*$/i, "")
         .replace(/\bRPE\b.*$/i, "")
     );
+    return result;
+  }
+
+  const minutes = text.match(/(\d+\s*(?:-|–)?\s*\d*\s*min(?:uti)?)/i);
+  if (minutes) {
+    result.sets = "1";
+    result.reps = minutes[1].replace(/\s+/g, " ");
     return result;
   }
 
@@ -3388,6 +3395,297 @@ async function extractWorkoutPdfForBuilder(file) {
       parserMode: rowScore >= lineScore ? "rows" : "lines"
     }
   };
+}
+
+async function loadWorkoutExcelLibrary() {
+  if (typeof window === "undefined") {
+    throw new Error("Import Excel disponibile solo nel browser.");
+  }
+
+  if (window.XLSX) return window.XLSX;
+
+  const existingScript = document.getElementById("tmfit-xlsx-library");
+
+  if (existingScript) {
+    await new Promise((resolve, reject) => {
+      existingScript.addEventListener("load", resolve, { once: true });
+      existingScript.addEventListener("error", reject, { once: true });
+      setTimeout(resolve, 1200);
+    });
+
+    if (window.XLSX) return window.XLSX;
+  }
+
+  await new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.id = "tmfit-xlsx-library";
+    script.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Libreria Excel non caricata. Controlla la connessione e riprova."));
+    document.head.appendChild(script);
+  });
+
+  if (!window.XLSX) {
+    throw new Error("Libreria Excel non disponibile dopo il caricamento.");
+  }
+
+  return window.XLSX;
+}
+
+function cleanWorkoutExcelCell(value) {
+  if (value === null || value === undefined) return "";
+
+  if (value instanceof Date) {
+    return value.toLocaleDateString("it-IT");
+  }
+
+  return cleanWorkoutPdfLine(String(value).replace(/\u00a0/g, " "));
+}
+
+function isWorkoutExcelSheetHeader(row = []) {
+  const first = compactWorkoutPdfText(row[0]);
+  return first === "ESERCIZIO";
+}
+
+function extractWorkoutExcelDayMeta(row = []) {
+  const first = cleanWorkoutExcelCell(row[0]);
+  const match = first.match(/^ALLENAMENTO\s+([A-Z])(?:\b|\s|$)/i);
+
+  if (!match) return null;
+
+  const disabled = /non\s+usato/i.test(first);
+
+  return {
+    letter: match[1].toUpperCase(),
+    disabled
+  };
+}
+
+function parseWorkoutExcelDuration(rows = []) {
+  const found = rows.find((row) => /^durata$/i.test(cleanWorkoutExcelCell(row[0])));
+  const text = found ? cleanWorkoutExcelCell(found[1]) : "";
+  const match = text.match(/(\d+)\s*settimane/i);
+  return match ? Number(match[1]) || 4 : 4;
+}
+
+function parseWorkoutExcelGoal(rows = []) {
+  const found = rows.find((row) => /^obiettivo$/i.test(cleanWorkoutExcelCell(row[0])));
+  return found ? cleanWorkoutExcelCell(found[1]) : "";
+}
+
+function parseWorkoutExcelAthlete(rows = []) {
+  const found = rows.find((row) => /^nome$/i.test(cleanWorkoutExcelCell(row[0])));
+  return found ? cleanWorkoutExcelCell(found[1]) : "";
+}
+
+function parseWorkoutExcelGroup(value = "", execution = "") {
+  const text = cleanWorkoutPdfLine(`${value || ""} ${execution || ""}`);
+  const normalized = normalizeWorkoutPdfText(text);
+
+  if (!text) return { type: "", label: "" };
+
+  const type = /\b(TRI\s*SET|TRISET|TRI-SET)\b/i.test(text)
+    ? "triset"
+    : /\b(SUPER\s*SET|SUPERSET|SUPERSERIE|SS\s*\d+)\b/i.test(text)
+    ? "superserie"
+    : "";
+
+  if (!type) return { type: "", label: "" };
+
+  const label =
+    text.match(/(?:SUPERSERIE|SUPER\s*SET|SUPERSET|TRI\s*SET|TRISET|TRI-SET)\s*([A-Z]\d*|\d+)/i)?.[1] ||
+    text.match(/\bSS\s*(\d+)\b/i)?.[1] ||
+    text.match(/\b([A-Z]\d+)\b/i)?.[1] ||
+    "";
+
+  return {
+    type,
+    label: label ? String(label).toUpperCase().replace(/^SS(\d+)$/i, "SS$1") : ""
+  };
+}
+
+function parseWorkoutExcelExerciseRow(row = [], durationWeeks = 4) {
+  const exerciseName = cleanWorkoutExcelCell(row[0]);
+  const fixed = cleanWorkoutExcelCell(row[1]);
+  const recovery = cleanWorkoutExcelCell(row[2]);
+  const execution = cleanWorkoutExcelCell(row[3]);
+  const groupRaw = cleanWorkoutExcelCell(row[4]);
+  const weekValues = [5, 6, 7, 8].map((index) => cleanWorkoutExcelCell(row[index]));
+
+  if (!exerciseName || isWorkoutExcelSheetHeader(row)) return null;
+  if (extractWorkoutExcelDayMeta(row)) return null;
+  if (isWorkoutBadExerciseTitle(exerciseName)) return null;
+
+  const baseParsed = parseWorkoutSetsReps(fixed);
+  const recoverySeconds = recovery && recovery !== "—" && recovery !== "-" ? workoutRecoverySeconds(recovery) : 90;
+  const groupMeta = parseWorkoutExcelGroup(groupRaw, execution);
+  const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, 4);
+
+  const progressions = Array.from({ length: safeDurationWeeks }).map((_, index) => {
+    const weekNumber = index + 1;
+    const value = weekValues[index] || "";
+    const parsed = parseWorkoutSetsReps(value);
+
+    return {
+      temp_id: uid(),
+      week_number: weekNumber,
+      target_sets: parsed.sets || baseParsed.sets,
+      target_reps: parsed.reps || baseParsed.reps,
+      target_load_text: value,
+      target_load_kg: "",
+      target_rpe: parsed.target_rpe || baseParsed.target_rpe,
+      target_rir: parsed.target_rir || baseParsed.target_rir,
+      recovery_seconds: recovery && recovery !== "—" && recovery !== "-" ? String(recoverySeconds) : "",
+      notes: value && !parsed.sets && !parsed.reps && !parsed.target_rpe && !parsed.target_rir ? value : ""
+    };
+  });
+
+  return {
+    temp_id: uid(),
+    exercise_name: exerciseName,
+    exercise_media_id: "",
+    sets: baseParsed.sets || "3",
+    reps: baseParsed.reps || fixed || "8-10",
+    recovery_seconds: recoverySeconds,
+    target_rpe: baseParsed.target_rpe,
+    target_rir: baseParsed.target_rir,
+    execution_mode: execution,
+    video_url: "",
+    image_url: "",
+    notes: execution,
+    group_type: groupMeta.type,
+    group_label: groupMeta.label,
+    has_weekly_progression: weekValues.some(Boolean),
+    progressions
+  };
+}
+
+function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx") {
+  const sheetName = workbook.SheetNames?.includes("SCHEDA")
+    ? "SCHEDA"
+    : workbook.SheetNames?.[0];
+
+  if (!sheetName || !workbook.Sheets?.[sheetName]) {
+    throw new Error("Nessun foglio Excel leggibile trovato.");
+  }
+
+  const XLSX = typeof window !== "undefined" ? window.XLSX : null;
+
+  if (!XLSX) {
+    throw new Error("Libreria Excel non disponibile.");
+  }
+
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    header: 1,
+    raw: false,
+    defval: ""
+  });
+
+  const durationWeeks = parseWorkoutExcelDuration(rows);
+  const goal = parseWorkoutExcelGoal(rows);
+  const athleteName = parseWorkoutExcelAthlete(rows);
+  const days = [];
+  let currentDay = null;
+  let skipCurrentDay = false;
+
+  rows.forEach((row) => {
+    const limitedRow = Array.from({ length: 9 }).map((_, index) => row[index] || "");
+    const dayMeta = extractWorkoutExcelDayMeta(limitedRow);
+
+    if (dayMeta) {
+      skipCurrentDay = dayMeta.disabled;
+      currentDay = skipCurrentDay
+        ? null
+        : {
+            temp_id: uid(),
+            title: `Allenamento ${dayMeta.letter}`,
+            estimated_minutes: 60,
+            notes: `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
+            exercises: []
+          };
+
+      if (currentDay) days.push(currentDay);
+      return;
+    }
+
+    if (!currentDay || skipCurrentDay) return;
+    if (isWorkoutExcelSheetHeader(limitedRow)) return;
+
+    const exercise = parseWorkoutExcelExerciseRow(limitedRow, durationWeeks);
+
+    if (exercise) currentDay.exercises.push(exercise);
+  });
+
+  days.forEach((day) => {
+    if (!day.exercises.length) {
+      day.exercises = [defaultExerciseRow()];
+    }
+  });
+
+  const totalExercises = days.reduce(
+    (sum, day) => sum + day.exercises.filter((exercise) => exercise.exercise_name).length,
+    0
+  );
+  const groupCount = days.reduce(
+    (sum, day) =>
+      sum + new Set(day.exercises.map((exercise) => exercise.group_label).filter(Boolean)).size,
+    0
+  );
+  const foundWeeks = days.reduce(
+    (max, day) =>
+      Math.max(
+        max,
+        ...day.exercises.flatMap((exercise) =>
+          (exercise.progressions || [])
+            .filter((progression) => progression.target_load_text)
+            .map((progression) => Number(progression.week_number) || 0)
+        )
+      ),
+    0
+  );
+
+  return {
+    builder: {
+      title: athleteName ? `Scheda ${athleteName}` : "Programma importato da Excel",
+      goal: goal || "",
+      start_date: today(),
+      end_date: "",
+      duration_weeks: durationWeeks,
+      level: "intermedio",
+      location: "palestra",
+      notes: [
+        `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
+        `Fonte lettura: foglio ${sheetName}, colonne A-I.`,
+        foundWeeks && foundWeeks < durationWeeks
+          ? `Nell’Excel sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa manualmente le settimane restanti se necessario.`
+          : "Controlla la bozza prima della pubblicazione al cliente."
+      ].filter(Boolean).join("\n"),
+      days: days.length ? days : [defaultWorkoutDay("A")]
+    },
+    summary: {
+      sourceName,
+      parserMode: "excel",
+      sheetName,
+      days: days.length,
+      exercises: totalExercises,
+      expectedExercises: 0,
+      groups: groupCount,
+      durationWeeks,
+      foundWeeks,
+      warnings: [
+        days.length === 0 ? "Nessun allenamento riconosciuto nell’Excel." : "",
+        totalExercises === 0 ? "Nessun esercizio riconosciuto: controlla che il foglio SCHEDA abbia le colonne A-I compilate." : ""
+      ].filter(Boolean)
+    }
+  };
+}
+
+async function extractWorkoutExcelForBuilder(file) {
+  const XLSX = await loadWorkoutExcelLibrary();
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
+  return parseWorkoutExcelWorkbookForBuilder(workbook, file?.name || "scheda.xlsx");
 }
 
 function dietExtractToNotesBlock(extractedDiet) {
@@ -4986,7 +5284,9 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   const [builder, setBuilder] = useState(createSmartBuilder());
   const [savingPlan, setSavingPlan] = useState(false);
   const [workoutPdfFile, setWorkoutPdfFile] = useState(null);
+  const [workoutExcelFile, setWorkoutExcelFile] = useState(null);
   const [importingWorkoutPdf, setImportingWorkoutPdf] = useState(false);
+  const [importingWorkoutExcel, setImportingWorkoutExcel] = useState(false);
   const [workoutImportSummary, setWorkoutImportSummary] = useState(null);
 
   const [dietForm, setDietForm] = useState({
@@ -5618,6 +5918,65 @@ function getBuilderQualityReport() {
       alert(error.message || "Errore durante l’importazione della scheda PDF.");
     } finally {
       setImportingWorkoutPdf(false);
+    }
+  }
+
+  async function importWorkoutExcelIntoBuilder() {
+    if (!workoutExcelFile) {
+      alert("Seleziona un file Excel scheda da importare.");
+      return;
+    }
+
+    const fileName = workoutExcelFile.name?.toLowerCase() || "";
+
+    if (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls")) {
+      alert("Carica un file Excel .xlsx o .xls della scheda allenamento.");
+      return;
+    }
+
+    const hasExistingExercises = builder.days.some((day) =>
+      day.exercises.some((exercise) => String(exercise.exercise_name || "").trim())
+    );
+
+    if (hasExistingExercises) {
+      const confirmed = window.confirm(
+        "L’importazione Excel sostituirà la bozza attuale nel builder. Vuoi continuare?"
+      );
+
+      if (!confirmed) return;
+    }
+
+    setImportingWorkoutExcel(true);
+    setWorkoutImportSummary(null);
+
+    try {
+      const extracted = await extractWorkoutExcelForBuilder(workoutExcelFile);
+      const importedBuilder = extracted.builder;
+      const summary = extracted.summary;
+
+      if (!summary.exercises) {
+        alert(
+          "Excel letto, ma non ho riconosciuto esercizi. Controlla che il foglio SCHEDA abbia le colonne A-I compilate."
+        );
+        setWorkoutImportSummary(summary);
+        return;
+      }
+
+      setEditingProgramId("");
+      setEditingProgramTitle("");
+      setBuilder(importedBuilder);
+      setBuilderStep("setup");
+      setProgramPanel("builder");
+      setWorkoutImportSummary(summary);
+      setWorkoutExcelFile(null);
+
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 100);
+    } catch (error) {
+      alert(error.message || "Errore durante l’importazione della scheda Excel.");
+    } finally {
+      setImportingWorkoutExcel(false);
     }
   }
 
@@ -8670,36 +9029,74 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                   </Card>
 
                   <Card className="border border-teal-200 bg-teal-50/60 p-3 shadow-sm sm:p-4">
-                    <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:items-start">
                       <div>
                         <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                          Importa scheda PDF
+                          Importa scheda
                         </p>
                         <h3 className="mt-1 text-lg font-black text-slate-950">
-                          Trasforma una scheda PDF in bozza modificabile
+                          Excel consigliato, PDF come fallback
                         </h3>
                         <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                          Legge la scheda come tabella: ogni riga viene trattata come esercizio, usando anche il conteggio scritto accanto ad Allenamento A/B/C. Controlla sempre la bozza prima di pubblicarla.
+                          Per importare correttamente usa l’Excel: ogni riga del foglio SCHEDA diventa un esercizio e vengono lette solo le colonne A-I. Il PDF resta utile come piano stampabile, ma è meno affidabile per il parsing.
                         </p>
                       </div>
 
-                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] xl:min-w-[520px]">
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          onChange={(event) => setWorkoutPdfFile(event.target.files?.[0] || null)}
-                          className="w-full rounded-2xl border border-teal-200 bg-white px-3 py-3 text-xs font-black text-slate-700 file:mr-3 file:rounded-xl file:border-0 file:bg-teal-300 file:px-3 file:py-2 file:text-xs file:font-black file:text-slate-950"
-                        />
+                      <div className="grid gap-3">
+                        <div className="rounded-2xl border border-teal-200 bg-white p-3">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <p className="text-xs font-black text-slate-950">Excel scheda</p>
+                            <Pill className="bg-teal-300 text-slate-950">Consigliato</Pill>
+                          </div>
 
-                        <Button
-                          type="button"
-                          onClick={importWorkoutPdfIntoBuilder}
-                          disabled={!workoutPdfFile || importingWorkoutPdf}
-                          className="bg-[#07111f] text-white"
-                        >
-                          <Upload size={16} className="mr-2" />
-                          {importingWorkoutPdf ? "Importo..." : "Importa"}
-                        </Button>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                            <input
+                              type="file"
+                              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                              onChange={(event) => setWorkoutExcelFile(event.target.files?.[0] || null)}
+                              className="w-full rounded-2xl border border-teal-200 bg-white px-3 py-3 text-xs font-black text-slate-700 file:mr-3 file:rounded-xl file:border-0 file:bg-teal-300 file:px-3 file:py-2 file:text-xs file:font-black file:text-slate-950"
+                            />
+
+                            <Button
+                              type="button"
+                              onClick={importWorkoutExcelIntoBuilder}
+                              disabled={!workoutExcelFile || importingWorkoutExcel}
+                              className="bg-[#07111f] text-white"
+                            >
+                              <Upload size={16} className="mr-2" />
+                              {importingWorkoutExcel ? "Importo..." : "Importa Excel"}
+                            </Button>
+                          </div>
+
+                          <p className="mt-2 text-[11px] font-bold leading-4 text-slate-500">
+                            Legge foglio SCHEDA, colonne A-I: esercizio, serie/rip, recupero, esecuzione, superset e settimane 1-4.
+                          </p>
+                        </div>
+
+                        <details className="rounded-2xl border border-teal-200 bg-white p-3">
+                          <summary className="cursor-pointer text-xs font-black text-slate-700">
+                            Import PDF meno preciso
+                          </summary>
+
+                          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                            <input
+                              type="file"
+                              accept="application/pdf,.pdf"
+                              onChange={(event) => setWorkoutPdfFile(event.target.files?.[0] || null)}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 file:mr-3 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-black file:text-slate-700"
+                            />
+
+                            <Button
+                              type="button"
+                              onClick={importWorkoutPdfIntoBuilder}
+                              disabled={!workoutPdfFile || importingWorkoutPdf}
+                              className="bg-white text-slate-950 ring-1 ring-slate-200"
+                            >
+                              <Upload size={16} className="mr-2" />
+                              {importingWorkoutPdf ? "Importo..." : "Importa PDF"}
+                            </Button>
+                          </div>
+                        </details>
                       </div>
                     </div>
 
@@ -8719,6 +9116,11 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           <Pill className="bg-slate-100 text-slate-700">
                             {workoutImportSummary.durationWeeks || 4} settimane
                           </Pill>
+                          {workoutImportSummary.parserMode === "excel" && (
+                            <Pill className="bg-emerald-100 text-emerald-700">
+                              Excel · {workoutImportSummary.sheetName || "SCHEDA"}
+                            </Pill>
+                          )}
                         </div>
 
                         {workoutImportSummary.warnings?.length > 0 && (
