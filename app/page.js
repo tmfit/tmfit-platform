@@ -14228,18 +14228,21 @@ function WorkoutPlayerModal({
       ...(field === "load_kg" ? { _loadTouched: true } : {}),
       ...(field === "reps_done" ? { _repsTouched: true } : {})
     };
+    const patch = {
+      [field]: value,
+      ...executionMarkers
+    };
 
     const nextDrafts = {
       ...baseDrafts,
       [draftKey]: {
         ...(baseDrafts[draftKey] || {}),
-        [field]: value,
-        ...executionMarkers
+        ...patch
       }
     };
 
     latestDraftsRef.current = nextDrafts;
-    updateDraft(draftKey, field, value);
+    updateDraft(draftKey, patch);
 
     if (completedSetKeys.includes(draftKey)) {
       const nextCompletedSetKeys = completedSetKeys.filter((key) => key !== draftKey);
@@ -15780,13 +15783,18 @@ function getExerciseHistory(exercise) {
     });
   }
 
-  function updateDraft(key, field, value) {
+  function updateDraft(key, fieldOrPatch, value) {
     setDrafts((prev) => {
+      const patch =
+        fieldOrPatch && typeof fieldOrPatch === "object" && !Array.isArray(fieldOrPatch)
+          ? fieldOrPatch
+          : { [fieldOrPatch]: value };
+
       const nextDrafts = {
         ...prev,
         [key]: {
           ...(prev[key] || {}),
-          [field]: value
+          ...patch
         }
       };
 
