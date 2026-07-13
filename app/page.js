@@ -14224,11 +14224,17 @@ function WorkoutPlayerModal({
     if (!draftKey) return;
 
     const baseDrafts = latestDraftsRef.current || drafts || {};
+    const executionMarkers = {
+      ...(field === "load_kg" ? { _loadTouched: true } : {}),
+      ...(field === "reps_done" ? { _repsTouched: true } : {})
+    };
+
     const nextDrafts = {
       ...baseDrafts,
       [draftKey]: {
         ...(baseDrafts[draftKey] || {}),
-        [field]: value
+        [field]: value,
+        ...executionMarkers
       }
     };
 
@@ -14274,12 +14280,31 @@ function WorkoutPlayerModal({
   const nextExercise = exercises[exerciseIndex + 1] || null;
   const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
   const currentSetSaved = Boolean(draftKey && completedSetKeys.includes(draftKey));
-  const setHasRequiredExecutionData =
-    hasValue(draft.load_kg) && hasValue(draft.reps_done);
+  const setHasRequiredExecutionData = hasRequiredSeriesInputs(draft, currentSetSaved);
   const executionLocked = currentSetSaved || resting;
 
   function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
+  }
+
+  function hasTouchedExecutionField(draftValue, marker) {
+    return (
+      draftValue?.[marker] === true ||
+      draftValue?.[marker] === "true" ||
+      draftValue?.[marker] === 1 ||
+      draftValue?.[marker] === "1"
+    );
+  }
+
+  function hasRequiredSeriesInputs(draftValue = {}, alreadySaved = false) {
+    if (alreadySaved) return true;
+
+    return (
+      hasValue(draftValue.load_kg) &&
+      hasValue(draftValue.reps_done) &&
+      hasTouchedExecutionField(draftValue, "_loadTouched") &&
+      hasTouchedExecutionField(draftValue, "_repsTouched")
+    );
   }
 
   function currentWeekForPlan() {
@@ -14491,7 +14516,7 @@ function WorkoutPlayerModal({
     const freshestDrafts = latestDraftsRef.current || drafts || {};
     const freshestDraft = freshestDrafts[draftKey] || {};
 
-    if (!hasValue(freshestDraft.load_kg) || !hasValue(freshestDraft.reps_done)) {
+    if (!hasRequiredSeriesInputs(freshestDraft, false)) {
       if (typeof window !== "undefined") {
         window.alert("Inserisci peso kg e ripetizioni prima di salvare la serie.");
       }
@@ -14983,8 +15008,8 @@ function WorkoutPlayerModal({
                   {currentSetSaved
                     ? "Serie salvata. Peso e reps restano bloccati."
                     : setHasRequiredExecutionData
-                    ? "Premi Salva e avvia timer per bloccare la serie."
-                    : "Compila peso kg e ripetizioni: sono obbligatori."}
+                    ? "Ora puoi salvare la serie e avviare il timer."
+                    : "Compila peso kg e ripetizioni: senza questi dati il timer non parte."}
                 </div>
               </Card>
             </div>
