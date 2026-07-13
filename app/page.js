@@ -81,7 +81,8 @@ function fullName(client) {
 
 function numberOrNull(value) {
   if (value === "" || value === null || value === undefined) return null;
-  const parsed = Number(value);
+  const normalized = typeof value === "string" ? value.replace(",", ".").trim() : value;
+  const parsed = Number(normalized);
   return Number.isNaN(parsed) ? null : parsed;
 }
 
@@ -14051,6 +14052,7 @@ function WorkoutPlayerModal({
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const latestWorkoutSnapshotRef = useRef(null);
   const latestDraftsRef = useRef(drafts || {});
+  const [, forceDraftRender] = useState(0);
 
   useEffect(() => {
     latestDraftsRef.current = drafts || {};
@@ -14242,6 +14244,7 @@ function WorkoutPlayerModal({
     };
 
     latestDraftsRef.current = nextDrafts;
+    forceDraftRender((value) => value + 1);
     updateDraft(draftKey, patch);
 
     if (completedSetKeys.includes(draftKey)) {
@@ -14290,24 +14293,10 @@ function WorkoutPlayerModal({
     return value !== null && value !== undefined && String(value).trim() !== "";
   }
 
-  function hasTouchedExecutionField(draftValue, marker) {
-    return (
-      draftValue?.[marker] === true ||
-      draftValue?.[marker] === "true" ||
-      draftValue?.[marker] === 1 ||
-      draftValue?.[marker] === "1"
-    );
-  }
-
   function hasRequiredSeriesInputs(draftValue = {}, alreadySaved = false) {
     if (alreadySaved) return true;
 
-    return (
-      hasValue(draftValue.load_kg) &&
-      hasValue(draftValue.reps_done) &&
-      hasTouchedExecutionField(draftValue, "_loadTouched") &&
-      hasTouchedExecutionField(draftValue, "_repsTouched")
-    );
+    return hasValue(draftValue.load_kg) && hasValue(draftValue.reps_done);
   }
 
   function currentWeekForPlan() {
