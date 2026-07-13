@@ -14050,6 +14050,11 @@ function WorkoutPlayerModal({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const latestWorkoutSnapshotRef = useRef(null);
+  const latestDraftsRef = useRef(drafts || {});
+
+  useEffect(() => {
+    latestDraftsRef.current = drafts || {};
+  }, [drafts]);
 
   const open = player?.open;
   const plan = player?.plan;
@@ -14212,20 +14217,34 @@ function WorkoutPlayerModal({
   const setToken =
     currentSet?.id || currentSet?.temp_id || `virtual-${currentSet?.set_number}`;
   const draftKey = exercise && currentSet ? `${exercise.id}-${setToken}` : "";
-  const draft = drafts[draftKey] || {};
+  const liveDrafts = latestDraftsRef.current || drafts || {};
+  const draft = liveDrafts[draftKey] || drafts[draftKey] || {};
 
   function handleDraftChange(field, value) {
     if (!draftKey) return;
 
+    const baseDrafts = latestDraftsRef.current || drafts || {};
     const nextDrafts = {
-      ...drafts,
+      ...baseDrafts,
       [draftKey]: {
-        ...(drafts[draftKey] || {}),
+        ...(baseDrafts[draftKey] || {}),
         [field]: value
       }
     };
 
+    latestDraftsRef.current = nextDrafts;
     updateDraft(draftKey, field, value);
+
+    if (completedSetKeys.includes(draftKey)) {
+      const nextCompletedSetKeys = completedSetKeys.filter((key) => key !== draftKey);
+      setCompletedSetKeys(nextCompletedSetKeys);
+      persistWorkoutStateNow({
+        drafts: nextDrafts,
+        completedSetKeys: nextCompletedSetKeys
+      });
+      return;
+    }
+
     persistWorkoutStateNow({ drafts: nextDrafts });
   }
 
@@ -14255,6 +14274,9 @@ function WorkoutPlayerModal({
   const nextExercise = exercises[exerciseIndex + 1] || null;
   const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
   const currentSetSaved = Boolean(draftKey && completedSetKeys.includes(draftKey));
+  const setHasRequiredExecutionData =
+    hasValue(draft.load_kg) && hasValue(draft.reps_done);
+  const executionLocked = currentSetSaved || resting;
 
   function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
@@ -14420,7 +14442,7 @@ function WorkoutPlayerModal({
 
   function primaryWorkoutActionLabel() {
     if (saving) return "Salvataggio...";
-    if (!currentSetSaved) return "Salva serie";
+    if (!currentSetSaved) return "Salva e avvia timer";
     return nextActionLabel();
   }
 
@@ -14428,6 +14450,13 @@ function WorkoutPlayerModal({
     if (saving) return;
 
     if (!currentSetSaved) {
+      if (!setHasRequiredExecutionData) {
+        if (typeof window !== "undefined") {
+          window.alert("Inserisci peso kg e ripetizioni prima di passare alla prossima serie.");
+        }
+        return;
+      }
+
       await saveCurrentSet();
       return;
     }
@@ -14459,18 +14488,40 @@ function WorkoutPlayerModal({
   async function saveCurrentSet() {
     if (!exercise || !currentSet) return;
 
+    const freshestDrafts = latestDraftsRef.current || drafts || {};
+    const freshestDraft = freshestDrafts[draftKey] || {};
+
+    if (!hasValue(freshestDraft.load_kg) || !hasValue(freshestDraft.reps_done)) {
+      if (typeof window !== "undefined") {
+        window.alert("Inserisci peso kg e ripetizioni prima di salvare la serie.");
+      }
+      return;
+    }
+
     setSaving(true);
-    const ok = await saveSetLog(plan, day, exercise, currentSet);
+    const saveResult = await saveSetLog(plan, day, exercise, currentSet, freshestDraft);
     setSaving(false);
 
-    if (ok) {
+    if (saveResult) {
+      const savedDraft =
+        typeof saveResult === "object" ? saveResult : freshestDraft;
       const nextCompletedSetKeys = completedSetKeys.includes(draftKey)
         ? completedSetKeys
         : [...completedSetKeys, draftKey];
+      const nextDrafts = {
+        ...(latestDraftsRef.current || drafts || {}),
+        [draftKey]: {
+          ...((latestDraftsRef.current || drafts || {})[draftKey] || {}),
+          ...savedDraft
+        }
+      };
+
+      latestDraftsRef.current = nextDrafts;
 
       persistWorkoutStateNow({
         completedSetKeys: nextCompletedSetKeys,
-        resting: true
+        resting: true,
+        drafts: nextDrafts
       });
 
       setCompletedSetKeys(nextCompletedSetKeys);
@@ -14783,82 +14834,136 @@ function WorkoutPlayerModal({
                   ))}
                 </div>
 
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <Label title="Peso kg">
-                    <Input
-                      inputMode="decimal"
-                      value={draft.load_kg || ""}
-                      onChange={(event) => handleDraftChange("load_kg", event.target.value)}
-                      placeholder="80"
-                      className="h-14 text-center text-xl font-black"
-                    />
-                  </Label>
+                {executionLocked ? (
+                  <div className="mt-5 rounded-[1.35rem] border border-teal-200 bg-teal-50 p-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-teal-700">
+                      Serie salvata
+                    </p>
+                    <h5 className="mt-1 text-lg font-black text-slate-950">
+                      Valori eseguiti bloccati
+                    </h5>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl bg-white p-4 text-center">
+                        <p className="text-2xl font-black text-slate-950">
+                          {draft.load_kg || "—"}
+                        </p>
+                        <p className="text-[10px] font-black uppercase text-slate-400">
+                          Kg eseguiti
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-4 text-center">
+                        <p className="text-2xl font-black text-slate-950">
+                          {draft.reps_done || "—"}
+                        </p>
+                        <p className="text-[10px] font-black uppercase text-slate-400">
+                          Reps eseguite
+                        </p>
+                      </div>
+                    </div>
 
-                  <Label title="Ripetizioni">
-                    <Input
-                      inputMode="numeric"
-                      value={draft.reps_done || ""}
-                      onChange={(event) => handleDraftChange("reps_done", event.target.value)}
-                      placeholder="10"
-                      className="h-14 text-center text-xl font-black"
-                    />
-                  </Label>
-                </div>
-
-                {(showRpe || showRir) && (
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    {showRpe && (
-                      <Label title={`RPE target ${currentSet?.target_rpe || exercise?.target_rpe || ""}`}>
-                        <Input
-                          inputMode="decimal"
-                          value={draft.rpe || ""}
-                          onChange={(event) => handleDraftChange("rpe", event.target.value)}
-                          placeholder="8"
-                          className="h-12 text-center text-base font-black"
-                        />
-                      </Label>
+                    {(hasValue(draft.rpe) || hasValue(draft.rir)) && (
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        {hasValue(draft.rpe) && (
+                          <div className="rounded-2xl bg-white px-4 py-3 text-center">
+                            <p className="text-lg font-black text-slate-950">{draft.rpe}</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400">RPE</p>
+                          </div>
+                        )}
+                        {hasValue(draft.rir) && (
+                          <div className="rounded-2xl bg-white px-4 py-3 text-center">
+                            <p className="text-lg font-black text-slate-950">{draft.rir}</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400">RIR</p>
+                          </div>
+                        )}
+                      </div>
                     )}
 
-                    {showRir && (
-                      <Label title={`RIR target ${currentSet?.target_rir || exercise?.target_rir || ""}`}>
-                        <Input
-                          inputMode="decimal"
-                          value={draft.rir || ""}
-                          onChange={(event) => handleDraftChange("rir", event.target.value)}
-                          placeholder="2"
-                          className="h-12 text-center text-base font-black"
-                        />
-                      </Label>
-                    )}
+                    <p className="mt-3 text-xs font-bold leading-5 text-teal-800">
+                      Durante il recupero la serie non è modificabile. Per continuare usa il pulsante in basso.
+                    </p>
                   </div>
+                ) : (
+                  <>
+                    <div className="mt-5 grid grid-cols-2 gap-3">
+                      <Label title="Peso kg *">
+                        <Input
+                          inputMode="decimal"
+                          value={draft.load_kg || ""}
+                          onChange={(event) => handleDraftChange("load_kg", event.target.value)}
+                          placeholder="80"
+                          className="h-14 text-center text-xl font-black"
+                        />
+                      </Label>
+
+                      <Label title="Ripetizioni *">
+                        <Input
+                          inputMode="numeric"
+                          value={draft.reps_done || ""}
+                          onChange={(event) => handleDraftChange("reps_done", event.target.value)}
+                          placeholder="10"
+                          className="h-14 text-center text-xl font-black"
+                        />
+                      </Label>
+                    </div>
+
+                    {(showRpe || showRir) && (
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        {showRpe && (
+                          <Label title={`RPE target ${currentSet?.target_rpe || exercise?.target_rpe || ""}`}>
+                            <Input
+                              inputMode="decimal"
+                              value={draft.rpe || ""}
+                              onChange={(event) => handleDraftChange("rpe", event.target.value)}
+                              placeholder="8"
+                              className="h-12 text-center text-base font-black"
+                            />
+                          </Label>
+                        )}
+
+                        {showRir && (
+                          <Label title={`RIR target ${currentSet?.target_rir || exercise?.target_rir || ""}`}>
+                            <Input
+                              inputMode="decimal"
+                              value={draft.rir || ""}
+                              onChange={(event) => handleDraftChange("rir", event.target.value)}
+                              placeholder="2"
+                              className="h-12 text-center text-base font-black"
+                            />
+                          </Label>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
 
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={applyLastSet}
-                    disabled={!lastHistory}
-                    className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
-                  >
-                    Usa ultimo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryModalOpen(true)}
-                    disabled={history.length === 0}
-                    className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
-                  >
-                    Storico pesi
-                  </button>
-                  <button
-                    type="button"
-                    onClick={applyTargetSet}
-                    disabled={!currentSet}
-                    className="col-span-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
-                  >
-                    Usa target
-                  </button>
-                </div>
+                {!executionLocked && (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={applyLastSet}
+                      disabled={!lastHistory}
+                      className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                    >
+                      Usa ultimo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryModalOpen(true)}
+                      disabled={history.length === 0}
+                      className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                    >
+                      Storico pesi
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyTargetSet}
+                      disabled={!currentSet}
+                      className="col-span-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                    >
+                      Usa target
+                    </button>
+                  </div>
+                )}
 
                 {lastHistory && (
                   <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-bold leading-5 text-slate-600">
@@ -14876,8 +14981,10 @@ function WorkoutPlayerModal({
                   }`}
                 >
                   {currentSetSaved
-                    ? "Serie salvata. Puoi passare avanti."
-                    : "Inserisci peso e reps, poi salva dalla barra in basso."}
+                    ? "Serie salvata. Peso e reps restano bloccati."
+                    : setHasRequiredExecutionData
+                    ? "Premi Salva e avvia timer per bloccare la serie."
+                    : "Compila peso kg e ripetizioni: sono obbligatori."}
                 </div>
               </Card>
             </div>
@@ -14951,7 +15058,7 @@ function WorkoutPlayerModal({
               <button
                 type="button"
                 onClick={handlePrimaryWorkoutAction}
-                disabled={saving || !currentSet}
+                disabled={saving || !currentSet || (!currentSetSaved && !setHasRequiredExecutionData)}
                 className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm active:scale-[.98] disabled:opacity-50 ${
                   currentSetSaved
                     ? "bg-[#07111f] text-white"
@@ -15723,15 +15830,24 @@ function getExerciseHistory(exercise) {
     return data.id;
   }
 
-  async function saveSetLog(plan, day, exercise, set) {
+  async function saveSetLog(plan, day, exercise, set, draftOverride = null) {
   const setToken = set.id || set.temp_id || `virtual-${set.set_number}`;
   const key = `${exercise.id}-${setToken}`;
-  const draft = drafts[key] || {};
+  const savedWorkoutDraft = workoutLiveDraftKey
+    ? safeReadLocalJson(workoutLiveDraftKey, {})
+    : {};
+  const persistedDraft = savedWorkoutDraft?.drafts?.[key] || {};
+  const stateDraft = drafts[key] || {};
+  const draft = {
+    ...persistedDraft,
+    ...stateDraft,
+    ...(draftOverride || {})
+  };
   const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
 
   if (!sessionId) return false;
 
-  const { error } = await supabase.from("workout_set_logs").insert({
+  const payload = {
     session_id: sessionId,
     workout_exercise_id: exercise.id,
     planned_set_id: set.id || null,
@@ -15742,17 +15858,57 @@ function getExerciseHistory(exercise) {
     rir: numberOrNull(draft.rir),
     notes: draft.notes || null,
     completed: true
-  });
+  };
 
-  if (error) {
-    alert(error.message);
-    return false;
+  let savedLog = null;
+
+  if (draft._logId) {
+    const { data, error } = await supabase
+      .from("workout_set_logs")
+      .update(payload)
+      .eq("id", draft._logId)
+      .select()
+      .single();
+
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+
+    savedLog = data;
+  } else {
+    const { data, error } = await supabase
+      .from("workout_set_logs")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+
+    savedLog = data;
   }
+
+  const savedDraftValue = {
+    ...draft,
+    load_kg: draft.load_kg || "",
+    reps_done: draft.reps_done || "",
+    rpe: draft.rpe || "",
+    rir: draft.rir || "",
+    notes: draft.notes || "",
+    _logId: savedLog?.id || draft._logId || "",
+    _savedAt: new Date().toISOString()
+  };
 
   setDrafts((prev) => {
     const nextDrafts = {
       ...prev,
-      [key]: {}
+      [key]: {
+        ...(prev[key] || {}),
+        ...savedDraftValue
+      }
     };
 
     if (workoutLiveDraftKey) {
@@ -15767,8 +15923,9 @@ function getExerciseHistory(exercise) {
     return nextDrafts;
   });
 
-  return true;
+  return savedDraftValue;
 }
+
 
   async function saveCheckin(event) {
     event.preventDefault();
