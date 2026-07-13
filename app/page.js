@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
   Activity,
@@ -291,6 +291,56 @@ function usePersistedState(key, initialValue) {
   }, [key, value]);
 
   return [value, setValue];
+}
+
+function safeReadLocalJson(key, fallback = null) {
+  if (!key || typeof window === "undefined") return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn("TMFIT local restore:", error?.message || error);
+    return fallback;
+  }
+}
+
+function safeWriteLocalJson(key, value) {
+  if (!key || typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn("TMFIT local save:", error?.message || error);
+  }
+}
+
+function safeRemoveLocal(key) {
+  if (!key || typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(key);
+  } catch (error) {
+    console.warn("TMFIT local remove:", error?.message || error);
+  }
+}
+
+function professionalProgramDraftKey(userId, clientId) {
+  if (!userId || !clientId) return "";
+  return `tmfit_prof_program_builder_${userId}_${clientId}`;
+}
+
+function clientWorkoutDraftKey(userId) {
+  if (!userId) return "";
+  return `tmfit_client_workout_live_${userId}_${today()}`;
+}
+
+function isRecentWorkoutDraft(snapshot) {
+  if (!snapshot?.updatedAt) return true;
+  const updated = new Date(snapshot.updatedAt).getTime();
+  if (Number.isNaN(updated)) return true;
+  return Date.now() - updated < 1000 * 60 * 60 * 18;
 }
 
 function Button({ children, className = "", type = "button", ...props }) {
@@ -5931,6 +5981,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     statusText: "",
     sourceLabel: ""
   });
+  const [programDraftStatus, setProgramDraftStatus] = useState("");
 
   const [dietForm, setDietForm] = useState({
     title: "",
@@ -5985,6 +6036,11 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
     clients.find((client) => String(client.id) === String(selectedClientId)) ||
     null;
 
+  const programBuilderDraftKey = professionalProgramDraftKey(
+    session?.user?.id,
+    selectedClient?.id
+  );
+
   const publishedDietsForSelectedClient = diets.filter(isDietPublished);
   const draftDietsForSelectedClient = diets.filter(isDietDraft);
   const publishedDietForSelectedClient = publishedDietsForSelectedClient[0] || null;
@@ -6034,6 +6090,60 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
       loadClientBundle(selectedClient.id);
     }
   }, [selectedClientId, clients.length]);
+
+  useEffect(() => {
+    if (!programBuilderDraftKey) return;
+
+    const saved = safeReadLocalJson(programBuilderDraftKey, null);
+
+    if (!saved?.builder) {
+      setBuilder(createSmartBuilder());
+      setEditingProgramId("");
+      setEditingProgramTitle("");
+      setWorkoutImportSummary(null);
+      setProgramDraftStatus("");
+      return;
+    }
+
+    setBuilder(saved.builder);
+    setEditingProgramId(saved.editingProgramId || "");
+    setEditingProgramTitle(saved.editingProgramTitle || "");
+    if (saved.builderStep) setBuilderStep(saved.builderStep);
+    setWorkoutImportSummary(saved.workoutImportSummary || null);
+
+    const savedAt = saved.updatedAt
+      ? new Date(saved.updatedAt).toLocaleTimeString("it-IT", {
+          hour: "2-digit",
+          minute: "2-digit"
+        })
+      : "";
+
+    setProgramDraftStatus(
+      savedAt ? `Bozza locale recuperata · ${savedAt}` : "Bozza locale recuperata"
+    );
+  }, [programBuilderDraftKey]);
+
+  useEffect(() => {
+    if (!programBuilderDraftKey) return;
+
+    safeWriteLocalJson(programBuilderDraftKey, {
+      builder,
+      editingProgramId,
+      editingProgramTitle,
+      builderStep,
+      workoutImportSummary,
+      updatedAt: new Date().toISOString()
+    });
+
+    setProgramDraftStatus("Bozza locale salvata automaticamente");
+  }, [
+    programBuilderDraftKey,
+    builder,
+    editingProgramId,
+    editingProgramTitle,
+    builderStep,
+    workoutImportSummary
+  ]);
 
   async function loadClients() {
     setLoading(true);
@@ -6467,6 +6577,11 @@ function getBuilderQualityReport() {
       mutator(next);
       return next;
     });
+  }
+
+  function clearProgramBuilderLocalDraft() {
+    safeRemoveLocal(programBuilderDraftKey);
+    setProgramDraftStatus("");
   }
 
   function updateDurationWeeks(value) {
@@ -7262,8 +7377,10 @@ function duplicateProgramToBuilder(program) {
 }
 
 function cancelProgramEditing() {
+  clearProgramBuilderLocalDraft();
   setEditingProgramId("");
   setEditingProgramTitle("");
+  setWorkoutImportSummary(null);
   setBuilder(createSmartBuilder());
 }
   async function replaceExistingProgram() {
@@ -7292,8 +7409,10 @@ function cancelProgramEditing() {
     throw new Error(result.error || "Errore aggiornamento programma.");
   }
 
+  clearProgramBuilderLocalDraft();
   setEditingProgramId("");
   setEditingProgramTitle("");
+  setWorkoutImportSummary(null);
   setBuilder(createSmartBuilder());
 
   if (selectedClient) {
@@ -7661,6 +7780,8 @@ try {
         }
       }
 
+      clearProgramBuilderLocalDraft();
+      setWorkoutImportSummary(null);
       setBuilder(createSmartBuilder());
       await loadClientBundle(selectedClient.id);
       alert("Programma salvato come bozza. Controllalo e poi pubblicalo al cliente dalla sezione Salvati.");
@@ -9688,6 +9809,11 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         <p className="mt-1 text-sm font-semibold text-slate-500">
                           {builderStats.totalDays} giorni · {builderStats.totalExercises} esercizi · {builder.duration_weeks || 4} settimane
                         </p>
+                        {programDraftStatus && (
+                          <p className="mt-2 inline-flex rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-teal-800">
+                            {programDraftStatus}
+                          </p>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end [&_button]:min-h-11">
@@ -13905,7 +14031,9 @@ function WorkoutPlayerModal({
   updateDraft,
   saveSetLog,
   getExerciseHistory,
-  onWorkoutSaved
+  onWorkoutSaved,
+  onWorkoutStateChange,
+  onClearPersistedWorkout
 }) {
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [setIndex, setSetIndex] = useState(0);
@@ -13921,25 +14049,57 @@ function WorkoutPlayerModal({
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const latestWorkoutSnapshotRef = useRef(null);
 
   const open = player?.open;
   const plan = player?.plan;
   const day = player?.day;
+  const resumeState = player?.resumeState || null;
+  const resumeToken = resumeState?.updatedAt || "";
 
   useEffect(() => {
     if (open) {
-      setExerciseIndex(0);
-      setSetIndex(0);
-      setResting(false);
+      const shouldResume =
+        resumeState?.planId &&
+        resumeState?.dayId &&
+        String(resumeState.planId) === String(plan?.id) &&
+        String(resumeState.dayId) === String(day?.id) &&
+        isRecentWorkoutDraft(resumeState);
+
+      setExerciseIndex(
+        shouldResume ? Math.max(0, Number(resumeState.exerciseIndex) || 0) : 0
+      );
+      setSetIndex(
+        shouldResume ? Math.max(0, Number(resumeState.setIndex) || 0) : 0
+      );
+      setResting(shouldResume ? !!resumeState.resting : false);
       setSaving(false);
-      setFinished(false);
-      setCompletedSetKeys([]);
-      setFeedback({ difficulty: "", feeling: "", notes: "" });
-      setSessionStartedAt(Date.now());
-      setElapsedSeconds(0);
+      setFinished(shouldResume ? !!resumeState.finished : false);
+      setCompletedSetKeys(
+        shouldResume && Array.isArray(resumeState.completedSetKeys)
+          ? resumeState.completedSetKeys
+          : []
+      );
+      setFeedback(
+        shouldResume && resumeState.feedback
+          ? {
+              difficulty: resumeState.feedback.difficulty || "",
+              feeling: resumeState.feedback.feeling || "",
+              notes: resumeState.feedback.notes || ""
+            }
+          : { difficulty: "", feeling: "", notes: "" }
+      );
+      setSessionStartedAt(
+        shouldResume
+          ? Number(resumeState.sessionStartedAt) || Date.now()
+          : Date.now()
+      );
+      setElapsedSeconds(
+        shouldResume ? Math.max(0, Number(resumeState.elapsedSeconds) || 0) : 0
+      );
       setHistoryModalOpen(false);
     }
-  }, [open, plan?.id, day?.id]);
+  }, [open, plan?.id, day?.id, resumeToken]);
 
   useEffect(() => {
     if (!open || !sessionStartedAt) return;
@@ -13956,6 +14116,81 @@ function WorkoutPlayerModal({
   useEffect(() => {
     setHistoryModalOpen(false);
   }, [exerciseIndex, open]);
+
+  function buildWorkoutSnapshot(overrides = {}) {
+    if (!plan || !day) return null;
+
+    return {
+      planId: plan.id,
+      dayId: day.id,
+      exerciseIndex,
+      setIndex,
+      resting,
+      finished,
+      completedSetKeys,
+      feedback,
+      sessionStartedAt,
+      elapsedSeconds,
+      drafts,
+      updatedAt: new Date().toISOString(),
+      ...overrides
+    };
+  }
+
+  function persistWorkoutStateNow(overrides = {}) {
+    if (!open || !plan || !day || !onWorkoutStateChange) return;
+
+    const snapshot = buildWorkoutSnapshot(overrides);
+    if (!snapshot) return;
+
+    latestWorkoutSnapshotRef.current = snapshot;
+    onWorkoutStateChange(snapshot);
+  }
+
+  useEffect(() => {
+    if (!open || !plan || !day || !onWorkoutStateChange) return;
+
+    persistWorkoutStateNow();
+  }, [
+    open,
+    plan?.id,
+    day?.id,
+    exerciseIndex,
+    setIndex,
+    resting,
+    finished,
+    completedSetKeys,
+    feedback,
+    sessionStartedAt,
+    elapsedSeconds,
+    drafts,
+    onWorkoutStateChange
+  ]);
+
+  useEffect(() => {
+    if (!open || !plan || !day || !onWorkoutStateChange || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const flushBeforeIOSFreeze = () => {
+      const snapshot = latestWorkoutSnapshotRef.current || buildWorkoutSnapshot();
+      if (snapshot) onWorkoutStateChange(snapshot);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushBeforeIOSFreeze();
+    };
+
+    window.addEventListener("pagehide", flushBeforeIOSFreeze);
+    window.addEventListener("blur", flushBeforeIOSFreeze);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", flushBeforeIOSFreeze);
+      window.removeEventListener("blur", flushBeforeIOSFreeze);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [open, plan?.id, day?.id, onWorkoutStateChange]);
 
   if (!open || !plan || !day) return null;
 
@@ -13978,6 +14213,21 @@ function WorkoutPlayerModal({
     currentSet?.id || currentSet?.temp_id || `virtual-${currentSet?.set_number}`;
   const draftKey = exercise && currentSet ? `${exercise.id}-${setToken}` : "";
   const draft = drafts[draftKey] || {};
+
+  function handleDraftChange(field, value) {
+    if (!draftKey) return;
+
+    const nextDrafts = {
+      ...drafts,
+      [draftKey]: {
+        ...(drafts[draftKey] || {}),
+        [field]: value
+      }
+    };
+
+    updateDraft(draftKey, field, value);
+    persistWorkoutStateNow({ drafts: nextDrafts });
+  }
 
   const completedCount = completedSetKeys.length;
   const progressPercentage = totalPlannedSets
@@ -14116,15 +14366,23 @@ function WorkoutPlayerModal({
     setResting(false);
 
     if (setIndex > 0) {
-      setSetIndex((current) => current - 1);
+      const nextSetIndex = Math.max(0, setIndex - 1);
+      persistWorkoutStateNow({ resting: false, setIndex: nextSetIndex });
+      setSetIndex(nextSetIndex);
       return;
     }
 
     if (exerciseIndex > 0) {
       const previousIndex = exerciseIndex - 1;
       const previousSets = plannedSetsForExercise(exercises[previousIndex]);
+      const nextSetIndex = Math.max(0, previousSets.length - 1);
+      persistWorkoutStateNow({
+        resting: false,
+        exerciseIndex: previousIndex,
+        setIndex: nextSetIndex
+      });
       setExerciseIndex(previousIndex);
-      setSetIndex(Math.max(0, previousSets.length - 1));
+      setSetIndex(nextSetIndex);
     }
   }
 
@@ -14132,16 +14390,25 @@ function WorkoutPlayerModal({
     setResting(false);
 
     if (setIndex < plannedSets.length - 1) {
-      setSetIndex((current) => current + 1);
+      const nextSetIndex = setIndex + 1;
+      persistWorkoutStateNow({ resting: false, setIndex: nextSetIndex });
+      setSetIndex(nextSetIndex);
       return;
     }
 
     if (exerciseIndex < exercises.length - 1) {
-      setExerciseIndex((current) => current + 1);
+      const nextExerciseIndex = exerciseIndex + 1;
+      persistWorkoutStateNow({
+        resting: false,
+        exerciseIndex: nextExerciseIndex,
+        setIndex: 0
+      });
+      setExerciseIndex(nextExerciseIndex);
       setSetIndex(0);
       return;
     }
 
+    persistWorkoutStateNow({ resting: false, finished: true });
     setFinished(true);
   }
 
@@ -14171,23 +14438,22 @@ function WorkoutPlayerModal({
   function applyLastSet() {
     if (!lastHistory || !draftKey) return;
 
-    updateDraft(draftKey, "load_kg", lastHistory.load_kg || "");
-    updateDraft(draftKey, "reps_done", lastHistory.reps_done || "");
-    if (showRpe) updateDraft(draftKey, "rpe", lastHistory.rpe || "");
-    if (showRir) updateDraft(draftKey, "rir", lastHistory.rir || "");
+    handleDraftChange("load_kg", lastHistory.load_kg || "");
+    handleDraftChange("reps_done", lastHistory.reps_done || "");
+    if (showRpe) handleDraftChange("rpe", lastHistory.rpe || "");
+    if (showRir) handleDraftChange("rir", lastHistory.rir || "");
   }
 
   function applyTargetSet() {
     if (!currentSet || !draftKey) return;
 
-    updateDraft(
-      draftKey,
+    handleDraftChange(
       "load_kg",
       currentSet.target_load_kg || currentSet.target_load_text || draft.load_kg || ""
     );
-    updateDraft(draftKey, "reps_done", currentSet.target_reps || draft.reps_done || "");
-    if (showRpe) updateDraft(draftKey, "rpe", currentSet.target_rpe || draft.rpe || "");
-    if (showRir) updateDraft(draftKey, "rir", currentSet.target_rir || draft.rir || "");
+    handleDraftChange("reps_done", currentSet.target_reps || draft.reps_done || "");
+    if (showRpe) handleDraftChange("rpe", currentSet.target_rpe || draft.rpe || "");
+    if (showRir) handleDraftChange("rir", currentSet.target_rir || draft.rir || "");
   }
 
   async function saveCurrentSet() {
@@ -14198,9 +14464,16 @@ function WorkoutPlayerModal({
     setSaving(false);
 
     if (ok) {
-      setCompletedSetKeys((prev) =>
-        prev.includes(draftKey) ? prev : [...prev, draftKey]
-      );
+      const nextCompletedSetKeys = completedSetKeys.includes(draftKey)
+        ? completedSetKeys
+        : [...completedSetKeys, draftKey];
+
+      persistWorkoutStateNow({
+        completedSetKeys: nextCompletedSetKeys,
+        resting: true
+      });
+
+      setCompletedSetKeys(nextCompletedSetKeys);
       setResting(true);
 
       if (typeof window !== "undefined") {
@@ -14214,6 +14487,8 @@ function WorkoutPlayerModal({
   }
 
   function requestCloseWorkout() {
+    persistWorkoutStateNow();
+
     if (finished || completedCount === 0 || typeof window === "undefined") {
       onClose();
       return;
@@ -14227,6 +14502,8 @@ function WorkoutPlayerModal({
   }
 
   function requestFinishWorkout() {
+    persistWorkoutStateNow();
+
     if (completedCount < totalPlannedSets && typeof window !== "undefined") {
       const confirmed = window.confirm(
         `Hai salvato ${completedCount}/${totalPlannedSets} serie. Vuoi terminare comunque?`
@@ -14235,10 +14512,12 @@ function WorkoutPlayerModal({
       if (!confirmed) return;
     }
 
+    persistWorkoutStateNow({ finished: true });
     setFinished(true);
   }
 
   function closeCompletedWorkout() {
+    if (onClearPersistedWorkout) onClearPersistedWorkout();
     if (onWorkoutSaved) onWorkoutSaved();
     onClose();
   }
@@ -14509,7 +14788,7 @@ function WorkoutPlayerModal({
                     <Input
                       inputMode="decimal"
                       value={draft.load_kg || ""}
-                      onChange={(event) => updateDraft(draftKey, "load_kg", event.target.value)}
+                      onChange={(event) => handleDraftChange("load_kg", event.target.value)}
                       placeholder="80"
                       className="h-14 text-center text-xl font-black"
                     />
@@ -14519,7 +14798,7 @@ function WorkoutPlayerModal({
                     <Input
                       inputMode="numeric"
                       value={draft.reps_done || ""}
-                      onChange={(event) => updateDraft(draftKey, "reps_done", event.target.value)}
+                      onChange={(event) => handleDraftChange("reps_done", event.target.value)}
                       placeholder="10"
                       className="h-14 text-center text-xl font-black"
                     />
@@ -14533,7 +14812,7 @@ function WorkoutPlayerModal({
                         <Input
                           inputMode="decimal"
                           value={draft.rpe || ""}
-                          onChange={(event) => updateDraft(draftKey, "rpe", event.target.value)}
+                          onChange={(event) => handleDraftChange("rpe", event.target.value)}
                           placeholder="8"
                           className="h-12 text-center text-base font-black"
                         />
@@ -14545,7 +14824,7 @@ function WorkoutPlayerModal({
                         <Input
                           inputMode="decimal"
                           value={draft.rir || ""}
-                          onChange={(event) => updateDraft(draftKey, "rir", event.target.value)}
+                          onChange={(event) => handleDraftChange("rir", event.target.value)}
                           placeholder="2"
                           className="h-12 text-center text-base font-black"
                         />
@@ -15091,8 +15370,11 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [workoutPlayer, setWorkoutPlayer] = useState({
   open: false,
   plan: null,
-  day: null
+  day: null,
+  resumeState: null
 });
+  const [workoutRecoveryNotice, setWorkoutRecoveryNotice] = useState("");
+  const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
 
   const [checkinForm, setCheckinForm] = useState({
     checkin_date: today(),
@@ -15223,6 +15505,54 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     setPhotos(photoData || []);
   }
 
+  function findWorkoutPlanDay(planList = [], planId, dayId) {
+    for (const planItem of planList) {
+      if (String(planItem.id) !== String(planId)) continue;
+
+      const foundDay = (planItem.workout_weeks || [])
+        .flatMap((week) => week.workout_days || [])
+        .find((dayItem) => String(dayItem.id) === String(dayId));
+
+      if (foundDay) return { plan: planItem, day: foundDay };
+    }
+
+    return null;
+  }
+
+  function persistWorkoutLiveState(snapshot) {
+    if (!workoutLiveDraftKey || !snapshot?.planId || !snapshot?.dayId) return;
+
+    safeWriteLocalJson(workoutLiveDraftKey, {
+      ...snapshot,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  function clearWorkoutLiveState() {
+    safeRemoveLocal(workoutLiveDraftKey);
+    setWorkoutRecoveryNotice("");
+    setDrafts({});
+  }
+
+  useEffect(() => {
+    if (!workoutLiveDraftKey || plans.length === 0 || workoutPlayer.open) return;
+
+    const saved = safeReadLocalJson(workoutLiveDraftKey, null);
+    if (!saved?.planId || !saved?.dayId || !isRecentWorkoutDraft(saved)) return;
+
+    const found = findWorkoutPlanDay(plans, saved.planId, saved.dayId);
+    if (!found) return;
+
+    setDrafts(saved.drafts || {});
+    setWorkoutPlayer({
+      open: true,
+      plan: found.plan,
+      day: found.day,
+      resumeState: saved
+    });
+    setWorkoutRecoveryNotice("Allenamento recuperato automaticamente");
+  }, [workoutLiveDraftKey, plans.length]);
+
   function currentWeekNumber(plan) {
     if (!plan?.start_date) return 1;
 
@@ -15295,21 +15625,52 @@ function getExerciseHistory(exercise) {
 
     await loadWorkoutHistoryIfNeeded();
 
+    const saved = safeReadLocalJson(workoutLiveDraftKey, null);
+    const canResume =
+      saved?.planId &&
+      saved?.dayId &&
+      String(saved.planId) === String(plan.id) &&
+      String(saved.dayId) === String(day.id) &&
+      isRecentWorkoutDraft(saved);
+
+    if (canResume) {
+      setDrafts(saved.drafts || {});
+    } else {
+      safeRemoveLocal(workoutLiveDraftKey);
+      setDrafts({});
+    }
+
     setWorkoutPlayer({
       open: true,
       plan,
-      day
+      day,
+      resumeState: canResume ? saved : null
     });
   }
 
   function updateDraft(key, field, value) {
-    setDrafts((prev) => ({
-      ...prev,
-      [key]: {
-        ...(prev[key] || {}),
-        [field]: value
+    setDrafts((prev) => {
+      const nextDrafts = {
+        ...prev,
+        [key]: {
+          ...(prev[key] || {}),
+          [field]: value
+        }
+      };
+
+      if (workoutPlayer.open && workoutLiveDraftKey) {
+        const saved = safeReadLocalJson(workoutLiveDraftKey, {});
+        safeWriteLocalJson(workoutLiveDraftKey, {
+          ...saved,
+          planId: workoutPlayer.plan?.id || saved.planId,
+          dayId: workoutPlayer.day?.id || saved.dayId,
+          drafts: nextDrafts,
+          updatedAt: new Date().toISOString()
+        });
       }
-    }));
+
+      return nextDrafts;
+    });
   }
 
   async function getOrCreateWorkoutSession(planId, dayId) {
@@ -15388,10 +15749,23 @@ function getExerciseHistory(exercise) {
     return false;
   }
 
-  setDrafts((prev) => ({
-    ...prev,
-    [key]: {}
-  }));
+  setDrafts((prev) => {
+    const nextDrafts = {
+      ...prev,
+      [key]: {}
+    };
+
+    if (workoutLiveDraftKey) {
+      const saved = safeReadLocalJson(workoutLiveDraftKey, {});
+      safeWriteLocalJson(workoutLiveDraftKey, {
+        ...saved,
+        drafts: nextDrafts,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    return nextDrafts;
+  });
 
   return true;
 }
@@ -15982,6 +16356,12 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "training" && (
           <div className="space-y-5">
+            {workoutRecoveryNotice && (
+              <div className="rounded-3xl border border-teal-200 bg-teal-50 p-4 text-sm font-black text-teal-800">
+                {workoutRecoveryNotice}. I dati inseriti durante Allenati vengono salvati sul dispositivo mentre l’allenamento è aperto.
+              </div>
+            )}
+
             {plans.map((plan) => {
               const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
                 (week.workout_days || []).map((day) => ({ week, day }))
@@ -17054,7 +17434,8 @@ function getExerciseHistory(exercise) {
     setWorkoutPlayer({
       open: false,
       plan: null,
-      day: null
+      day: null,
+      resumeState: null
     })
   }
   drafts={drafts}
@@ -17062,6 +17443,8 @@ function getExerciseHistory(exercise) {
   saveSetLog={saveSetLog}
   getExerciseHistory={getExerciseHistory}
   onWorkoutSaved={loadClientArea}
+  onWorkoutStateChange={persistWorkoutLiveState}
+  onClearPersistedWorkout={clearWorkoutLiveState}
 />
             </main>
 
