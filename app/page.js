@@ -2493,6 +2493,114 @@ function normalizeDietMealSection(section) {
 }
 
 
+function dietLineLooksLikeRealFoodEntry(line) {
+  const normalized = normalizeDietToken(line);
+
+  if (!normalized) return false;
+  if (isDietFoodStart(line)) return true;
+
+  return isDietAlternativeLine(line) && /\d+[,.]?\d*\s*(G|GR|KG|ML|L|KCAL|CAL)\b/.test(normalized);
+}
+
+function dietLineLooksLikeDetachedMealNoteFragment(line) {
+  const normalized = normalizeDietToken(line);
+
+  if (!normalized) return false;
+  if (dietLineLooksLikeRealFoodEntry(line)) return false;
+
+  const noteFragments = [
+    "SE ",
+    "SE COLAZIONE",
+    "COLAZIONE 1",
+    "COLAZIONE 2",
+    "COLAZIONE)",
+    "NEL PASTO POST",
+    "PASTO POST ALLENAMENTO",
+    "NEI GIORNI",
+    "GIORNI DI ALLENAMENTO",
+    "GIORNI DI RIPOSO",
+    "PORZIONI DI FRUTTA",
+    "PORZIONE DI FRUTTA",
+    "PRANZO E CENA",
+    "CENA RIDURRE",
+    "RIDURRE OLIO",
+    "OLIO A PRANZO",
+    "OLIO A",
+    "GR DI",
+    "VERDURE MAX",
+    "OMELETTE",
+    "CUOCERE",
+    "MUFFIN",
+    "ERITRITOLO",
+    "LIEVITO",
+    "POSSIBILE SOSTITUIRE",
+    "AGGIUNGERE"
+  ];
+
+  return noteFragments.some((fragment) => normalized.startsWith(fragment) || normalized.includes(fragment));
+}
+
+function mealHasVisibleNotes(meal) {
+  const notes = Array.isArray(meal?.notes)
+    ? meal.notes
+    : meal?.notes
+    ? [meal.notes]
+    : [];
+
+  return notes.map(cleanDietPdfLine).filter(Boolean).length > 0;
+}
+
+function mergeDietDetachedNoteMeals(sections = [], warnings = []) {
+  const merged = [];
+
+  (sections || []).forEach((section) => {
+    if (!section) return;
+
+    const items = Array.isArray(section.items)
+      ? section.items.map(cleanDietPdfLine).filter(Boolean)
+      : [];
+    const options = Array.isArray(section.options) ? section.options.filter(Boolean) : [];
+    const notes = Array.isArray(section.notes)
+      ? section.notes.map(cleanDietPdfLine).filter(Boolean)
+      : section.notes
+      ? [cleanDietPdfLine(section.notes)].filter(Boolean)
+      : [];
+    const hasRealFood = items.some(dietLineLooksLikeRealFoodEntry);
+    const allItemsAreDetachedNotes =
+      items.length > 0 && items.every(dietLineLooksLikeDetachedMealNoteFragment);
+    const previous = merged[merged.length - 1];
+
+    // Se il PDF spezza una nota su più righe, alcune righe possono essere scambiate
+    // per un nuovo pasto solo perché contengono parole come COLAZIONE, PRANZO o CENA.
+    // In quel caso non devono diventare card: vanno riattaccate alla nota del pasto precedente.
+    if (
+      previous &&
+      mealHasVisibleNotes(previous) &&
+      options.length === 0 &&
+      notes.length === 0 &&
+      !hasRealFood &&
+      allItemsAreDetachedNotes
+    ) {
+      previous.notes = compactDietMealNoteLines([
+        ...(Array.isArray(previous.notes) ? previous.notes : previous.notes ? [previous.notes] : []),
+        ...items
+      ]);
+      warnings.push(`Riga di nota riagganciata al pasto precedente: ${items.join(" ")}`);
+      return;
+    }
+
+    merged.push({
+      ...section,
+      items,
+      notes,
+      options
+    });
+  });
+
+  return merged;
+}
+
+
 function trimSundayMealsAfterDietTail(dayName, meals = [], warnings = []) {
   const cleanDay = canonicalDietDayName(dayName || "");
 
@@ -2542,11 +2650,12 @@ function sanitizeExtractedDietForMeals(parsed) {
         const cleanSections = sections
           .map((section) => normalizeDietMealSection(section))
           .filter(Boolean);
+        const noteSafeSections = mergeDietDetachedNoteMeals(cleanSections, hiddenWarnings);
 
         const cleanDayName = canonicalDietDayName(day.day || day.title || "");
         const visibleSections = trimSundayMealsAfterDietTail(
           cleanDayName || day.day || day.title,
-          cleanSections,
+          noteSafeSections,
           hiddenWarnings
         );
 
