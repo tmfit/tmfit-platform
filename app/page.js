@@ -2458,6 +2458,101 @@ function dietSectionHasMealFood(items = []) {
   return foodItems.some((item) => dietLineLooksLikeMealFood(item));
 }
 
+
+function dietOptionLooksLikeMealNoteBlock(option) {
+  if (!option) return false;
+
+  const rawTitle = cleanDietPdfLine(option.name || option.title || "");
+  const title = normalizeDietToken(rawTitle);
+  const itemLines = Array.isArray(option.items)
+    ? option.items.map(cleanDietPdfLine).filter(Boolean)
+    : [];
+  const noteLines = Array.isArray(option.notes)
+    ? option.notes.map(cleanDietPdfLine).filter(Boolean)
+    : option.notes
+    ? [cleanDietPdfLine(option.notes)].filter(Boolean)
+    : [];
+  const lines = [rawTitle, ...itemLines, ...noteLines].filter(Boolean);
+  const joined = normalizeDietToken(lines.join(" "));
+
+  if (!joined) return false;
+
+  const hasRealFoodEntry = itemLines.some(dietLineLooksLikeRealFoodEntry);
+  const hasStrongNoteLanguage = [
+    "OPZIONE PER",
+    "PER OMELETTE",
+    "OMELETTE",
+    "CUOCERE",
+    "A FINE COTTURA",
+    "SE OMELETTE",
+    "SE COLAZIONE",
+    "VERDURE MAX",
+    "PRANZO E CENA",
+    "RIDURRE OLIO",
+    "PASTO POST ALLENAMENTO",
+    "NEI GIORNI DI ALLENAMENTO",
+    "NEI GIORNI DI RIPOSO",
+    "MUFFIN",
+    "ERITRITOLO",
+    "LIEVITO"
+  ].some((fragment) => joined.includes(fragment));
+
+  // Se il titolo/opzione contiene istruzioni operative o frasi di nota,
+  // non è una vera opzione alimentare: resta nel box "Note al pasto".
+  if (hasStrongNoteLanguage) return true;
+
+  // Un blocco generico "Opzione" senza alimenti reali, ma composto da frasi
+  // tipo note, è quasi sempre una nota spezzata dal PDF.
+  if (title === "OPZIONE" && !hasRealFoodEntry) {
+    return itemLines.length > 0 || noteLines.length > 0;
+  }
+
+  return false;
+}
+
+function dietOptionNoteLines(option) {
+  if (!option) return [];
+
+  const rawTitle = cleanDietPdfLine(option.name || option.title || "");
+  const title = normalizeDietToken(rawTitle);
+  const itemLines = Array.isArray(option.items)
+    ? option.items.map(cleanDietPdfLine).filter(Boolean)
+    : [];
+  const noteLines = Array.isArray(option.notes)
+    ? option.notes.map(cleanDietPdfLine).filter(Boolean)
+    : option.notes
+    ? [cleanDietPdfLine(option.notes)].filter(Boolean)
+    : [];
+
+  // Non mostriamo la sola intestazione generica "Opzione": non è contenuto utile.
+  const titleLines = title && title !== "OPZIONE" ? [rawTitle] : [];
+  return [...titleLines, ...itemLines, ...noteLines].filter(Boolean);
+}
+
+function normalizeDietMealOptionsAndNotes(section, baseNotes = []) {
+  const safeNotes = Array.isArray(baseNotes)
+    ? baseNotes.map(cleanDietPdfLine).filter(Boolean)
+    : [];
+  const safeOptions = [];
+
+  (Array.isArray(section?.options) ? section.options : []).forEach((option) => {
+    if (!option) return;
+
+    if (dietOptionLooksLikeMealNoteBlock(option)) {
+      safeNotes.push(...dietOptionNoteLines(option));
+      return;
+    }
+
+    const normalizedOption = normalizeDietMealSection(option);
+    if (normalizedOption) safeOptions.push(normalizedOption);
+  });
+
+  return {
+    notes: compactDietMealNoteLines(safeNotes),
+    options: safeOptions
+  };
+}
+
 function normalizeDietMealSection(section) {
   if (!section) return null;
 
@@ -2473,13 +2568,14 @@ function normalizeDietMealSection(section) {
     : [];
   // Le righe dopo "Note al pasto" devono uscire sempre dagli alimenti
   // e finire nel box note del pasto/opzione corrispondente.
-  const notes = compactDietMealNoteLines([
+  // Inoltre, se il PDF spezza una nota trasformandola in un blocco "Opzione"
+  // (es. "OPZIONE PER OMELETTE..."), quel blocco viene riagganciato qui alle note.
+  const normalizedOptionsAndNotes = normalizeDietMealOptionsAndNotes(section, [
     ...existingNotes,
     ...split.notes
   ]);
-  const options = Array.isArray(section.options)
-    ? section.options.map((option) => normalizeDietMealSection(option)).filter(Boolean)
-    : [];
+  const notes = normalizedOptionsAndNotes.notes;
+  const options = normalizedOptionsAndNotes.options;
   const items = split.foodItems;
 
   if (!dietSectionHasMealFood(items) && options.length === 0) return null;
@@ -2882,7 +2978,7 @@ function detectDietOptionMarker(line) {
 
   // Sono opzioni solo le intestazioni reali "Opzione" oppure "Opzione 1/2/3".
   // Frasi come "OPZIONE PER OMELETTE" sono note al pasto, non nuove opzioni.
-  if (/^OPZIONE\s+\d+/i.test(clean)) return clean;
+  if (/^OPZIONE\s+\d+\b/i.test(clean)) return clean;
   if (normalized === "OPZIONE") return clean;
 
   return null;
