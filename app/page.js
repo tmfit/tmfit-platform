@@ -2005,6 +2005,7 @@ const DIET_SECTION_BASES = [
   "PRE NANNA",
   "CENA",
   "CENA 1",
+  "FRUTTA",
   "CENA 2",
   "CENA 3",
   "PASTO LIBERO"
@@ -2150,6 +2151,7 @@ function dietMealLabel(value) {
   if (normalized.startsWith("INTRA WORKOUT")) return "Intra workout";
   if (normalized.startsWith("PRE NANNA")) return "Pre nanna";
   if (normalized.startsWith("CENA")) return "Cena";
+  if (normalized.startsWith("FRUTTA")) return "Frutta";
   if (normalized.startsWith("PASTO LIBERO")) return "Pasto libero";
 
   return titleCaseDietLabel(value) || "Pasto";
@@ -2158,7 +2160,7 @@ function dietMealLabel(value) {
 function detectDynamicDietSectionBase(line) {
   const normalized = normalizeDietToken(line);
   const match = normalized.match(
-    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO)(?:\s+\d+)?(?:\s*[-:]\s*.+)?$/
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)(?:\s+\d+)?(?:\s*[-:]\s*.+)?$/
   );
 
   if (!match) return null;
@@ -2329,7 +2331,6 @@ function isDietNonMealHeading(line) {
     "CEREALI E TUBERI",
     "DOLCI",
     "FARINE",
-    "FRUTTA",
     "FRUTTA SECCA",
     "GRASSI E CONDIMENTI",
     "LATTE E DERIVATI",
@@ -2362,7 +2363,6 @@ function isDietDailyTailStopLine(line) {
     "CEREALI E TUBERI",
     "DOLCI",
     "FARINE",
-    "FRUTTA",
     "FRUTTA SECCA",
     "GRASSI E CONDIMENTI",
     "LATTE E DERIVATI",
@@ -2465,21 +2465,22 @@ function normalizeDietMealSection(section) {
   if (isDietNonMealHeading(title)) return null;
 
   const rawItems = (section.items || []).map(cleanDietPdfLine).filter(Boolean);
-  const hasInlineMealNotes = rawItems.some((line) => isDietMealNoteHeadingLine(line));
   const split = splitDietItemsAndMealNotes(rawItems);
   const existingNotes = Array.isArray(section.notes)
     ? section.notes.map(cleanDietPdfLine).filter(Boolean)
     : section.notes
     ? [cleanDietPdfLine(section.notes)].filter(Boolean)
     : [];
+  // Le righe dopo "Note al pasto" devono uscire sempre dagli alimenti
+  // e finire nel box note del pasto/opzione corrispondente.
   const notes = compactDietMealNoteLines([
     ...existingNotes,
-    ...(hasInlineMealNotes ? [] : split.notes)
+    ...split.notes
   ]);
   const options = Array.isArray(section.options)
     ? section.options.map((option) => normalizeDietMealSection(option)).filter(Boolean)
     : [];
-  const items = hasInlineMealNotes ? rawItems : split.foodItems;
+  const items = split.foodItems;
 
   if (!dietSectionHasMealFood(items) && options.length === 0) return null;
 
@@ -2770,17 +2771,18 @@ function pushDietMeal(target, meal) {
   if (!meal) return;
 
   const compactItems = compactDietItems(meal.items || []);
-  const hasInlineMealNotes = compactItems.some((line) => isDietMealNoteHeadingLine(line));
   const split = splitDietItemsAndMealNotes(compactItems);
-  const items = hasInlineMealNotes ? compactItems : split.foodItems;
+  const items = split.foodItems;
   const existingNotes = Array.isArray(meal.notes)
     ? meal.notes.map(cleanDietPdfLine).filter(Boolean)
     : meal.notes
     ? [cleanDietPdfLine(meal.notes)].filter(Boolean)
     : [];
+  // Se il PDF ha "Note al pasto" in mezzo alle righe, tutto ciò che segue
+  // viene separato dagli alimenti e messo nel box Note al pasto.
   const notes = compactDietMealNoteLines([
     ...existingNotes,
-    ...(hasInlineMealNotes ? [] : split.notes)
+    ...split.notes
   ]);
   const options = Array.isArray(meal.options)
     ? meal.options
@@ -2935,7 +2937,7 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
     }
 
     const dynamicHeading = normalized.match(
-      /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|PASTO LIBERO)(?:\s+\d+)?\s+(.+)$/
+      /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)(?:\s+\d+)?\s+(.+)$/
     );
 
     if (dynamicHeading && isDietFoodStart(dynamicHeading[2])) {
@@ -4969,9 +4971,6 @@ function DietExtractedPlan({ diet, compact = false }) {
           <h3 className="mt-1 text-lg font-black text-slate-950">
             {isOptions ? "Opzioni alimentari" : "Piano giornaliero"}
           </h3>
-          <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-            Visualizzazione pronta per il cliente, organizzata in card semplici da consultare.
-          </p>
         </div>
 
         {!compact && (
