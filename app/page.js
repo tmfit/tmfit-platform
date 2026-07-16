@@ -2726,9 +2726,41 @@ function countDietOptionCards(extractedDiet) {
   );
 }
 
+function detectStrictDailyMealHeading(line) {
+  const clean = cleanDietPdfLine(line);
+  const normalized = normalizeDietToken(clean);
+
+  if (!normalized) return null;
+
+  const strictMeals = [
+    "COLAZIONE",
+    "PRANZO",
+    "MERENDA",
+    "SPUNTINO",
+    "PRE WORKOUT",
+    "POST WORKOUT",
+    "INTRA WORKOUT",
+    "PRE NANNA",
+    "CENA",
+    "FRUTTA",
+    "PASTO LIBERO"
+  ];
+
+  const exact = strictMeals.find((meal) => normalized === meal);
+  if (exact) return dietMealLabel(exact);
+
+  const numbered = normalized.match(
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)\s+\d+$/
+  );
+
+  return numbered ? dietMealLabel(numbered[1]) : null;
+}
+
 function detectDailyMealHeading(line) {
-  const heading = detectDietGenericHeading(line);
-  return heading?.title ? dietMealLabel(heading.title) : null;
+  // In modalità giornaliera il titolo del pasto deve essere un'intestazione reale.
+  // Frasi come "COLAZIONE 1 NEL PASTO POST ALLENAMENTO" o
+  // "PRANZO E CENA RIDURRE OLIO" sono note, non nuovi pasti.
+  return detectStrictDailyMealHeading(line);
 }
 
 function detectOptionMealHeading(line) {
@@ -2851,7 +2883,9 @@ function splitDietEmbeddedParserLine(line) {
     .replace(new RegExp(`([^\\n\\s])\\s*(${dayPattern})(?=\\s|$)`, "gi"), "$1\n$2")
     // Se il giorno è seguito dal primo pasto sulla stessa riga, separiamo giorno e pasto.
     .replace(new RegExp(`(^|\\n|\\s)(${dayPattern})\\s+(${mealPattern})(?=\\s|$|\\d)`, "gi"), "$1$2\n$3")
-    .replace(new RegExp(`([a-zà-ÿ0-9\\)])\\s*(${mealPattern})(?=\\s*\\d|\\d|\\s|$)`, "gi"), "$1\n$2")
+    // Non separiamo più ogni parola-pasto quando compare dentro una frase.
+    // Esempi come "SE COLAZIONE 1..." o "PRANZO E CENA RIDURRE..."
+    // sono note al pasto e non devono creare nuove card.
     .replace(new RegExp(`\\b(${mealPattern})(?=\\d)`, "gi"), "$1\n")
     .replace(/([a-zà-ÿ0-9\)])\s*(Opzione\s+\d+)/gi, "$1\n$2")
     .replace(/([a-zà-ÿ0-9\)])\s*(Note\s*al\s*pasto)/gi, "$1\n$2")
@@ -3058,6 +3092,20 @@ function parseDailyDietLines(lines, sourceName) {
 
     if (!currentDay) return;
 
+    const optionMarker = detectDietOptionMarker(line);
+
+    if (readingMealNotes && currentMeal) {
+      const strictMealName = detectDailyMealHeading(line);
+
+      // Una nota termina solo davanti a un vero nuovo pasto scritto come intestazione
+      // oppure davanti a una nuova opzione. Se la riga contiene parole come
+      // "COLAZIONE", "PRANZO" o "CENA" dentro una frase, resta nella nota.
+      if (!strictMealName && !optionMarker) {
+        addCurrentMealNote(line);
+        return;
+      }
+    }
+
     const mealName = detectDailyMealHeading(line);
 
     if (mealName) {
@@ -3074,8 +3122,6 @@ function parseDailyDietLines(lines, sourceName) {
     }
 
     if (!currentMeal) return;
-
-    const optionMarker = detectDietOptionMarker(line);
 
     if (optionMarker) {
       startMealOption(optionMarker);
