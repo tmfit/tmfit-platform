@@ -53,43 +53,183 @@ function getTmfitTimerAudioContext() {
   }
 }
 
+function createTmfitAlarmWavDataUri() {
+  if (typeof window === "undefined") return "";
+
+  try {
+    if (window.__tmfitAlarmWavDataUri) return window.__tmfitAlarmWavDataUri;
+
+    const sampleRate = 22050;
+    const durationSeconds = 1.1;
+    const samples = Math.floor(sampleRate * durationSeconds);
+    const bytesPerSample = 2;
+    const dataSize = samples * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    function writeString(offset, value) {
+      for (let index = 0; index < value.length; index += 1) {
+        view.setUint8(offset + index, value.charCodeAt(index));
+      }
+    }
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * bytesPerSample, true);
+    view.setUint16(32, bytesPerSample, true);
+    view.setUint16(34, 16, true);
+    writeString(36, "data");
+    view.setUint32(40, dataSize, true);
+
+    for (let index = 0; index < samples; index += 1) {
+      const t = index / sampleRate;
+      const pulse = Math.floor(t * 5) % 2 === 0;
+      const frequency = pulse ? 1050 : 780;
+      const wave = Math.sin(2 * Math.PI * frequency * t);
+      const gate = Math.sin(2 * Math.PI * 2.4 * t) > -0.25 ? 1 : 0.22;
+      const envelope = Math.min(1, index / (sampleRate * 0.03), (samples - index) / (sampleRate * 0.06));
+      const value = Math.max(-1, Math.min(1, wave * gate * envelope * 0.92));
+      view.setInt16(44 + index * bytesPerSample, value * 32767, true);
+    }
+
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }
+
+    window.__tmfitAlarmWavDataUri = `data:audio/wav;base64,${window.btoa(binary)}`;
+    return window.__tmfitAlarmWavDataUri;
+  } catch (error) {
+    console.warn("TMFIT timer alarm wav unavailable", error?.message || error);
+    return "";
+  }
+}
+
+function getTmfitTimerAudioElement() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    if (!window.__tmfitTimerAudioElement) {
+      const source = createTmfitAlarmWavDataUri();
+      if (!source) return null;
+
+      const audio = new Audio(source);
+      audio.loop = true;
+      audio.preload = "auto";
+      audio.volume = 1;
+      audio.muted = false;
+      audio.setAttribute("playsinline", "true");
+      window.__tmfitTimerAudioElement = audio;
+    }
+
+    return window.__tmfitTimerAudioElement;
+  } catch (error) {
+    console.warn("TMFIT timer audio element unavailable", error?.message || error);
+    return null;
+  }
+}
+
 function primeTmfitTimerAudio() {
   if (typeof window === "undefined") return;
 
   try {
     const context = getTmfitTimerAudioContext();
-    if (!context) return;
-
-    if (context.state === "suspended") {
+    if (context && context.state === "suspended") {
       context.resume?.();
     }
 
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
+    if (context) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = context.currentTime;
 
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, context.currentTime);
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, start);
+      gain.gain.setValueAtTime(0.012, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.08);
 
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.04);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.09);
+    }
+  } catch (error) {
+    console.warn("TMFIT timer audio context prime unavailable", error?.message || error);
+  }
+
+  try {
+    const audio = getTmfitTimerAudioElement();
+    if (!audio) return;
+
+    const previousVolume = audio.volume;
+    audio.pause();
+    audio.currentTime = 0;
+    audio.loop = false;
+    audio.muted = false;
+    audio.volume = 0.018;
+
+    const playPromise = audio.play?.();
+    if (playPromise && typeof playPromise.then === "function") {
+      playPromise
+        .then(() => {
+          window.__tmfitTimerAudioUnlocked = true;
+          window.setTimeout(() => {
+            try {
+              audio.pause();
+              audio.currentTime = 0;
+              audio.loop = true;
+              audio.volume = previousVolume || 1;
+            } catch (innerError) {
+              console.warn("TMFIT timer audio prime cleanup unavailable", innerError?.message || innerError);
+            }
+          }, 70);
+        })
+        .catch((error) => {
+          window.__tmfitTimerAudioUnlocked = false;
+          audio.loop = true;
+          audio.volume = previousVolume || 1;
+          console.warn("TMFIT timer audio element prime blocked", error?.message || error);
+        });
+    } else {
+      window.__tmfitTimerAudioUnlocked = true;
+      window.setTimeout(() => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.loop = true;
+          audio.volume = previousVolume || 1;
+        } catch (innerError) {
+          console.warn("TMFIT timer audio prime cleanup unavailable", innerError?.message || innerError);
+        }
+      }, 70);
+    }
   } catch (error) {
     console.warn("TMFIT timer audio prime unavailable", error?.message || error);
+  }
+}
+
+function vibrateTmfitTimerAlarm() {
+  try {
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate([700, 120, 700, 120, 1000]);
+    }
+  } catch (error) {
+    console.warn("TMFIT timer vibration unavailable", error?.message || error);
   }
 }
 
 function playTmfitTimerAlarmBurst() {
   if (typeof window === "undefined") return;
 
-  try {
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate([500, 130, 500, 130, 700]);
-    }
-  } catch (error) {
-    console.warn("TMFIT timer vibration unavailable", error?.message || error);
-  }
+  vibrateTmfitTimerAlarm();
 
   try {
     const context = getTmfitTimerAudioContext();
@@ -100,24 +240,24 @@ function playTmfitTimerAlarmBurst() {
     }
 
     const now = context.currentTime;
-    const pattern = [0, 0.34, 0.68, 1.02];
+    const pattern = [0, 0.28, 0.56, 0.84, 1.12];
 
     pattern.forEach((offset, index) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       const start = now + offset;
-      const end = start + (index === pattern.length - 1 ? 0.42 : 0.24);
+      const end = start + (index === pattern.length - 1 ? 0.34 : 0.2);
 
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(index % 2 === 0 ? 1040 : 760, start);
+      oscillator.type = "square";
+      oscillator.frequency.setValueAtTime(index % 2 === 0 ? 1120 : 760, start);
       gain.gain.setValueAtTime(0.001, start);
-      gain.gain.exponentialRampToValueAtTime(0.48, start + 0.035);
+      gain.gain.exponentialRampToValueAtTime(0.72, start + 0.025);
       gain.gain.exponentialRampToValueAtTime(0.001, end);
 
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(start);
-      oscillator.stop(end + 0.04);
+      oscillator.stop(end + 0.03);
     });
   } catch (error) {
     console.warn("TMFIT timer sound unavailable", error?.message || error);
@@ -129,17 +269,23 @@ function stopTmfitTimerAlarmLoop() {
 
   try {
     const loop = window.__tmfitTimerAlarmLoop;
-    if (!loop) return;
-
-    if (loop.soundInterval) {
+    if (loop?.soundInterval) {
       window.clearInterval(loop.soundInterval);
     }
-
-    if (loop.vibrationInterval) {
+    if (loop?.vibrationInterval) {
       window.clearInterval(loop.vibrationInterval);
     }
 
     window.__tmfitTimerAlarmLoop = null;
+
+    const audio = window.__tmfitTimerAudioElement;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.loop = true;
+      audio.volume = 1;
+      audio.muted = false;
+    }
 
     if (typeof navigator !== "undefined" && navigator.vibrate) {
       navigator.vibrate(0);
@@ -154,15 +300,49 @@ function startTmfitTimerAlarmLoop() {
 
   try {
     stopTmfitTimerAlarmLoop();
+
+    let htmlAudioStarted = false;
+    const audio = getTmfitTimerAudioElement();
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.loop = true;
+      audio.muted = false;
+      audio.volume = 1;
+
+      const playPromise = audio.play?.();
+      if (playPromise && typeof playPromise.then === "function") {
+        playPromise
+          .then(() => {
+            htmlAudioStarted = true;
+            window.__tmfitTimerAudioUnlocked = true;
+          })
+          .catch((error) => {
+            htmlAudioStarted = false;
+            window.__tmfitTimerAudioUnlocked = false;
+            console.warn("TMFIT timer looping audio blocked", error?.message || error);
+          });
+      } else {
+        htmlAudioStarted = true;
+        window.__tmfitTimerAudioUnlocked = true;
+      }
+    }
+
     playTmfitTimerAlarmBurst();
 
     const soundInterval = window.setInterval(() => {
-      playTmfitTimerAlarmBurst();
-    }, 1450);
+      if (!htmlAudioStarted) {
+        playTmfitTimerAlarmBurst();
+      }
+    }, 1200);
+
+    const vibrationInterval = window.setInterval(() => {
+      vibrateTmfitTimerAlarm();
+    }, 1700);
 
     window.__tmfitTimerAlarmLoop = {
       soundInterval,
-      vibrationInterval: null
+      vibrationInterval
     };
   } catch (error) {
     console.warn("TMFIT timer alarm loop unavailable", error?.message || error);
