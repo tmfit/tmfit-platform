@@ -2880,8 +2880,10 @@ function detectDietOptionMarker(line) {
   const clean = cleanDietPdfLine(line);
   const normalized = normalizeDietToken(clean);
 
-  if (/^OPZIONE\s+\d+/i.test(clean)) return clean;
-  if (normalized === "OPZIONE" || normalized.startsWith("OPZIONE ")) return clean;
+  // Sono opzioni solo le intestazioni reali "Opzione" oppure "Opzione 1/2/3".
+  // Frasi come "OPZIONE PER OMELETTE" sono note al pasto, non nuove opzioni.
+  if (/^OPZIONE\s+\d+/i.test(clean)) return clean;
+  if (normalized === "OPZIONE") return clean;
 
   return null;
 }
@@ -3119,6 +3121,13 @@ function parseDailyDietLines(lines, sourceName) {
     return currentMealOption || currentMeal;
   }
 
+  function activeDailyMealNoteTarget() {
+    // "Note al pasto" appartiene al pasto corrente e resta lì fino al prossimo
+    // pasto reale. Non deve mai trasformarsi in una nuova opzione solo perché
+    // dentro la frase compare "Opzione", "Colazione", "Pranzo" o "Cena".
+    return currentMeal;
+  }
+
   function startMealOption(title) {
     if (!currentMeal) return;
 
@@ -3135,7 +3144,7 @@ function parseDailyDietLines(lines, sourceName) {
   }
 
   function addCurrentMealNote(line) {
-    const target = activeDailyMealTarget();
+    const target = activeDailyMealNoteTarget();
     if (!target) return;
 
     const clean = cleanDietPdfLine(line);
@@ -3206,10 +3215,11 @@ function parseDailyDietLines(lines, sourceName) {
     if (readingMealNotes && currentMeal) {
       const strictMealName = detectDailyMealHeading(line);
 
-      // Una nota termina solo davanti a un vero nuovo pasto scritto come intestazione
-      // oppure davanti a una nuova opzione. Se la riga contiene parole come
-      // "COLAZIONE", "PRANZO" o "CENA" dentro una frase, resta nella nota.
-      if (!strictMealName && !optionMarker) {
+      // Una nota termina SOLO davanti a un vero nuovo pasto scritto come
+      // intestazione autonoma: COLAZIONE, PRANZO, MERENDA, CENA, FRUTTA, ecc.
+      // Tutto il resto resta nella nota, anche se contiene parole come
+      // "OPZIONE", "COLAZIONE", "PRANZO" o "CENA" dentro una frase.
+      if (!strictMealName) {
         addCurrentMealNote(line);
         return;
       }
@@ -3241,6 +3251,7 @@ function parseDailyDietLines(lines, sourceName) {
 
     if (introNote !== null) {
       readingMealNotes = true;
+      currentMealOption = null;
       if (introNote) addCurrentMealNote(introNote);
       return;
     }
