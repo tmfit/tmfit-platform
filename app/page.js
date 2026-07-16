@@ -60,7 +60,7 @@ function createTmfitAlarmWavDataUri() {
     if (window.__tmfitAlarmWavDataUri) return window.__tmfitAlarmWavDataUri;
 
     const sampleRate = 22050;
-    const durationSeconds = 1.1;
+    const durationSeconds = 1.13;
     const samples = Math.floor(sampleRate * durationSeconds);
     const bytesPerSample = 2;
     const dataSize = samples * bytesPerSample;
@@ -71,6 +71,19 @@ function createTmfitAlarmWavDataUri() {
       for (let index = 0; index < value.length; index += 1) {
         view.setUint8(offset + index, value.charCodeAt(index));
       }
+    }
+
+    function softEnvelope(localT, duration, attack = 0.035, release = 0.18) {
+      if (localT < attack) return localT / attack;
+      if (localT > duration - release) return Math.max(0, (duration - localT) / release);
+      return 1;
+    }
+
+    function softTone(localT, frequency, duration, amplitude = 0.34) {
+      const envelope = softEnvelope(localT, duration);
+      const fundamental = Math.sin(2 * Math.PI * frequency * localT);
+      const harmonic = 0.12 * Math.sin(2 * Math.PI * frequency * 2 * localT);
+      return (fundamental + harmonic) * envelope * amplitude;
     }
 
     writeString(0, "RIFF");
@@ -89,13 +102,18 @@ function createTmfitAlarmWavDataUri() {
 
     for (let index = 0; index < samples; index += 1) {
       const t = index / sampleRate;
-      const pulse = Math.floor(t * 5) % 2 === 0;
-      const frequency = pulse ? 1050 : 780;
-      const wave = Math.sin(2 * Math.PI * frequency * t);
-      const gate = Math.sin(2 * Math.PI * 2.4 * t) > -0.25 ? 1 : 0.22;
-      const envelope = Math.min(1, index / (sampleRate * 0.03), (samples - index) / (sampleRate * 0.06));
-      const value = Math.max(-1, Math.min(1, wave * gate * envelope * 0.92));
-      view.setInt16(44 + index * bytesPerSample, value * 32767, true);
+      let value = 0;
+
+      // Opzione 1: Sveglia Soft TMFIT.
+      // Due toni morbidi e ripetuti: avvisa bene senza risultare aggressiva.
+      if (t < 0.22) {
+        value = softTone(t, 660, 0.22, 0.34);
+      } else if (t >= 0.32 && t < 0.58) {
+        value = softTone(t - 0.32, 784, 0.26, 0.34);
+      }
+
+      const clipped = Math.max(-1, Math.min(1, value));
+      view.setInt16(44 + index * bytesPerSample, clipped * 32767, true);
     }
 
     const bytes = new Uint8Array(buffer);
@@ -124,7 +142,7 @@ function getTmfitTimerAudioElement() {
       const audio = new Audio(source);
       audio.loop = true;
       audio.preload = "auto";
-      audio.volume = 1;
+      audio.volume = 0.72;
       audio.muted = false;
       audio.setAttribute("playsinline", "true");
       window.__tmfitTimerAudioElement = audio;
@@ -219,7 +237,7 @@ function primeTmfitTimerAudio() {
 function vibrateTmfitTimerAlarm() {
   try {
     if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate([700, 120, 700, 120, 1000]);
+      navigator.vibrate([320, 140, 320]);
     }
   } catch (error) {
     console.warn("TMFIT timer vibration unavailable", error?.message || error);
@@ -240,24 +258,27 @@ function playTmfitTimerAlarmBurst() {
     }
 
     const now = context.currentTime;
-    const pattern = [0, 0.28, 0.56, 0.84, 1.12];
+    const pattern = [
+      { offset: 0, frequency: 660, duration: 0.22 },
+      { offset: 0.32, frequency: 784, duration: 0.26 }
+    ];
 
-    pattern.forEach((offset, index) => {
+    pattern.forEach(({ offset, frequency, duration }) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       const start = now + offset;
-      const end = start + (index === pattern.length - 1 ? 0.34 : 0.2);
+      const end = start + duration;
 
-      oscillator.type = "square";
-      oscillator.frequency.setValueAtTime(index % 2 === 0 ? 1120 : 760, start);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, start);
       gain.gain.setValueAtTime(0.001, start);
-      gain.gain.exponentialRampToValueAtTime(0.72, start + 0.025);
+      gain.gain.linearRampToValueAtTime(0.22, start + 0.035);
       gain.gain.exponentialRampToValueAtTime(0.001, end);
 
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(start);
-      oscillator.stop(end + 0.03);
+      oscillator.stop(end + 0.04);
     });
   } catch (error) {
     console.warn("TMFIT timer sound unavailable", error?.message || error);
@@ -283,7 +304,7 @@ function stopTmfitTimerAlarmLoop() {
       audio.pause();
       audio.currentTime = 0;
       audio.loop = true;
-      audio.volume = 1;
+      audio.volume = 0.72;
       audio.muted = false;
     }
 
@@ -308,7 +329,7 @@ function startTmfitTimerAlarmLoop() {
       audio.currentTime = 0;
       audio.loop = true;
       audio.muted = false;
-      audio.volume = 1;
+      audio.volume = 0.72;
 
       const playPromise = audio.play?.();
       if (playPromise && typeof playPromise.then === "function") {
@@ -1394,7 +1415,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
                 : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
             }
           >
-            {soundEnabled ? "Allarme ON" : "Allarme OFF"}
+            {soundEnabled ? "Sveglia Soft" : "Allarme OFF"}
           </button>
         </div>
 
@@ -1414,7 +1435,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
 
         {prominent && (
           <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Allarme continuo: suona finché non premi Stop. Se iOS sospende l’app in background, parte appena rientri in TMFIT.
+            Sveglia Soft TMFIT: suono continuo finché non premi Stop. Se iOS sospende l’app in background, parte appena rientri in TMFIT.
           </p>
         )}
       </div>
