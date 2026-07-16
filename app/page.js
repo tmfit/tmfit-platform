@@ -80,12 +80,12 @@ function primeTmfitTimerAudio() {
   }
 }
 
-function playTmfitTimerAlarm() {
+function playTmfitTimerAlarmBurst() {
   if (typeof window === "undefined") return;
 
   try {
     if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate([350, 120, 350, 120, 550]);
+      navigator.vibrate([500, 130, 500, 130, 700]);
     }
   } catch (error) {
     console.warn("TMFIT timer vibration unavailable", error?.message || error);
@@ -100,18 +100,18 @@ function playTmfitTimerAlarm() {
     }
 
     const now = context.currentTime;
-    const pattern = [0, 0.42, 0.84, 1.34];
+    const pattern = [0, 0.34, 0.68, 1.02];
 
     pattern.forEach((offset, index) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       const start = now + offset;
-      const end = start + (index === pattern.length - 1 ? 0.7 : 0.32);
+      const end = start + (index === pattern.length - 1 ? 0.42 : 0.24);
 
       oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(index % 2 === 0 ? 980 : 740, start);
+      oscillator.frequency.setValueAtTime(index % 2 === 0 ? 1040 : 760, start);
       gain.gain.setValueAtTime(0.001, start);
-      gain.gain.exponentialRampToValueAtTime(0.42, start + 0.035);
+      gain.gain.exponentialRampToValueAtTime(0.48, start + 0.035);
       gain.gain.exponentialRampToValueAtTime(0.001, end);
 
       oscillator.connect(gain);
@@ -122,6 +122,55 @@ function playTmfitTimerAlarm() {
   } catch (error) {
     console.warn("TMFIT timer sound unavailable", error?.message || error);
   }
+}
+
+function stopTmfitTimerAlarmLoop() {
+  if (typeof window === "undefined") return;
+
+  try {
+    const loop = window.__tmfitTimerAlarmLoop;
+    if (!loop) return;
+
+    if (loop.soundInterval) {
+      window.clearInterval(loop.soundInterval);
+    }
+
+    if (loop.vibrationInterval) {
+      window.clearInterval(loop.vibrationInterval);
+    }
+
+    window.__tmfitTimerAlarmLoop = null;
+
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate(0);
+    }
+  } catch (error) {
+    console.warn("TMFIT timer alarm stop unavailable", error?.message || error);
+  }
+}
+
+function startTmfitTimerAlarmLoop() {
+  if (typeof window === "undefined") return;
+
+  try {
+    stopTmfitTimerAlarmLoop();
+    playTmfitTimerAlarmBurst();
+
+    const soundInterval = window.setInterval(() => {
+      playTmfitTimerAlarmBurst();
+    }, 1450);
+
+    window.__tmfitTimerAlarmLoop = {
+      soundInterval,
+      vibrationInterval: null
+    };
+  } catch (error) {
+    console.warn("TMFIT timer alarm loop unavailable", error?.message || error);
+  }
+}
+
+function playTmfitTimerAlarm() {
+  startTmfitTimerAlarmLoop();
 }
 const LEGAL_DOCUMENTS = {
   terms: {
@@ -907,10 +956,12 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
   const [running, setRunning] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundPlayed, setSoundPlayed] = useState(false);
+  const [alarmActive, setAlarmActive] = useState(false);
   const [alarmAt, setAlarmAt] = useState(null);
   const alarmAtRef = useRef(null);
   const soundEnabledRef = useRef(true);
   const soundPlayedRef = useRef(false);
+  const alarmActiveRef = useRef(false);
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -920,16 +971,41 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
     soundPlayedRef.current = soundPlayed;
   }, [soundPlayed]);
 
+  useEffect(() => {
+    alarmActiveRef.current = alarmActive;
+  }, [alarmActive]);
+
+  useEffect(() => {
+    if (!soundEnabled) {
+      stopAlarm();
+    }
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    return () => {
+      stopTmfitTimerAlarmLoop();
+    };
+  }, []);
+
+  function stopAlarm() {
+    stopTmfitTimerAlarmLoop();
+    alarmActiveRef.current = false;
+    setAlarmActive(false);
+  }
+
   function triggerAlarmOnce() {
     if (!soundEnabledRef.current || soundPlayedRef.current) return;
 
     soundPlayedRef.current = true;
+    alarmActiveRef.current = true;
     setSoundPlayed(true);
+    setAlarmActive(true);
     playTmfitTimerAlarm();
   }
 
   function startTimer() {
     primeTmfitTimerAudio();
+    stopAlarm();
 
     const nextAlarmAt = Date.now() + initialSeconds * 1000;
     alarmAtRef.current = nextAlarmAt;
@@ -941,6 +1017,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
   }
 
   function resetTimer() {
+    stopAlarm();
     alarmAtRef.current = null;
     setAlarmAt(null);
     setRunning(false);
@@ -1066,8 +1143,10 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
                 }
               >
                 {completed
-                  ? soundEnabled
-                    ? "Recupero finito: allarme inviato."
+                  ? alarmActive
+                    ? "Recupero finito: premi STOP per interrompere l'allarme."
+                    : soundPlayed
+                    ? "Recupero finito: allarme interrotto."
                     : "Recupero finito."
                   : running
                   ? "Timer in corso"
@@ -1117,7 +1196,13 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
             type="button"
             onClick={() => {
               primeTmfitTimerAudio();
-              setSoundEnabled((current) => !current);
+              setSoundEnabled((current) => {
+                const next = !current;
+                if (!next) {
+                  stopAlarm();
+                }
+                return next;
+              });
               setSoundPlayed(false);
               soundPlayedRef.current = false;
             }}
@@ -1133,9 +1218,23 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
           </button>
         </div>
 
+        {alarmActive && soundEnabled && (
+          <button
+            type="button"
+            onClick={stopAlarm}
+            className={
+              prominent
+                ? "h-14 rounded-[1.2rem] bg-red-500 px-4 text-sm font-black uppercase tracking-[0.16em] text-white shadow-lg active:scale-[.97]"
+                : "h-12 rounded-2xl bg-red-500 px-4 text-sm font-black uppercase tracking-[0.14em] text-white shadow-lg active:scale-[.97]"
+            }
+          >
+            Stop allarme
+          </button>
+        )}
+
         {prominent && (
           <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Allarme attivo automaticamente. Se iOS sospende l’app in background, il suono parte appena rientri in TMFIT.
+            Allarme continuo: suona finché non premi Stop. Se iOS sospende l’app in background, parte appena rientri in TMFIT.
           </p>
         )}
       </div>
