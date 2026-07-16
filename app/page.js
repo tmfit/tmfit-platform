@@ -33,6 +33,96 @@ const supabase =
 const LEGAL_VERSION = "tmfit-v1.0";
 const APP_VERSION = "v4.9";
 const APP_VERSION_LABEL = "TMFIT Pro v4.9";
+
+
+function getTmfitTimerAudioContext() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return null;
+
+    if (!window.__tmfitTimerAudioContext) {
+      window.__tmfitTimerAudioContext = new AudioContext();
+    }
+
+    return window.__tmfitTimerAudioContext;
+  } catch (error) {
+    console.warn("TMFIT timer audio context unavailable", error?.message || error);
+    return null;
+  }
+}
+
+function primeTmfitTimerAudio() {
+  if (typeof window === "undefined") return;
+
+  try {
+    const context = getTmfitTimerAudioContext();
+    if (!context) return;
+
+    if (context.state === "suspended") {
+      context.resume?.();
+    }
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, context.currentTime);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.04);
+  } catch (error) {
+    console.warn("TMFIT timer audio prime unavailable", error?.message || error);
+  }
+}
+
+function playTmfitTimerAlarm() {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate([350, 120, 350, 120, 550]);
+    }
+  } catch (error) {
+    console.warn("TMFIT timer vibration unavailable", error?.message || error);
+  }
+
+  try {
+    const context = getTmfitTimerAudioContext();
+    if (!context) return;
+
+    if (context.state === "suspended") {
+      context.resume?.();
+    }
+
+    const now = context.currentTime;
+    const pattern = [0, 0.42, 0.84, 1.34];
+
+    pattern.forEach((offset, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = now + offset;
+      const end = start + (index === pattern.length - 1 ? 0.7 : 0.32);
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(index % 2 === 0 ? 980 : 740, start);
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.exponentialRampToValueAtTime(0.42, start + 0.035);
+      gain.gain.exponentialRampToValueAtTime(0.001, end);
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(end + 0.04);
+    });
+  } catch (error) {
+    console.warn("TMFIT timer sound unavailable", error?.message || error);
+  }
+}
 const LEGAL_DOCUMENTS = {
   terms: {
     title: "Termini e condizioni",
@@ -812,76 +902,114 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
 }
 
 function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
-  const initialSeconds = Number(seconds) || 90;
+  const initialSeconds = Math.max(1, Number(seconds) || 90);
   const [remaining, setRemaining] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundPlayed, setSoundPlayed] = useState(false);
+  const [alarmAt, setAlarmAt] = useState(null);
+  const alarmAtRef = useRef(null);
+  const soundEnabledRef = useRef(true);
+  const soundPlayedRef = useRef(false);
 
   useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    soundPlayedRef.current = soundPlayed;
+  }, [soundPlayed]);
+
+  function triggerAlarmOnce() {
+    if (!soundEnabledRef.current || soundPlayedRef.current) return;
+
+    soundPlayedRef.current = true;
+    setSoundPlayed(true);
+    playTmfitTimerAlarm();
+  }
+
+  function startTimer() {
+    primeTmfitTimerAudio();
+
+    const nextAlarmAt = Date.now() + initialSeconds * 1000;
+    alarmAtRef.current = nextAlarmAt;
+    setAlarmAt(nextAlarmAt);
     setRemaining(initialSeconds);
-    setRunning(autoStart);
     setSoundPlayed(false);
-  }, [initialSeconds, autoStart]);
+    soundPlayedRef.current = false;
+    setRunning(true);
+  }
 
-  function playTimerSound() {
-    if (typeof window === "undefined") return;
-
-    try {
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
-        navigator.vibrate([250, 120, 250]);
-      }
-    } catch (error) {
-      console.warn("Timer vibration unavailable", error?.message || error);
-    }
-
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) return;
-
-      const context = new AudioContext();
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(880, context.currentTime);
-      gain.gain.setValueAtTime(0.001, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.35, context.currentTime + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.75);
-
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.8);
-    } catch (error) {
-      console.warn("Timer sound unavailable", error?.message || error);
-    }
+  function resetTimer() {
+    alarmAtRef.current = null;
+    setAlarmAt(null);
+    setRunning(false);
+    setRemaining(initialSeconds);
+    setSoundPlayed(false);
+    soundPlayedRef.current = false;
   }
 
   useEffect(() => {
-    if (remaining === 0 && soundEnabled && !soundPlayed) {
-      setSoundPlayed(true);
-      playTimerSound();
+    resetTimer();
+
+    if (autoStart) {
+      const timeout = window.setTimeout(startTimer, 80);
+      return () => window.clearTimeout(timeout);
     }
-  }, [remaining, soundEnabled, soundPlayed]);
+
+    return undefined;
+  }, [initialSeconds, autoStart]);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running || !alarmAt) return undefined;
 
-    const interval = setInterval(() => {
-      setRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setRunning(false);
-          return 0;
-        }
+    const tick = () => {
+      const nextRemaining = Math.max(0, Math.ceil((alarmAt - Date.now()) / 1000));
+      setRemaining(nextRemaining);
 
-        return prev - 1;
-      });
-    }, 1000);
+      if (nextRemaining <= 0) {
+        setRunning(false);
+        triggerAlarmOnce();
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [running]);
+    tick();
+    const interval = window.setInterval(tick, 500);
+
+    return () => window.clearInterval(interval);
+  }, [running, alarmAt]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const checkExpiredAfterBackground = () => {
+      const savedAlarmAt = alarmAtRef.current;
+      if (!savedAlarmAt) return;
+
+      const expired = Date.now() >= savedAlarmAt;
+      if (!expired) return;
+
+      setRemaining(0);
+      setRunning(false);
+      triggerAlarmOnce();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkExpiredAfterBackground();
+      }
+    };
+
+    window.addEventListener("focus", checkExpiredAfterBackground);
+    window.addEventListener("pageshow", checkExpiredAfterBackground);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", checkExpiredAfterBackground);
+      window.removeEventListener("pageshow", checkExpiredAfterBackground);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const minutes = Math.floor(remaining / 60);
   const secs = remaining % 60;
@@ -939,7 +1067,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
               >
                 {completed
                   ? soundEnabled
-                    ? "Recupero finito: avviso inviato."
+                    ? "Recupero finito: allarme inviato."
                     : "Recupero finito."
                   : running
                   ? "Timer in corso"
@@ -951,7 +1079,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
           {prominent && (
             <div className="rounded-2xl bg-white/10 px-3 py-2 text-center">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
-                Avviso
+                Allarme
               </p>
               <p className="mt-1 text-xs font-black text-white">
                 {soundEnabled ? "ON" : "OFF"}
@@ -963,10 +1091,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
         <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
-            onClick={() => {
-              setRunning(true);
-              setSoundPlayed(false);
-            }}
+            onClick={startTimer}
             className={
               prominent
                 ? "h-12 rounded-2xl bg-teal-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
@@ -978,11 +1103,7 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
 
           <button
             type="button"
-            onClick={() => {
-              setRunning(false);
-              setRemaining(initialSeconds);
-              setSoundPlayed(false);
-            }}
+            onClick={resetTimer}
             className={
               prominent
                 ? "h-12 rounded-2xl bg-white/10 px-3 text-xs font-black text-white active:scale-[.97]"
@@ -995,8 +1116,10 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
           <button
             type="button"
             onClick={() => {
+              primeTmfitTimerAudio();
               setSoundEnabled((current) => !current);
               setSoundPlayed(false);
+              soundPlayedRef.current = false;
             }}
             className={
               soundEnabled
@@ -1006,13 +1129,13 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
                 : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
             }
           >
-            {soundEnabled ? "Avviso ON" : "Avviso OFF"}
+            {soundEnabled ? "Allarme ON" : "Allarme OFF"}
           </button>
         </div>
 
         {prominent && (
           <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Per sentire il suono tieni aperta l’app durante il recupero.
+            Allarme attivo automaticamente. Se iOS sospende l’app in background, il suono parte appena rientri in TMFIT.
           </p>
         )}
       </div>
@@ -14515,6 +14638,7 @@ function WorkoutPlayerModal({
       return;
     }
 
+    primeTmfitTimerAudio();
     setSaving(true);
     const saveResult = await saveSetLog(plan, day, exercise, currentSet, freshestDraft);
     setSaving(false);
