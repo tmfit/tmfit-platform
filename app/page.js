@@ -2954,6 +2954,19 @@ function detectStrictDailyMealHeading(line) {
   const exact = strictMeals.find((meal) => normalized === meal);
   if (exact) return dietMealLabel(exact);
 
+  // Alcuni piani distinguono lo stesso pasto in base al turno di lavoro.
+  // Queste sono intestazioni reali e separate, non testo della nota precedente.
+  // Esempi: "COLAZIONE TURNO MATTINA" e "COLAZIONE TURNO POMERIGGIO".
+  const shiftMeal = normalized.match(
+    /^(COLAZIONE|PRANZO|MERENDA|CENA)\s+(TURNO\s+)?(MATTINA|POMERIGGIO|SERA|NOTTE)$/
+  );
+
+  if (shiftMeal) {
+    const baseLabel = dietMealLabel(shiftMeal[1]);
+    const shiftLabel = `${shiftMeal[2] ? "turno " : ""}${shiftMeal[3].toLowerCase()}`;
+    return `${baseLabel} ${shiftLabel}`.trim();
+  }
+
   const numbered = normalized.match(
     /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)\s+\d+$/
   );
