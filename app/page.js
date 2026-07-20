@@ -15455,10 +15455,19 @@ function WorkoutPlayerModal({
 
   function shouldStartRecoveryAfterCurrentSet() {
     if (!currentExecutionStep?.grouped) return true;
-    if (!nextExecutionStep) return false;
-    if (nextExecutionStep.blockKey !== currentExecutionStep.blockKey) return false;
 
-    return nextExecutionStep.roundIndex > currentExecutionStep.roundIndex;
+    // In superserie/triset il recupero parte soltanto dopo l'ultimo esercizio
+    // del giro. Se il prossimo step appartiene allo stesso giro, si passa subito
+    // al prossimo esercizio senza timer.
+    if (
+      nextExecutionStep &&
+      nextExecutionStep.blockKey === currentExecutionStep.blockKey &&
+      nextExecutionStep.roundIndex === currentExecutionStep.roundIndex
+    ) {
+      return false;
+    }
+
+    return true;
   }
 
   function goPrevious() {
@@ -15515,7 +15524,10 @@ function WorkoutPlayerModal({
     if (currentSetSaved) return nextActionLabel();
 
     if (currentExecutionStep?.grouped && !shouldStartRecoveryAfterCurrentSet()) {
-      return "Salva e continua";
+      const nextExerciseName = exercises[nextExecutionStep?.exerciseIndex]?.exercise_name;
+      return nextExerciseName
+        ? `Salva e passa a ${nextExerciseName}`
+        : "Salva e passa al prossimo esercizio";
     }
 
     return "Salva e avvia timer";
@@ -15595,6 +15607,31 @@ function WorkoutPlayerModal({
       latestDraftsRef.current = nextDrafts;
 
       const startRecovery = shouldStartRecoveryAfterCurrentSet();
+      const moveDirectlyToNextGroupExercise = Boolean(
+        currentExecutionStep?.grouped &&
+        !startRecovery &&
+        nextExecutionStep &&
+        nextExecutionStep.blockKey === currentExecutionStep.blockKey &&
+        nextExecutionStep.roundIndex === currentExecutionStep.roundIndex
+      );
+
+      if (moveDirectlyToNextGroupExercise) {
+        // Una sola azione: salva peso/ripetizioni dell'esercizio corrente e
+        // apre immediatamente l'esercizio successivo dello stesso giro.
+        persistWorkoutStateNow({
+          completedSetKeys: nextCompletedSetKeys,
+          resting: false,
+          drafts: nextDrafts,
+          exerciseIndex: nextExecutionStep.exerciseIndex,
+          setIndex: nextExecutionStep.setIndex
+        });
+
+        setCompletedSetKeys(nextCompletedSetKeys);
+        setResting(false);
+        setExerciseIndex(nextExecutionStep.exerciseIndex);
+        setSetIndex(nextExecutionStep.setIndex);
+        return;
+      }
 
       persistWorkoutStateNow({
         completedSetKeys: nextCompletedSetKeys,
@@ -16082,8 +16119,8 @@ function WorkoutPlayerModal({
                     ? "Serie salvata. Peso e reps restano bloccati."
                     : setHasRequiredExecutionData
                     ? currentExecutionStep?.grouped && !shouldStartRecoveryAfterCurrentSet()
-                      ? "Ora puoi salvare e passare all’esercizio successivo della sequenza."
-                      : "Ora puoi salvare la serie e avviare il timer."
+                      ? "Salvando passerai subito all’esercizio successivo, senza reinserire questa serie."
+                      : "Salvando partirà subito il timer di recupero."
                     : "Compila peso kg e ripetizioni: senza questi dati non puoi proseguire."}
                 </div>
               </Card>
