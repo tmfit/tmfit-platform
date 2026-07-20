@@ -488,6 +488,73 @@ function workoutGroupLabel(metaOrExercise = {}) {
   return meta.label ? `${base} ${meta.label}` : base;
 }
 
+function buildWorkoutExecutionBlocks(exercises = []) {
+  const blocks = [];
+  let index = 0;
+
+  while (index < exercises.length) {
+    const exercise = exercises[index];
+    const meta = workoutGroupMetaForExercise(exercise);
+    const type = normalizeWorkoutGroupType(meta.type);
+    const label = String(meta.label || "").trim().toUpperCase();
+
+    if (!type) {
+      blocks.push({
+        key: `single-${exercise?.id || index}`,
+        type: "single",
+        label: "",
+        exerciseIndexes: [index]
+      });
+      index += 1;
+      continue;
+    }
+
+    const expectedSize = type === "triset" ? 3 : 2;
+    const exerciseIndexes = [index];
+    let cursor = index + 1;
+
+    while (cursor < exercises.length) {
+      const nextMeta = workoutGroupMetaForExercise(exercises[cursor]);
+      const nextType = normalizeWorkoutGroupType(nextMeta.type);
+      const nextLabel = String(nextMeta.label || "").trim().toUpperCase();
+
+      if (nextType !== type) break;
+
+      if (label || nextLabel) {
+        if (nextLabel !== label) break;
+        exerciseIndexes.push(cursor);
+        cursor += 1;
+        continue;
+      }
+
+      if (exerciseIndexes.length >= expectedSize) break;
+      exerciseIndexes.push(cursor);
+      cursor += 1;
+    }
+
+    if (exerciseIndexes.length < 2) {
+      blocks.push({
+        key: `single-${exercise?.id || index}`,
+        type: "single",
+        label: "",
+        exerciseIndexes: [index]
+      });
+      index += 1;
+      continue;
+    }
+
+    blocks.push({
+      key: `${type}-${label || "group"}-${index}`,
+      type,
+      label,
+      exerciseIndexes
+    });
+    index = cursor;
+  }
+
+  return blocks;
+}
+
 function encodeWorkoutNotes(value, groupType, groupLabel) {
   const cleaned = cleanWorkoutNotes(value);
   const type = normalizeWorkoutGroupType(groupType);
@@ -6950,6 +7017,25 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   }, [selectedClientId, clients.length]);
 
   useEffect(() => {
+    if (activeTab !== "monitor" || !selectedClient?.id || typeof window === "undefined") {
+      return undefined;
+    }
+
+    let active = true;
+    const refreshMonitor = () => {
+      if (active) refreshSelectedClientMonitor(selectedClient.id);
+    };
+
+    refreshMonitor();
+    const interval = window.setInterval(refreshMonitor, 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [activeTab, selectedClient?.id]);
+
+  useEffect(() => {
     if (!programBuilderDraftKey) return;
 
     const saved = safeReadLocalJson(programBuilderDraftKey, null);
@@ -7161,7 +7247,7 @@ async function loadTemplates() {
       .select("*")
       .eq("client_id", numericClientId)
       .order("created_at", { ascending: false })
-      .limit(30);
+      .limit(60);
 
     setSessions(sessionData || []);
 
@@ -7172,7 +7258,7 @@ async function loadTemplates() {
       )
       .eq("workout_sessions.client_id", numericClientId)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(500);
 
     setLogs(logData || []);
 
@@ -7230,6 +7316,49 @@ if (historyError) {
       .order("created_at", { ascending: false });
 
     setPrivateNotes(noteData || []);
+  }
+
+  async function refreshSelectedClientMonitor(clientId) {
+    const numericClientId = Number(clientId);
+    if (!numericClientId) return;
+
+    const [sessionResult, logResult, checkinResult, photoResult] = await Promise.all([
+      supabase
+        .from("workout_sessions")
+        .select("*")
+        .eq("client_id", numericClientId)
+        .order("created_at", { ascending: false })
+        .limit(60),
+      supabase
+        .from("workout_set_logs")
+        .select(
+          "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
+        )
+        .eq("workout_sessions.client_id", numericClientId)
+        .order("created_at", { ascending: false })
+        .limit(500),
+      supabase
+        .from("client_checkins")
+        .select("*")
+        .eq("client_id", numericClientId)
+        .order("checkin_date", { ascending: false })
+        .limit(30),
+      supabase
+        .from("progress_photos")
+        .select("*")
+        .eq("client_id", numericClientId)
+        .order("photo_date", { ascending: false })
+    ]);
+
+    if (sessionResult.error) console.warn(sessionResult.error.message);
+    if (logResult.error) console.warn(logResult.error.message);
+    if (checkinResult.error) console.warn(checkinResult.error.message);
+    if (photoResult.error) console.warn(photoResult.error.message);
+
+    if (!sessionResult.error) setSessions(sessionResult.data || []);
+    if (!logResult.error) setLogs(logResult.data || []);
+    if (!checkinResult.error) setCheckins(checkinResult.data || []);
+    if (!photoResult.error) setPhotos(photoResult.data || []);
   }
 
   async function loadPosts() {
@@ -11668,7 +11797,9 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
             <CoachMonitorPanel
               selectedClient={selectedClient}
               checkins={checkins}
+              sessions={sessions}
               logs={logs}
+              plans={plans}
               photos={photos}
               openStorageFile={openStorageFile}
             />
@@ -15073,6 +15204,71 @@ function WorkoutPlayerModal({
     0
   );
 
+  const executionBlocks = buildWorkoutExecutionBlocks(exercises);
+  const executionSteps = executionBlocks.flatMap((block) => {
+    if (block.type === "single") {
+      const itemIndex = block.exerciseIndexes[0];
+      return plannedSetsForExercise(exercises[itemIndex]).map((_, itemSetIndex) => ({
+        blockKey: block.key,
+        grouped: false,
+        groupType: "",
+        groupLabel: "",
+        groupSize: 1,
+        groupPosition: 0,
+        roundIndex: itemSetIndex,
+        roundCount: plannedSetsForExercise(exercises[itemIndex]).length,
+        exerciseIndex: itemIndex,
+        setIndex: itemSetIndex
+      }));
+    }
+
+    const roundCount = Math.max(
+      0,
+      ...block.exerciseIndexes.map((itemIndex) =>
+        plannedSetsForExercise(exercises[itemIndex]).length
+      )
+    );
+    const steps = [];
+
+    for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
+      block.exerciseIndexes.forEach((itemIndex, groupPosition) => {
+        if (plannedSetsForExercise(exercises[itemIndex])[roundIndex]) {
+          steps.push({
+            blockKey: block.key,
+            grouped: true,
+            groupType: block.type,
+            groupLabel: block.label,
+            groupSize: block.exerciseIndexes.length,
+            groupPosition,
+            roundIndex,
+            roundCount,
+            exerciseIndex: itemIndex,
+            setIndex: roundIndex
+          });
+        }
+      });
+    }
+
+    return steps;
+  });
+  const currentExecutionStepIndex = executionSteps.findIndex(
+    (step) => step.exerciseIndex === exerciseIndex && step.setIndex === setIndex
+  );
+  const currentExecutionStep =
+    executionSteps[currentExecutionStepIndex >= 0 ? currentExecutionStepIndex : 0] || null;
+  const previousExecutionStep =
+    currentExecutionStepIndex > 0 ? executionSteps[currentExecutionStepIndex - 1] : null;
+  const nextExecutionStep =
+    currentExecutionStepIndex >= 0 && currentExecutionStepIndex < executionSteps.length - 1
+      ? executionSteps[currentExecutionStepIndex + 1]
+      : null;
+  const currentExecutionBlock = currentExecutionStep
+    ? executionBlocks.find((block) => block.key === currentExecutionStep.blockKey) || null
+    : null;
+  const currentGroupExercises = currentExecutionBlock?.exerciseIndexes?.map(
+    (itemIndex) => exercises[itemIndex]
+  ) || [];
+
   const setToken =
     currentSet?.id || currentSet?.temp_id || `virtual-${currentSet?.set_number}`;
   const draftKey = exercise && currentSet ? `${exercise.id}-${setToken}` : "";
@@ -15140,8 +15336,7 @@ function WorkoutPlayerModal({
   const videoUrl = exercise?.video_url || exercise?.image_url || "";
   const history = exercise ? getExerciseHistory(exercise) : [];
   const lastHistory = history[0] || null;
-  const nextExercise = exercises[exerciseIndex + 1] || null;
-  const canGoPrevious = exerciseIndex > 0 || setIndex > 0;
+  const canGoPrevious = Boolean(previousExecutionStep);
   const currentSetSaved = Boolean(draftKey && completedSetKeys.includes(draftKey));
   const setHasRequiredExecutionData = hasRequiredSeriesInputs(draft, currentSetSaved);
   const executionLocked = currentSetSaved || resting;
@@ -15258,49 +15453,38 @@ function WorkoutPlayerModal({
     return parts.length ? parts.join(" · ") : "target libero";
   }
 
+  function shouldStartRecoveryAfterCurrentSet() {
+    if (!currentExecutionStep?.grouped) return true;
+    if (!nextExecutionStep) return false;
+    if (nextExecutionStep.blockKey !== currentExecutionStep.blockKey) return false;
+
+    return nextExecutionStep.roundIndex > currentExecutionStep.roundIndex;
+  }
+
   function goPrevious() {
+    if (!previousExecutionStep) return;
+
     setResting(false);
-
-    if (setIndex > 0) {
-      const nextSetIndex = Math.max(0, setIndex - 1);
-      persistWorkoutStateNow({ resting: false, setIndex: nextSetIndex });
-      setSetIndex(nextSetIndex);
-      return;
-    }
-
-    if (exerciseIndex > 0) {
-      const previousIndex = exerciseIndex - 1;
-      const previousSets = plannedSetsForExercise(exercises[previousIndex]);
-      const nextSetIndex = Math.max(0, previousSets.length - 1);
-      persistWorkoutStateNow({
-        resting: false,
-        exerciseIndex: previousIndex,
-        setIndex: nextSetIndex
-      });
-      setExerciseIndex(previousIndex);
-      setSetIndex(nextSetIndex);
-    }
+    persistWorkoutStateNow({
+      resting: false,
+      exerciseIndex: previousExecutionStep.exerciseIndex,
+      setIndex: previousExecutionStep.setIndex
+    });
+    setExerciseIndex(previousExecutionStep.exerciseIndex);
+    setSetIndex(previousExecutionStep.setIndex);
   }
 
   function goNext() {
     setResting(false);
 
-    if (setIndex < plannedSets.length - 1) {
-      const nextSetIndex = setIndex + 1;
-      persistWorkoutStateNow({ resting: false, setIndex: nextSetIndex });
-      setSetIndex(nextSetIndex);
-      return;
-    }
-
-    if (exerciseIndex < exercises.length - 1) {
-      const nextExerciseIndex = exerciseIndex + 1;
+    if (nextExecutionStep) {
       persistWorkoutStateNow({
         resting: false,
-        exerciseIndex: nextExerciseIndex,
-        setIndex: 0
+        exerciseIndex: nextExecutionStep.exerciseIndex,
+        setIndex: nextExecutionStep.setIndex
       });
-      setExerciseIndex(nextExerciseIndex);
-      setSetIndex(0);
+      setExerciseIndex(nextExecutionStep.exerciseIndex);
+      setSetIndex(nextExecutionStep.setIndex);
       return;
     }
 
@@ -15309,15 +15493,32 @@ function WorkoutPlayerModal({
   }
 
   function nextActionLabel() {
-    if (setIndex < plannedSets.length - 1) return "Prossima serie";
-    if (nextExercise) return "Prossimo esercizio";
-    return "Riepilogo";
+    if (!nextExecutionStep) return "Riepilogo";
+
+    if (
+      currentExecutionStep?.grouped &&
+      nextExecutionStep.blockKey === currentExecutionStep.blockKey
+    ) {
+      if (nextExecutionStep.roundIndex > currentExecutionStep.roundIndex) {
+        return "Giro successivo";
+      }
+
+      return "Prossimo esercizio";
+    }
+
+    if (nextExecutionStep.exerciseIndex === exerciseIndex) return "Prossima serie";
+    return "Prossimo esercizio";
   }
 
   function primaryWorkoutActionLabel() {
     if (saving) return "Salvataggio...";
-    if (!currentSetSaved) return "Salva e avvia timer";
-    return nextActionLabel();
+    if (currentSetSaved) return nextActionLabel();
+
+    if (currentExecutionStep?.grouped && !shouldStartRecoveryAfterCurrentSet()) {
+      return "Salva e continua";
+    }
+
+    return "Salva e avvia timer";
   }
 
   async function handlePrimaryWorkoutAction() {
@@ -15393,16 +15594,18 @@ function WorkoutPlayerModal({
 
       latestDraftsRef.current = nextDrafts;
 
+      const startRecovery = shouldStartRecoveryAfterCurrentSet();
+
       persistWorkoutStateNow({
         completedSetKeys: nextCompletedSetKeys,
-        resting: true,
+        resting: startRecovery,
         drafts: nextDrafts
       });
 
       setCompletedSetKeys(nextCompletedSetKeys);
-      setResting(true);
+      setResting(startRecovery);
 
-      if (typeof window !== "undefined") {
+      if (startRecovery && typeof window !== "undefined") {
         window.setTimeout(() => {
           document
             .getElementById("tmfit-rest-timer")
@@ -15596,6 +15799,26 @@ function WorkoutPlayerModal({
                       {exerciseGroupText && (
                         <div className="mt-2 inline-flex rounded-full bg-teal-50 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-teal-700 ring-1 ring-teal-100">
                           {exerciseGroupText}
+                        </div>
+                      )}
+                      {currentExecutionStep?.grouped && (
+                        <div className="mt-3 rounded-2xl border border-teal-100 bg-teal-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-teal-700">
+                              Sequenza {currentExecutionStep.groupType === "triset" ? "triset" : "superserie"}
+                            </p>
+                            <Pill className="bg-white text-teal-800">
+                              Giro {currentExecutionStep.roundIndex + 1}/{currentExecutionStep.roundCount}
+                            </Pill>
+                          </div>
+                          <p className="mt-2 text-xs font-bold leading-5 text-teal-900">
+                            {currentGroupExercises
+                              .map((item, index) => `${index + 1}. ${item?.exercise_name || "Esercizio"}`)
+                              .join(" → ")}
+                          </p>
+                          <p className="mt-1 text-[11px] font-semibold text-teal-700">
+                            Il recupero parte solo dopo l’ultimo esercizio del giro.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -15858,8 +16081,10 @@ function WorkoutPlayerModal({
                   {currentSetSaved
                     ? "Serie salvata. Peso e reps restano bloccati."
                     : setHasRequiredExecutionData
-                    ? "Ora puoi salvare la serie e avviare il timer."
-                    : "Compila peso kg e ripetizioni: senza questi dati il timer non parte."}
+                    ? currentExecutionStep?.grouped && !shouldStartRecoveryAfterCurrentSet()
+                      ? "Ora puoi salvare e passare all’esercizio successivo della sequenza."
+                      : "Ora puoi salvare la serie e avviare il timer."
+                    : "Compila peso kg e ripetizioni: senza questi dati non puoi proseguire."}
                 </div>
               </Card>
             </div>
@@ -15973,7 +16198,9 @@ function WorkoutPlayerModal({
 function CoachMonitorPanel({
   selectedClient,
   checkins = [],
+  sessions = [],
   logs = [],
+  plans = [],
   photos = [],
   openStorageFile
 }) {
@@ -15981,22 +16208,30 @@ function CoachMonitorPanel({
   const visibleCheckins = clientId
     ? checkins.filter((item) => String(item.client_id) === clientId)
     : checkins;
+  const visibleSessions = clientId
+    ? sessions.filter((item) => String(item.client_id) === clientId)
+    : sessions;
   const visibleLogs = clientId
-    ? logs.filter((item) => String(item.client_id) === clientId)
+    ? logs.filter((item) =>
+        String(item.workout_sessions?.client_id || item.client_id || clientId) === clientId
+      )
     : logs;
   const visiblePhotos = clientId
     ? photos.filter((item) => String(item.client_id) === clientId)
     : photos;
   const [selectedCheckinDetail, setSelectedCheckinDetail] = useState(null);
+  const [selectedWorkoutReport, setSelectedWorkoutReport] = useState(null);
 
-  function formatDate(value) {
+  function formatDate(value, includeTime = false) {
     if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+
     return date.toLocaleDateString("it-IT", {
       day: "2-digit",
       month: "2-digit",
-      year: "2-digit"
+      year: "2-digit",
+      ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {})
     });
   }
 
@@ -16014,19 +16249,15 @@ function CoachMonitorPanel({
     if (Number(checkin.energy_level) > 0 && Number(checkin.energy_level) <= 4) {
       alerts.push({ label: "Energia bassa", text: `${checkin.energy_level}/10`, tone: "red" });
     }
-
     if (Number(checkin.sleep_quality) > 0 && Number(checkin.sleep_quality) <= 4) {
       alerts.push({ label: "Sonno basso", text: `${checkin.sleep_quality}/10`, tone: "red" });
     }
-
     if (Number(checkin.stress_level) >= 8) {
       alerts.push({ label: "Stress alto", text: `${checkin.stress_level}/10`, tone: "red" });
     }
-
     if (Number(checkin.diet_adherence) > 0 && Number(checkin.diet_adherence) <= 5) {
       alerts.push({ label: "Aderenza dieta bassa", text: `${checkin.diet_adherence}/10`, tone: "amber" });
     }
-
     if (Number(checkin.training_adherence) > 0 && Number(checkin.training_adherence) <= 5) {
       alerts.push({ label: "Aderenza allenamento bassa", text: `${checkin.training_adherence}/10`, tone: "amber" });
     }
@@ -16034,12 +16265,112 @@ function CoachMonitorPanel({
     return alerts;
   }
 
+  const workoutDayById = new Map();
+  const workoutPlanById = new Map();
+
+  (plans || []).forEach((plan) => {
+    workoutPlanById.set(String(plan.id), plan);
+    (plan.workout_weeks || []).forEach((week) => {
+      (week.workout_days || []).forEach((day) => {
+        workoutDayById.set(String(day.id), { day, plan });
+      });
+    });
+  });
+
+  function plannedSetsForMonitorExercise(exercise) {
+    const realSets = exercise?.workout_exercise_sets || [];
+    if (realSets.length > 0) return realSets.length;
+    return Math.max(1, Number(exercise?.sets || exercise?.series) || 1);
+  }
+
+  function plannedSetsForSession(sessionItem) {
+    const linked = workoutDayById.get(String(sessionItem?.day_id || ""));
+    const day = linked?.day;
+    if (!day) return 0;
+
+    return (day.workout_blocks || [])
+      .flatMap((block) => block.workout_exercises || [])
+      .reduce((sum, exercise) => sum + plannedSetsForMonitorExercise(exercise), 0);
+  }
+
+  const logsBySession = new Map();
+  visibleLogs.forEach((log) => {
+    const sessionId = String(log.session_id || "");
+    if (!sessionId) return;
+    if (!logsBySession.has(sessionId)) logsBySession.set(sessionId, []);
+    logsBySession.get(sessionId).push(log);
+  });
+
+  const workoutReports = visibleSessions
+    .map((sessionItem) => {
+      const sessionLogs = [...(logsBySession.get(String(sessionItem.id)) || [])].sort(
+        (left, right) => {
+          const leftTime = new Date(left.created_at || 0).getTime();
+          const rightTime = new Date(right.created_at || 0).getTime();
+          return leftTime - rightTime;
+        }
+      );
+      const linked = workoutDayById.get(String(sessionItem.day_id || ""));
+      const linkedPlan = linked?.plan || workoutPlanById.get(String(sessionItem.plan_id || ""));
+      const exerciseGroups = new Map();
+
+      sessionLogs.forEach((log) => {
+        const exerciseKey = String(
+          log.workout_exercise_id || log.workout_exercises?.exercise_name || "exercise"
+        );
+        if (!exerciseGroups.has(exerciseKey)) {
+          exerciseGroups.set(exerciseKey, {
+            key: exerciseKey,
+            name: log.workout_exercises?.exercise_name || "Esercizio",
+            sets: []
+          });
+        }
+        exerciseGroups.get(exerciseKey).sets.push(log);
+      });
+
+      const completedSets = sessionLogs.filter((log) => log.completed !== false).length;
+      const plannedSets = plannedSetsForSession(sessionItem);
+      const totalVolume = sessionLogs.reduce((sum, log) => {
+        const load = Number(log.load_kg) || 0;
+        const reps = Number(log.reps_done) || 0;
+        return sum + load * reps;
+      }, 0);
+      const rpeValues = sessionLogs.map((log) => Number(log.rpe)).filter((value) => value > 0);
+      const rirValues = sessionLogs.map((log) => Number(log.rir)).filter((value) => value >= 0 && Number.isFinite(value));
+      const completion = plannedSets
+        ? Math.min(100, Math.round((completedSets / plannedSets) * 100))
+        : completedSets > 0
+        ? 100
+        : 0;
+
+      return {
+        session: sessionItem,
+        date: sessionItem.created_at || sessionItem.session_date,
+        title: linked?.day?.title || linkedPlan?.title || "Allenamento",
+        planTitle: linkedPlan?.title || "Programma",
+        completedSets,
+        plannedSets,
+        completion,
+        totalVolume,
+        averageRpe: rpeValues.length
+          ? rpeValues.reduce((sum, value) => sum + value, 0) / rpeValues.length
+          : null,
+        averageRir: rirValues.length
+          ? rirValues.reduce((sum, value) => sum + value, 0) / rirValues.length
+          : null,
+        exerciseCount: exerciseGroups.size,
+        exercises: Array.from(exerciseGroups.values())
+      };
+    })
+    .filter((report) => report.completedSets > 0)
+    .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
+
   const latestCheckin = visibleCheckins[0] || null;
   const latestPhoto = visiblePhotos[0] || null;
-  const latestLog = visibleLogs[0] || null;
+  const latestWorkout = workoutReports[0] || null;
   const latestCheckinDays = daysFrom(latestCheckin?.checkin_date || latestCheckin?.created_at);
   const latestPhotoDays = daysFrom(latestPhoto?.photo_date || latestPhoto?.created_at);
-  const latestLogDays = daysFrom(latestLog?.created_at || latestLog?.session_date);
+  const latestWorkoutDays = daysFrom(latestWorkout?.date);
   const alerts = getCheckinAlerts(latestCheckin);
 
   const selectedCheckinMetrics = selectedCheckinDetail
@@ -16064,9 +16395,9 @@ function CoachMonitorPanel({
       text: latestCheckin ? formatDate(latestCheckin.checkin_date || latestCheckin.created_at) : "Non presente"
     },
     {
-      label: "Serie registrate",
-      value: visibleLogs.length,
-      text: latestLog ? `Ultima: ${formatDate(latestLog.created_at || latestLog.session_date)}` : "Nessun log"
+      label: "Allenamenti",
+      value: workoutReports.length,
+      text: latestWorkoutDays === null ? "Nessun allenamento" : `Ultimo ${latestWorkoutDays}g fa`
     },
     {
       label: "Foto progressi",
@@ -16075,19 +16406,25 @@ function CoachMonitorPanel({
     }
   ];
 
+  function formatDecimal(value, digits = 1) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+    return Number(value).toLocaleString("it-IT", {
+      maximumFractionDigits: digits,
+      minimumFractionDigits: Number(value) % 1 === 0 ? 0 : digits
+    });
+  }
+
   return (
     <div className="space-y-4">
       <Card className="border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-              Monitor
-            </p>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">Monitor</p>
             <h2 className="mt-1 text-2xl font-black text-slate-950">
               {selectedClient ? fullName(selectedClient) : "Monitor clienti"}
             </h2>
             <p className="mt-1 text-sm font-semibold text-slate-500">
-              Check-in, allenamenti e foto in una schermata pulita. Niente overlay blu.
+              Check-in, resoconti allenamento e foto in un’unica schermata.
             </p>
           </div>
 
@@ -16100,9 +16437,7 @@ function CoachMonitorPanel({
       <div className="grid gap-3 md:grid-cols-3">
         {kpis.map((item) => (
           <Card key={item.label} className="border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-              {item.label}
-            </p>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{item.label}</p>
             <p className="mt-2 text-3xl font-black text-slate-950">{item.value}</p>
             <p className="mt-1 text-sm font-bold text-slate-500">{item.text}</p>
           </Card>
@@ -16111,10 +16446,72 @@ function CoachMonitorPanel({
 
       <Card className="border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-lg font-black text-slate-950">Resoconti allenamento</h3>
+          <Pill className="bg-slate-100 text-slate-700">Aggiornamento automatico</Pill>
+        </div>
+
+        <div className="space-y-3">
+          {workoutReports.slice(0, 12).map((report) => (
+            <button
+              key={report.session.id}
+              type="button"
+              onClick={() => setSelectedWorkoutReport(report)}
+              className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-teal-200 hover:bg-teal-50/40 active:scale-[.99]"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-black text-slate-950">{report.title}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {report.planTitle} · {formatDate(report.date, true)}
+                  </p>
+                </div>
+                <Pill className={report.completion >= 100 ? "bg-teal-100 text-teal-800" : "bg-amber-100 text-amber-800"}>
+                  {report.completion >= 100 ? "Completato" : `${report.completion}% svolto`}
+                </Pill>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xl font-black text-slate-950">{report.exerciseCount}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Esercizi</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xl font-black text-slate-950">
+                    {report.completedSets}/{report.plannedSets || report.completedSets}
+                  </p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Serie</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xl font-black text-slate-950">{formatDecimal(report.totalVolume, 0)}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Volume kg</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xl font-black text-slate-950">{formatDecimal(report.averageRpe)}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">RPE medio</p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-teal-400" style={{ width: `${report.completion}%` }} />
+                </div>
+                <span className="rounded-full bg-[#07111f] px-3 py-1 text-[11px] font-black text-white">
+                  Vedi resoconto
+                </span>
+              </div>
+            </button>
+          ))}
+
+          {workoutReports.length === 0 && (
+            <Empty title="Nessun allenamento" text="Quando il cliente salva le serie, il resoconto apparirà qui." />
+          )}
+        </div>
+      </Card>
+
+      <Card className="border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <h3 className="text-lg font-black text-slate-950">Alert check-in</h3>
-          <Pill className="bg-slate-100 text-slate-700">
-            Ultimo check-in
-          </Pill>
+          <Pill className="bg-slate-100 text-slate-700">Ultimo check-in</Pill>
         </div>
 
         {alerts.length > 0 ? (
@@ -16134,10 +16531,7 @@ function CoachMonitorPanel({
             ))}
           </div>
         ) : (
-          <Empty
-            title="Nessun alert critico"
-            text="L’ultimo check-in non mostra segnali critici evidenti."
-          />
+          <Empty title="Nessun alert critico" text="L’ultimo check-in non mostra segnali critici evidenti." />
         )}
       </Card>
 
@@ -16153,16 +16547,10 @@ function CoachMonitorPanel({
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-teal-200 hover:bg-teal-50/50 active:scale-[.99]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-black text-slate-950">
-                    {formatDate(checkin.checkin_date || checkin.created_at)}
-                  </p>
+                  <p className="font-black text-slate-950">{formatDate(checkin.checkin_date || checkin.created_at)}</p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Pill className="bg-white text-slate-700">
-                      Peso {checkin.weight_kg || "—"} kg
-                    </Pill>
-                    <span className="rounded-full bg-[#07111f] px-3 py-1 text-[11px] font-black text-white">
-                      Vedi tutto
-                    </span>
+                    <Pill className="bg-white text-slate-700">Peso {checkin.weight_kg || "—"} kg</Pill>
+                    <span className="rounded-full bg-[#07111f] px-3 py-1 text-[11px] font-black text-white">Vedi tutto</span>
                   </div>
                 </div>
                 <p className="mt-2 text-sm font-bold text-slate-600">
@@ -16172,9 +16560,7 @@ function CoachMonitorPanel({
                   Dieta {checkin.diet_adherence || "—"}/10 · Allenamento {checkin.training_adherence || "—"}/10
                 </p>
                 {checkin.notes && (
-                  <p className="mt-2 line-clamp-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">
-                    {checkin.notes}
-                  </p>
+                  <p className="mt-2 line-clamp-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">{checkin.notes}</p>
                 )}
               </button>
             ))}
@@ -16186,31 +16572,22 @@ function CoachMonitorPanel({
         </Card>
 
         <Card className="border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-black text-slate-950">Allenamenti recenti</h3>
+          <h3 className="text-lg font-black text-slate-950">Ultime serie registrate</h3>
           <div className="mt-3 space-y-2">
             {visibleLogs.slice(0, 8).map((log) => (
               <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-black text-slate-950">
-                    {log.workout_exercises?.exercise_name || "Esercizio"}
-                  </p>
-                  <Pill className="bg-white text-slate-700">
-                    {formatDate(log.created_at || log.session_date)}
-                  </Pill>
+                  <p className="font-black text-slate-950">{log.workout_exercises?.exercise_name || "Esercizio"}</p>
+                  <Pill className="bg-white text-slate-700">{formatDate(log.created_at || log.session_date)}</Pill>
                 </div>
                 <p className="mt-2 text-sm font-bold text-slate-600">
                   {log.load_kg || "—"} kg · {log.reps_done || "—"} reps · RPE {log.rpe || "—"} · RIR {log.rir || "—"}
                 </p>
-                {log.notes && (
-                  <p className="mt-2 rounded-xl bg-white p-2 text-sm font-semibold text-slate-600">
-                    {log.notes}
-                  </p>
-                )}
               </div>
             ))}
 
             {visibleLogs.length === 0 && (
-              <Empty title="Nessun allenamento" text="Non ci sono serie registrate." />
+              <Empty title="Nessuna serie" text="Non ci sono serie registrate." />
             )}
           </div>
         </Card>
@@ -16225,12 +16602,8 @@ function CoachMonitorPanel({
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {visiblePhotos.slice(0, 8).map((photo) => (
             <div key={photo.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <p className="font-black text-slate-950">
-                {formatDate(photo.photo_date || photo.created_at)}
-              </p>
-              <p className="mt-1 text-xs font-bold text-slate-500">
-                {photo.photo_type || photo.file_name || "Foto progressi"}
-              </p>
+              <p className="font-black text-slate-950">{formatDate(photo.photo_date || photo.created_at)}</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">{photo.photo_type || photo.file_name || "Foto progressi"}</p>
               {photo.file_path && (
                 <Button
                   type="button"
@@ -16249,86 +16622,122 @@ function CoachMonitorPanel({
         </div>
       </Card>
 
-      {selectedCheckinDetail && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/70 px-3 pb-4 pt-10 backdrop-blur-sm md:items-center md:px-6 md:py-8">
+      {selectedWorkoutReport && (
+        <div className="fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/70 px-3 pb-4 pt-10 backdrop-blur-sm md:items-center md:px-6 md:py-8">
           <button
             type="button"
-            aria-label="Chiudi dettaglio check-in"
-            onClick={() => setSelectedCheckinDetail(null)}
+            aria-label="Chiudi resoconto allenamento"
+            onClick={() => setSelectedWorkoutReport(null)}
             className="absolute inset-0"
           />
 
-          <div className="relative z-[121] max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/10 bg-white p-5 shadow-2xl md:p-6">
+          <div className="relative z-[126] max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl md:p-6">
             <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">
-                  Dettaglio check-in
-                </p>
-                <h3 className="mt-2 text-2xl font-black text-slate-950">
-                  {formatDate(selectedCheckinDetail.checkin_date || selectedCheckinDetail.created_at)}
-                </h3>
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">Resoconto allenamento</p>
+                <h3 className="mt-2 text-2xl font-black text-slate-950">{selectedWorkoutReport.title}</h3>
                 <p className="mt-1 text-sm font-bold text-slate-500">
-                  {selectedClient ? fullName(selectedClient) : clientId ? `Cliente #${clientId}` : "Cliente"}
+                  {selectedWorkoutReport.planTitle} · {formatDate(selectedWorkoutReport.date, true)}
                 </p>
               </div>
-
               <button
                 type="button"
-                onClick={() => setSelectedCheckinDetail(null)}
-                className="rounded-2xl bg-slate-100 p-3 text-slate-700 transition hover:bg-slate-200"
+                onClick={() => setSelectedWorkoutReport(null)}
+                className="rounded-2xl bg-slate-100 p-3 text-slate-700"
               >
                 <X size={18} />
               </button>
             </div>
 
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {[
+                ["Completamento", `${selectedWorkoutReport.completion}%`],
+                ["Esercizi", selectedWorkoutReport.exerciseCount],
+                ["Serie", `${selectedWorkoutReport.completedSets}/${selectedWorkoutReport.plannedSets || selectedWorkoutReport.completedSets}`],
+                ["Volume", `${formatDecimal(selectedWorkoutReport.totalVolume, 0)} kg`],
+                ["RPE medio", formatDecimal(selectedWorkoutReport.averageRpe)]
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                  <p className="mt-2 text-xl font-black text-slate-950">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {selectedWorkoutReport.exercises.map((exercise) => (
+                <div key={exercise.key} className="rounded-3xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="font-black text-slate-950">{exercise.name}</h4>
+                    <Pill className="bg-slate-100 text-slate-700">{exercise.sets.length} serie</Pill>
+                  </div>
+
+                  <div className="mt-3 overflow-x-auto">
+                    <div className="min-w-[580px] space-y-2">
+                      <div className="grid grid-cols-6 gap-2 px-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        <span>Serie</span><span>Kg</span><span>Reps</span><span>RPE</span><span>RIR</span><span>Volume</span>
+                      </div>
+                      {exercise.sets.map((setLog, index) => (
+                        <div key={setLog.id || index} className="grid grid-cols-6 gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-bold text-slate-700">
+                          <span>{setLog.set_number || index + 1}</span>
+                          <span>{setLog.load_kg ?? "—"}</span>
+                          <span>{setLog.reps_done ?? "—"}</span>
+                          <span>{setLog.rpe ?? "—"}</span>
+                          <span>{setLog.rir ?? "—"}</span>
+                          <span>{formatDecimal((Number(setLog.load_kg) || 0) * (Number(setLog.reps_done) || 0), 0)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              type="button"
+              onClick={() => setSelectedWorkoutReport(null)}
+              className="mt-5 w-full bg-[#07111f] text-white"
+            >
+              Chiudi resoconto
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {selectedCheckinDetail && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/70 px-3 pb-4 pt-10 backdrop-blur-sm md:items-center md:px-6 md:py-8">
+          <button type="button" aria-label="Chiudi dettaglio check-in" onClick={() => setSelectedCheckinDetail(null)} className="absolute inset-0" />
+          <div className="relative z-[121] max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/10 bg-white p-5 shadow-2xl md:p-6">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">Dettaglio check-in</p>
+                <h3 className="mt-2 text-2xl font-black text-slate-950">{formatDate(selectedCheckinDetail.checkin_date || selectedCheckinDetail.created_at)}</h3>
+                <p className="mt-1 text-sm font-bold text-slate-500">{selectedClient ? fullName(selectedClient) : clientId ? `Cliente #${clientId}` : "Cliente"}</p>
+              </div>
+              <button type="button" onClick={() => setSelectedCheckinDetail(null)} className="rounded-2xl bg-slate-100 p-3 text-slate-700 transition hover:bg-slate-200"><X size={18} /></button>
+            </div>
+
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {selectedCheckinMetrics.map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                    {label}
-                  </p>
-                  <p className="mt-2 text-xl font-black text-slate-950">
-                    {value}
-                  </p>
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                  <p className="mt-2 text-xl font-black text-slate-950">{value}</p>
                 </div>
               ))}
             </div>
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="rounded-3xl border border-slate-200 bg-white p-4">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-                  Note cliente
-                </p>
-                <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
-                  {selectedCheckinDetail.notes || "Nessuna nota inserita dal cliente."}
-                </p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Note cliente</p>
+                <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{selectedCheckinDetail.notes || "Nessuna nota inserita dal cliente."}</p>
               </div>
-
               <div className="rounded-3xl border border-slate-200 bg-white p-4">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-                  Feedback coach
-                </p>
-                <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
-                  {selectedCheckinDetail.coach_feedback || "Nessun feedback salvato su questo check-in."}
-                </p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Feedback coach</p>
+                <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{selectedCheckinDetail.coach_feedback || "Nessun feedback salvato su questo check-in."}</p>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col gap-2 rounded-3xl bg-[#07111f] p-4 text-white md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-black">Check-in completo</p>
-                <p className="mt-1 text-xs font-semibold text-slate-400">
-                  Tutti i valori inviati dal cliente sono visibili in questa finestra.
-                </p>
-              </div>
-              <Button
-                type="button"
-                onClick={() => setSelectedCheckinDetail(null)}
-                className="bg-teal-300 text-slate-950 hover:bg-teal-200"
-              >
-                Chiudi
-              </Button>
-            </div>
+            <Button type="button" onClick={() => setSelectedCheckinDetail(null)} className="mt-5 w-full bg-[#07111f] text-white">Chiudi</Button>
           </div>
         </div>
       )}
@@ -16504,8 +16913,11 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   function persistWorkoutLiveState(snapshot) {
     if (!workoutLiveDraftKey || !snapshot?.planId || !snapshot?.dayId) return;
 
+    const previous = safeReadLocalJson(workoutLiveDraftKey, {});
     safeWriteLocalJson(workoutLiveDraftKey, {
+      ...previous,
       ...snapshot,
+      sessionId: snapshot.sessionId || previous.sessionId || null,
       updatedAt: new Date().toISOString()
     });
   }
@@ -16514,6 +16926,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     safeRemoveLocal(workoutLiveDraftKey);
     setWorkoutRecoveryNotice("");
     setDrafts({});
+    setSessionCache({});
   }
 
   useEffect(() => {
@@ -16664,24 +17077,53 @@ function getExerciseHistory(exercise) {
     if (!client) return null;
 
     const key = `${dayId}-${today()}`;
-
     if (sessionCache[key]) return sessionCache[key];
 
-    const { data: existing } = await supabase
-      .from("workout_sessions")
-      .select("*")
-      .eq("client_id", Number(client.id))
-      .eq("day_id", dayId)
-      .eq("session_date", today())
-      .maybeSingle();
+    const persistedWorkout = workoutLiveDraftKey
+      ? safeReadLocalJson(workoutLiveDraftKey, null)
+      : null;
+    const isSamePersistedWorkout =
+      persistedWorkout?.planId &&
+      persistedWorkout?.dayId &&
+      String(persistedWorkout.planId) === String(planId) &&
+      String(persistedWorkout.dayId) === String(dayId) &&
+      isRecentWorkoutDraft(persistedWorkout);
 
-    if (existing) {
+    if (isSamePersistedWorkout && persistedWorkout.sessionId) {
       setSessionCache((prev) => ({
         ...prev,
-        [key]: existing.id
+        [key]: persistedWorkout.sessionId
       }));
+      return persistedWorkout.sessionId;
+    }
 
-      return existing.id;
+    const hasPersistedExecution =
+      isSamePersistedWorkout &&
+      ((persistedWorkout.completedSetKeys || []).length > 0 ||
+        Object.values(persistedWorkout.drafts || {}).some((item) => item?._logId));
+
+    if (hasPersistedExecution) {
+      const { data: existing } = await supabase
+        .from("workout_sessions")
+        .select("*")
+        .eq("client_id", Number(client.id))
+        .eq("day_id", dayId)
+        .eq("session_date", today())
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
+        setSessionCache((prev) => ({ ...prev, [key]: existing.id }));
+        if (workoutLiveDraftKey) {
+          safeWriteLocalJson(workoutLiveDraftKey, {
+            ...(persistedWorkout || {}),
+            sessionId: existing.id,
+            updatedAt: new Date().toISOString()
+          });
+        }
+        return existing.id;
+      }
     }
 
     const { data, error } = await supabase
@@ -16702,10 +17144,17 @@ function getExerciseHistory(exercise) {
       return null;
     }
 
-    setSessionCache((prev) => ({
-      ...prev,
-      [key]: data.id
-    }));
+    setSessionCache((prev) => ({ ...prev, [key]: data.id }));
+
+    if (workoutLiveDraftKey) {
+      safeWriteLocalJson(workoutLiveDraftKey, {
+        ...(persistedWorkout || {}),
+        planId,
+        dayId,
+        sessionId: data.id,
+        updatedAt: new Date().toISOString()
+      });
+    }
 
     return data.id;
   }
