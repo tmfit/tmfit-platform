@@ -1986,6 +1986,13 @@ const DIET_DAY_NAMES = [
   "Sabato",
   "Domenica"
 ];
+const DIET_SHIFT_CONTAINERS = [
+  { token: "MATTINA", label: "Turno mattina" },
+  { token: "POMERIGGIO", label: "Turno pomeriggio" },
+  { token: "SERA", label: "Turno sera" },
+  { token: "NOTTE", label: "Turno notte" },
+  { token: "SMONTO", label: "Turno smonto" }
+];
 const DIET_MEAL_BASES = ["COLAZIONE", "PRANZO", "MERENDA", "CENA"];
 const DIET_SECTION_BASES = [
   "COLAZIONE",
@@ -2401,6 +2408,25 @@ function shouldStopDailyDietAfterSunday(currentDay, currentMeal, line) {
   return isDietDailyTailStopLine(line);
 }
 
+function shouldStopDailyDietAtPlanTail(currentDay, currentMeal, line) {
+  if (shouldStopDailyDietAfterSunday(currentDay, currentMeal, line)) {
+    return true;
+  }
+
+  const currentContainer = currentDay?.day || currentDay?.title || "";
+  if (!isDietShiftContainer(currentContainer)) return false;
+
+  const hasShiftContent =
+    Boolean(currentMeal) ||
+    ((currentDay?.meals || currentDay?.sections || []).length || 0) > 0;
+
+  // Nei piani organizzati per turni non esiste Domenica come chiusura naturale.
+  // La prima intestazione di coda (WEEK, lista alimenti, sostituzioni, tabella...)
+  // chiude definitivamente l'ultimo turno, evitando di trascinare la banca alimenti
+  // dentro l'ultima opzione della Cena.
+  return hasShiftContent && isDietDailyTailStopLine(line);
+}
+
 function dietLineLooksLikeMealFood(line) {
   const normalized = normalizeDietToken(line);
 
@@ -2768,6 +2794,13 @@ function sanitizeExtractedDietForMeals(parsed) {
   cloned.days = Array.from(normalizedDays || []);
   hiddenWarnings.push(...(normalizedDays?.warnings || []));
 
+  if (cloned.days.length > 0) {
+    const usesShiftContainers = cloned.days.some((day) =>
+      day.containerType === "shift" || isDietShiftContainer(day.day || day.title || "")
+    );
+    cloned.containerMode = usesShiftContainers ? "shifts" : "days";
+  }
+
   const optionGroups = Array.isArray(cloned.optionGroups) ? cloned.optionGroups : [];
   cloned.optionGroups = optionGroups
     .map((group) => {
@@ -2823,6 +2856,30 @@ function detectDietDayLine(line) {
   return DIET_DAY_NAMES.find((day) => normalizeDietToken(day) === normalized) || null;
 }
 
+function detectDietShiftLine(line) {
+  const normalized = normalizeDietToken(line);
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^TURNO(?:\s+DI)?\s+(MATTINA|POMERIGGIO|SERA|NOTTE|SMONTO)(?:\s+ALIMENTI)?$/
+  );
+
+  if (!match) return null;
+
+  return (
+    DIET_SHIFT_CONTAINERS.find((shift) => shift.token === match[1])?.label ||
+    `Turno ${match[1].toLowerCase()}`
+  );
+}
+
+function detectDietPlanContainerLine(line) {
+  return detectDietDayLine(line) || detectDietShiftLine(line);
+}
+
+function isDietShiftContainer(value) {
+  return Boolean(detectDietShiftLine(value));
+}
+
 function countDietDayNamesInLine(line) {
   const normalized = normalizeDietToken(line);
   if (!normalized) return 0;
@@ -2855,11 +2912,26 @@ function countUniqueDietDayNames(lines = []) {
   return found.size;
 }
 
+function countUniqueDietShiftNames(lines = []) {
+  const found = new Set();
+
+  (lines || []).forEach((line) => {
+    const shift = detectDietShiftLine(line);
+    if (shift) found.add(normalizeDietToken(shift));
+  });
+
+  return found.size;
+}
+
 function canonicalDietDayName(value) {
   const normalized = normalizeDietToken(value);
   if (!normalized) return "";
 
-  return DIET_DAY_NAMES.find((day) => normalizeDietToken(day) === normalized) || cleanDietPdfLine(value);
+  return (
+    DIET_DAY_NAMES.find((day) => normalizeDietToken(day) === normalized) ||
+    detectDietShiftLine(value) ||
+    cleanDietPdfLine(value)
+  );
 }
 
 function mergeDuplicateDietDays(days = []) {
@@ -2954,17 +3026,16 @@ function detectStrictDailyMealHeading(line) {
   const exact = strictMeals.find((meal) => normalized === meal);
   if (exact) return dietMealLabel(exact);
 
-  // Alcuni piani distinguono lo stesso pasto in base al turno di lavoro.
-  // Queste sono intestazioni reali e separate, non testo della nota precedente.
-  // Esempi: "COLAZIONE TURNO MATTINA" e "COLAZIONE TURNO POMERIGGIO".
-  const shiftMeal = normalized.match(
-    /^(COLAZIONE|PRANZO|MERENDA|CENA)\s+(TURNO\s+)?(MATTINA|POMERIGGIO|SERA|NOTTE)$/
+  // Compatibilità con piani che inseriscono il contesto direttamente nel titolo
+  // del pasto, ad esempio "COLAZIONE TURNO MATTINA" o "COLAZIONE DOPO NOTTE".
+  // Nei PDF con intestazione autonoma "TURNO ... - alimenti", invece, il turno
+  // viene gestito come contenitore principale e il pasto resta semplicemente Colazione.
+  const contextualMeal = normalized.match(
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)\s+(DOPO NOTTE|(?:TURNO\s+)?(?:MATTINA|POMERIGGIO|SERA|NOTTE|SMONTO))$/
   );
 
-  if (shiftMeal) {
-    const baseLabel = dietMealLabel(shiftMeal[1]);
-    const shiftLabel = `${shiftMeal[2] ? "turno " : ""}${shiftMeal[3].toLowerCase()}`;
-    return `${baseLabel} ${shiftLabel}`.trim();
+  if (contextualMeal) {
+    return `${dietMealLabel(contextualMeal[1])} ${contextualMeal[2].toLowerCase()}`.trim();
   }
 
   const numbered = normalized.match(
@@ -3155,6 +3226,13 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
     const normalized = normalizeDietToken(clean);
     let handled = false;
 
+    const shiftContainer = detectDietShiftLine(clean);
+
+    if (shiftContainer) {
+      expanded.push(shiftContainer);
+      return;
+    }
+
     DIET_DAY_NAMES.forEach((day) => {
       if (handled) return;
 
@@ -3279,7 +3357,7 @@ function parseDailyDietLines(lines, sourceName) {
   scopedLines.forEach((line) => {
     if (stopParsingDaily) return;
 
-    if (shouldStopDailyDietAfterSunday(currentDay, currentMeal, line)) {
+    if (shouldStopDailyDietAtPlanTail(currentDay, currentMeal, line)) {
       if (currentDay) {
         pushDietMeal(currentDay.meals, currentMeal);
         if ((currentDay.meals || []).length > 0) {
@@ -3299,16 +3377,18 @@ function parseDailyDietLines(lines, sourceName) {
       return;
     }
 
-    const dayName = detectDietDayLine(line);
+    const containerName = detectDietPlanContainerLine(line);
 
-    if (dayName) {
+    if (containerName) {
       if (currentDay) {
         pushDietMeal(currentDay.meals, currentMeal);
         days.push(currentDay);
       }
 
       currentDay = {
-        day: dayName,
+        day: containerName,
+        title: containerName,
+        containerType: isDietShiftContainer(containerName) ? "shift" : "day",
         meals: []
       };
       currentMeal = null;
@@ -3379,16 +3459,22 @@ function parseDailyDietLines(lines, sourceName) {
   }
 
   const parsedDays = days.filter((day) => day.meals.length > 0);
+  const usesShiftContainers = parsedDays.some((day) =>
+    day.containerType === "shift" || isDietShiftContainer(day.day || day.title || "")
+  );
 
   return {
     version: 1,
     format: "daily_pdf",
+    containerMode: usesShiftContainers ? "shifts" : "days",
     sourceName,
     extractedAt: new Date().toISOString(),
     days: parsedDays,
     optionGroups: [],
     warnings: parsedDays.length === 0
-      ? ["Nessun giorno riconosciuto nel PDF."]
+      ? ["Nessun giorno o turno riconosciuto nel PDF."]
+      : usesShiftContainers
+      ? ["Parsing per turni: ogni intestazione TURNO è un contenitore principale; Colazione, Pranzo, Merenda e Cena restano pasti interni con opzioni e note associate."]
       : ["Parsing giornaliero stretto: ogni giorno termina appena viene riconosciuto il giorno successivo; Domenica chiude il piano prima di tabelle o banche alimenti successive."]
   };
 }
@@ -3709,10 +3795,12 @@ async function extractDietPdfForApp(file, dietType) {
   const primaryScore = scoreDietExtraction(primary);
   const fallbackScore = scoreDietExtraction(fallback);
   const uniqueDayCount = countUniqueDietDayNames(lines);
+  const uniqueShiftCount = countUniqueDietShiftNames(lines);
   const dailyDayCount = Array.isArray(daily.days) ? daily.days.length : 0;
   const dailyMealCount = countDietDailyMeals(daily);
+  const hasShiftStructure = uniqueShiftCount > 0 || daily.containerMode === "shifts";
 
-  if (uniqueDayCount >= 3 || dailyDayCount >= 2) {
+  if (uniqueDayCount >= 3 || uniqueShiftCount >= 2 || dailyDayCount >= 2) {
     if (dailyDayCount >= 2 && dailyMealCount > 0) {
       return {
         ...daily,
@@ -3723,7 +3811,11 @@ async function extractDietPdfForApp(file, dietType) {
         warnings: [
           ...(daily.warnings || []),
           ...(wantsOptions
-            ? ["Sono stati riconosciuti giorni settimanali: la dieta è stata organizzata per giorno, non come opzioni generiche."]
+            ? [
+                hasShiftStructure
+                  ? "Sono stati riconosciuti turni di lavoro: la dieta è stata organizzata per turno, con i pasti al suo interno."
+                  : "Sono stati riconosciuti giorni settimanali: la dieta è stata organizzata per giorno, non come opzioni generiche."
+              ]
             : [])
         ].filter(Boolean)
       };
@@ -3732,6 +3824,7 @@ async function extractDietPdfForApp(file, dietType) {
     return {
       version: 1,
       format: "daily_pdf",
+      containerMode: hasShiftStructure ? "shifts" : "days",
       sourceName: file.name,
       extractedAt: new Date().toISOString(),
       days: [],
@@ -3739,10 +3832,15 @@ async function extractDietPdfForApp(file, dietType) {
       ...extractionMeta,
       parseScore: 0,
       alternativeScore: scoreDietExtraction(options),
-      warnings: [
-        "Nel PDF sono stati riconosciuti i giorni della settimana, ma il testo sembra una tabella orizzontale. Le card non sono state generate per evitare di mischiare Lunedì, Martedì e gli altri giorni in Colazione/Pranzo/Merenda/Cena.",
-        "Usa il PDF con lista giornaliera verticale oppure importa la dieta da Excel per una lettura perfetta."
-      ]
+      warnings: hasShiftStructure
+        ? [
+            "Nel PDF sono state riconosciute intestazioni di turno, ma non abbastanza pasti strutturati per generare le card senza mescolare le sezioni.",
+            "Controlla che ogni turno abbia intestazioni autonome per Colazione, Pranzo, Merenda e Cena."
+          ]
+        : [
+            "Nel PDF sono stati riconosciuti i giorni della settimana, ma il testo sembra una tabella orizzontale. Le card non sono state generate per evitare di mischiare Lunedì, Martedì e gli altri giorni in Colazione/Pranzo/Merenda/Cena.",
+            "Usa il PDF con lista giornaliera verticale oppure importa la dieta da Excel per una lettura perfetta."
+          ]
     };
   }
 
@@ -5104,6 +5202,26 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
   );
 }
 
+function dietPlanUsesShiftContainers(extractedDiet) {
+  const days = Array.isArray(extractedDiet?.days) ? extractedDiet.days : [];
+
+  return (
+    extractedDiet?.containerMode === "shifts" ||
+    days.some((day) =>
+      day?.containerType === "shift" || isDietShiftContainer(day?.day || day?.title || "")
+    )
+  );
+}
+
+function dietPlanContainerLabel(container) {
+  return container?.day || container?.title || "";
+}
+
+function dietShiftContainerHeader(container) {
+  const label = dietPlanContainerLabel(container) || "Turno";
+  return `${label.toUpperCase()} - alimenti`;
+}
+
 function DietExtractedPlan({ diet, compact = false }) {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [activeOptionGroupIndex, setActiveOptionGroupIndex] = useState(0);
@@ -5118,6 +5236,7 @@ function DietExtractedPlan({ diet, compact = false }) {
   const isOptions =
     extracted.format === "options_pdf" ||
     (optionGroups.length > 0 && dailyDays.length === 0);
+  const isShiftPlan = !isOptions && dietPlanUsesShiftContainers(extracted);
 
   const sourceLabel = extracted.sourceName || diet?.file_name || "PDF dieta";
   const visibleDays = compact ? dailyDays.slice(0, 2) : dailyDays;
@@ -5244,13 +5363,17 @@ function DietExtractedPlan({ diet, compact = false }) {
             Pasti in app
           </p>
           <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni alimentari" : "Piano giornaliero"}
+            {isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
           </h3>
         </div>
 
         {!compact && (
           <div className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm">
-            {isOptions ? "Scegli una sezione per consultare le alternative." : "Scegli un giorno per consultare i pasti."}
+            {isOptions
+              ? "Scegli una sezione per consultare le alternative."
+              : isShiftPlan
+              ? "Scegli un turno per consultare i pasti."
+              : "Scegli un giorno per consultare i pasti."}
           </div>
         )}
       </div>
@@ -5286,17 +5409,24 @@ function DietExtractedPlan({ diet, compact = false }) {
 
           {!compact && activeDay && (
             <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
-                    Giorno selezionato
+              {isShiftPlan ? (
+                <div className="border-b border-slate-300 bg-slate-200 px-4 py-3 text-center">
+                  <p className="text-sm font-semibold italic text-slate-500">
+                    {dietShiftContainerHeader(activeDay)}
                   </p>
-                  <h4 className="mt-1 text-xl font-black text-slate-950">
-                    {activeDay.day || activeDay.title}
-                  </h4>
                 </div>
-
-              </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                      Giorno selezionato
+                    </p>
+                    <h4 className="mt-1 text-xl font-black text-slate-950">
+                      {activeDay.day || activeDay.title}
+                    </h4>
+                  </div>
+                </div>
+              )}
 
               <div className="grid gap-3 bg-slate-50 p-3">
                 {activeDayMeals.length === 0 && (
@@ -5325,14 +5455,27 @@ function DietExtractedPlan({ diet, compact = false }) {
                 open={dayIndex === 0}
                 className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
               >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
-                  <div>
-                    <p className="font-black text-slate-950">{day.day || day.title}</p>
-
+                <summary
+                  className={`flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 ${
+                    isShiftPlan ? "bg-slate-200" : "bg-white"
+                  }`}
+                >
+                  <div className={isShiftPlan ? "w-full text-center" : ""}>
+                    <p
+                      className={
+                        isShiftPlan
+                          ? "text-sm font-semibold italic text-slate-500"
+                          : "font-black text-slate-950"
+                      }
+                    >
+                      {isShiftPlan ? dietShiftContainerHeader(day) : day.day || day.title}
+                    </p>
                   </div>
-                  <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
-                    Apri
-                  </span>
+                  {!isShiftPlan && (
+                    <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                      Apri
+                    </span>
+                  )}
                 </summary>
 
                 <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3">
@@ -5590,6 +5733,7 @@ function DietManualCardsEditor({
   const isOptions =
     draft.format === "options_pdf" ||
     (optionGroups.length > 0 && days.length === 0);
+  const isShiftPlan = !isOptions && dietPlanUsesShiftContainers(draft);
 
   function updateDraft(mutator) {
     const next = clone(draft);
@@ -5755,18 +5899,34 @@ function DietManualCardsEditor({
                 open={dayIndex === 0}
                 className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-slate-50"
               >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-white px-4 py-4">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                      Giorno
-                    </p>
-                    <p className="font-black text-slate-950">
-                      {day.day || day.title || `Giorno ${dayIndex + 1}`}
+                <summary
+                  className={`flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 ${
+                    isShiftPlan ? "bg-slate-200" : "bg-white"
+                  }`}
+                >
+                  <div className={isShiftPlan ? "w-full text-center" : ""}>
+                    {!isShiftPlan && (
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                        Giorno
+                      </p>
+                    )}
+                    <p
+                      className={
+                        isShiftPlan
+                          ? "text-sm font-semibold italic text-slate-500"
+                          : "font-black text-slate-950"
+                      }
+                    >
+                      {isShiftPlan
+                        ? dietShiftContainerHeader(day)
+                        : day.day || day.title || `Giorno ${dayIndex + 1}`}
                     </p>
                   </div>
-                  <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
-                    Modifica
-                  </span>
+                  {!isShiftPlan && (
+                    <span className="rounded-full bg-teal-100 px-3 py-1 text-[11px] font-black text-teal-700">
+                      Modifica
+                    </span>
+                  )}
                 </summary>
 
                 <div className="space-y-3 border-t border-slate-200 p-3">
