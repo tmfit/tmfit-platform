@@ -1223,143 +1223,579 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
   );
 }
 
-function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
+const TMFIT_VAPID_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
+
+function tmfitUrlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const normalized = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(normalized);
+  return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
+}
+
+function tmfitPushIsSupported() {
+  return (
+    typeof window !== "undefined" &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    "Notification" in window
+  );
+}
+
+function tmfitIsIosDevice() {
+  if (typeof navigator === "undefined") return false;
+
+  return (
+    /iphone|ipad|ipod/i.test(navigator.userAgent || "") ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function tmfitIsStandalonePwa() {
+  if (typeof window === "undefined") return false;
+
+  return Boolean(
+    window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      window.navigator?.standalone
+  );
+}
+
+async function registerTmfitServiceWorker() {
+  if (!tmfitPushIsSupported()) return null;
+
+  try {
+    if (window.__tmfitServiceWorkerRegistration) {
+      return window.__tmfitServiceWorkerRegistration;
+    }
+
+    const registration = await navigator.serviceWorker.register("/sw.js", {
+      scope: "/"
+    });
+    const readyRegistration = await navigator.serviceWorker.ready;
+    window.__tmfitServiceWorkerRegistration = readyRegistration || registration;
+    return window.__tmfitServiceWorkerRegistration;
+  } catch (error) {
+    console.warn("TMFIT service worker non disponibile", error?.message || error);
+    return null;
+  }
+}
+
+async function persistTmfitPushSubscription(subscription, userId, clientId) {
+  if (!subscription || !userId || !supabase) return false;
+
+  const payload = {
+    user_id: userId,
+    client_id: clientId ? Number(clientId) : null,
+    endpoint: subscription.endpoint,
+    subscription: subscription.toJSON(),
+    user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    enabled: true,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await supabase
+    .from("push_subscriptions")
+    .upsert(payload, { onConflict: "endpoint" });
+
+  if (error) {
+    console.warn("TMFIT salvataggio notifiche non riuscito", error.message);
+    return false;
+  }
+
+  return true;
+}
+
+async function currentTmfitPushSubscription() {
+  if (!tmfitPushIsSupported() || Notification.permission !== "granted") {
+    return null;
+  }
+
+  const registration = await registerTmfitServiceWorker();
+  if (!registration) return null;
+  return registration.pushManager.getSubscription();
+}
+
+async function enableTmfitPushNotifications(userId, clientId) {
+  if (!tmfitPushIsSupported()) {
+    return { ok: false, status: "unsupported" };
+  }
+
+  if (tmfitIsIosDevice() && !tmfitIsStandalonePwa()) {
+    return { ok: false, status: "install_required" };
+  }
+
+  if (!TMFIT_VAPID_PUBLIC_KEY) {
+    return { ok: false, status: "configuration_missing" };
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    return { ok: false, status: permission === "denied" ? "denied" : "prompt" };
+  }
+
+  const registration = await registerTmfitServiceWorker();
+  if (!registration) return { ok: false, status: "unsupported" };
+
+  let subscription = await registration.pushManager.getSubscription();
+
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: tmfitUrlBase64ToUint8Array(TMFIT_VAPID_PUBLIC_KEY)
+    });
+  }
+
+  const persisted = await persistTmfitPushSubscription(
+    subscription,
+    userId,
+    clientId
+  );
+
+  return {
+    ok: persisted,
+    status: persisted ? "enabled" : "save_failed",
+    subscription
+  };
+}
+
+function PushNotificationSetup({
+  userId,
+  clientId,
+  compact = false,
+  onEnabled
+}) {
+  const [status, setStatus] = useState("checking");
+  const [busy, setBusy] = useState(false);
+
+  async function refreshStatus() {
+    if (!tmfitPushIsSupported()) {
+      setStatus("unsupported");
+      return;
+    }
+
+    if (tmfitIsIosDevice() && !tmfitIsStandalonePwa()) {
+      setStatus("install_required");
+      return;
+    }
+
+    if (Notification.permission === "denied") {
+      setStatus("denied");
+      return;
+    }
+
+    const registration = await registerTmfitServiceWorker();
+    const subscription = await registration?.pushManager?.getSubscription?.();
+
+    if (Notification.permission === "granted" && subscription) {
+      await persistTmfitPushSubscription(subscription, userId, clientId);
+      setStatus("enabled");
+      return;
+    }
+
+    setStatus("prompt");
+  }
+
+  useEffect(() => {
+    refreshStatus();
+  }, [userId, clientId]);
+
+  async function handleEnable() {
+    if (busy) return;
+    setBusy(true);
+
+    try {
+      const result = await enableTmfitPushNotifications(userId, clientId);
+      setStatus(result.status);
+
+      if (result.ok) {
+        onEnabled?.();
+      }
+    } catch (error) {
+      console.warn("TMFIT attivazione notifiche non riuscita", error?.message || error);
+      setStatus("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const enabled = status === "enabled";
+  const title = enabled
+    ? "Notifiche recupero attive"
+    : status === "install_required"
+    ? "Installa TMFIT su iPhone"
+    : status === "denied"
+    ? "Notifiche bloccate"
+    : "Avvisi anche fuori da TMFIT";
+
+  const text = enabled
+    ? "Alla fine del recupero riceverai una notifica di sistema senza interrompere Spotify o Apple Music."
+    : status === "install_required"
+    ? "Su iPhone apri Condividi → Aggiungi alla schermata Home, poi avvia TMFIT dalla nuova icona e abilita le notifiche."
+    : status === "denied"
+    ? "Riattiva le notifiche dalle impostazioni del browser o della webapp TMFIT."
+    : status === "unsupported"
+    ? "Questo browser non supporta le notifiche push della webapp."
+    : status === "configuration_missing"
+    ? "Configurazione notifiche non completa."
+    : "Abilita una sola volta: il timer continuerà a funzionare anche quando passi a un'altra app.";
+
+  if (compact) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black text-white">{title}</p>
+            <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-300">
+              {text}
+            </p>
+          </div>
+
+          {!enabled && !["unsupported", "denied"].includes(status) && (
+            <button
+              type="button"
+              onClick={handleEnable}
+              disabled={busy || status === "checking"}
+              className="shrink-0 rounded-xl bg-teal-300 px-3 py-2 text-[11px] font-black text-slate-950 disabled:opacity-50"
+            >
+              {busy ? "Attivazione..." : status === "install_required" ? "Istruzioni" : "Attiva"}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="border border-teal-200 bg-teal-50 p-4 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#07111f] text-teal-300">
+            <Timer size={20} />
+          </div>
+          <div>
+            <p className="text-sm font-black text-slate-950">{title}</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">
+              {text}
+            </p>
+          </div>
+        </div>
+
+        {!enabled && !["unsupported", "denied"].includes(status) && (
+          <Button
+            type="button"
+            onClick={handleEnable}
+            disabled={busy || status === "checking"}
+            className="w-full bg-[#07111f] text-white sm:w-auto"
+          >
+            {busy ? "Attivazione..." : status === "install_required" ? "Come installare" : "Attiva notifiche"}
+          </Button>
+        )}
+
+        {enabled && (
+          <Pill className="bg-teal-300 text-slate-950">Attive</Pill>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function RestTimer({
+  seconds = 90,
+  autoStart = false,
+  prominent = false,
+  userId = "",
+  clientId = null,
+  timerKey = ""
+}) {
   const initialSeconds = Math.max(1, Number(seconds) || 90);
+  const storageKey = useMemo(
+    () =>
+      `tmfit_rest_timer_v2_${userId || "guest"}_${
+        timerKey || String(initialSeconds)
+      }`,
+    [userId, timerKey, initialSeconds]
+  );
   const [remaining, setRemaining] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [soundPlayed, setSoundPlayed] = useState(false);
-  const [alarmActive, setAlarmActive] = useState(false);
+  const [alertActive, setAlertActive] = useState(false);
   const [alarmAt, setAlarmAt] = useState(null);
+  const [pushStatus, setPushStatus] = useState("idle");
   const alarmAtRef = useRef(null);
-  const soundEnabledRef = useRef(true);
-  const soundPlayedRef = useRef(false);
-  const alarmActiveRef = useRef(false);
+  const pushJobIdRef = useRef("");
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    soundEnabledRef.current = soundEnabled;
-  }, [soundEnabled]);
-
-  useEffect(() => {
-    soundPlayedRef.current = soundPlayed;
-  }, [soundPlayed]);
-
-  useEffect(() => {
-    alarmActiveRef.current = alarmActive;
-  }, [alarmActive]);
-
-  useEffect(() => {
-    if (!soundEnabled) {
-      stopAlarm();
-    }
-  }, [soundEnabled]);
-
-  useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      stopTmfitTimerAlarmLoop();
+      mountedRef.current = false;
     };
   }, []);
 
-  function stopAlarm() {
-    stopTmfitTimerAlarmLoop();
-    alarmActiveRef.current = false;
-    setAlarmActive(false);
+  function writeSnapshot(patch = {}) {
+    if (!storageKey) return;
+
+    const previous = safeReadLocalJson(storageKey, {});
+    safeWriteLocalJson(storageKey, {
+      ...previous,
+      timerKey,
+      initialSeconds,
+      alarmAt: alarmAtRef.current,
+      pushJobId: pushJobIdRef.current || previous.pushJobId || "",
+      updatedAt: new Date().toISOString(),
+      ...patch
+    });
   }
 
-  function triggerAlarmOnce() {
-    if (!soundEnabledRef.current || soundPlayedRef.current) return;
+  async function cancelScheduledPush(jobId = pushJobIdRef.current) {
+    if (!jobId || !supabase) return;
 
-    soundPlayedRef.current = true;
-    alarmActiveRef.current = true;
-    setSoundPlayed(true);
-    setAlarmActive(true);
-    playTmfitTimerAlarm();
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data?.session?.access_token;
+      if (!accessToken) return;
+
+      await fetch("/api/rest-timer/schedule", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ job_id: jobId })
+      });
+    } catch (error) {
+      console.warn("TMFIT annullamento timer push non riuscito", error?.message || error);
+    }
   }
 
-  function startTimer() {
-    primeTmfitTimerAudio();
-    stopAlarm();
+  async function schedulePush(delaySeconds) {
+    if (!supabase || delaySeconds <= 0) return null;
 
-    const nextAlarmAt = Date.now() + initialSeconds * 1000;
+    try {
+      const subscription = await currentTmfitPushSubscription();
+      if (!subscription) {
+        if (mountedRef.current) setPushStatus("not_enabled");
+        return null;
+      }
+
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data?.session?.access_token;
+      if (!accessToken) return null;
+
+      if (pushJobIdRef.current) {
+        await cancelScheduledPush(pushJobIdRef.current);
+        pushJobIdRef.current = "";
+      }
+
+      if (mountedRef.current) setPushStatus("scheduling");
+
+      const response = await fetch("/api/rest-timer/schedule", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          seconds: Math.max(1, Math.ceil(delaySeconds)),
+          client_id: clientId ? Number(clientId) : null,
+          timer_key: timerKey || null
+        })
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.job_id) {
+        if (mountedRef.current) setPushStatus("error");
+        return null;
+      }
+
+      pushJobIdRef.current = result.job_id;
+      writeSnapshot({ pushJobId: result.job_id });
+      if (mountedRef.current) setPushStatus("scheduled");
+      return result.job_id;
+    } catch (error) {
+      console.warn("TMFIT programmazione notifica non riuscita", error?.message || error);
+      if (mountedRef.current) setPushStatus("error");
+      return null;
+    }
+  }
+
+  function stopAlert() {
+    setAlertActive(false);
+
+    try {
+      navigator.vibrate?.(0);
+      navigator.clearAppBadge?.();
+    } catch {
+      // Funzioni opzionali: nessuna azione necessaria.
+    }
+  }
+
+  function triggerTimerFinished() {
+    if (alertActive) return;
+
+    setAlertActive(true);
+    setRemaining(0);
+    setRunning(false);
+    writeSnapshot({ completed: true, alarmAt: alarmAtRef.current });
+
+    try {
+      navigator.vibrate?.([240, 120, 240]);
+      navigator.setAppBadge?.(1);
+    } catch {
+      // La vibrazione e il badge non sono disponibili su tutti i dispositivi.
+    }
+  }
+
+  function beginLocalTimer(durationSeconds, existingAlarmAt = null) {
+    const nextAlarmAt = existingAlarmAt || Date.now() + durationSeconds * 1000;
     alarmAtRef.current = nextAlarmAt;
     setAlarmAt(nextAlarmAt);
-    setRemaining(initialSeconds);
-    setSoundPlayed(false);
-    soundPlayedRef.current = false;
-    setRunning(true);
+    setRemaining(Math.max(0, Math.ceil((nextAlarmAt - Date.now()) / 1000)));
+    setAlertActive(false);
+    setRunning(nextAlarmAt > Date.now());
+    writeSnapshot({ completed: nextAlarmAt <= Date.now(), alarmAt: nextAlarmAt });
+
+    if (nextAlarmAt <= Date.now()) {
+      triggerTimerFinished();
+    }
   }
 
-  function resetTimer() {
-    stopAlarm();
+  async function startTimer(durationOverride = initialSeconds) {
+    const safeDuration = Math.max(1, Number(durationOverride) || initialSeconds);
+    stopAlert();
+    beginLocalTimer(safeDuration);
+    await schedulePush(safeDuration);
+  }
+
+  async function resetTimer() {
+    const currentJobId = pushJobIdRef.current;
+    pushJobIdRef.current = "";
+    await cancelScheduledPush(currentJobId);
+
     alarmAtRef.current = null;
     setAlarmAt(null);
     setRunning(false);
     setRemaining(initialSeconds);
-    setSoundPlayed(false);
-    soundPlayedRef.current = false;
+    setAlertActive(false);
+    setPushStatus("idle");
+    safeRemoveLocal(storageKey);
+
+    try {
+      navigator.vibrate?.(0);
+      navigator.clearAppBadge?.();
+    } catch {
+      // Funzioni opzionali.
+    }
   }
 
   useEffect(() => {
-    resetTimer();
+    let cancelled = false;
+    const saved = safeReadLocalJson(storageKey, null);
+    const savedAlarmAt = Number(saved?.alarmAt) || 0;
+    const savedMatches =
+      savedAlarmAt &&
+      Number(saved?.initialSeconds || initialSeconds) === initialSeconds &&
+      String(saved?.timerKey || timerKey || "") === String(timerKey || "");
 
-    if (autoStart) {
-      const timeout = window.setTimeout(startTimer, 80);
-      return () => window.clearTimeout(timeout);
+    if (savedMatches) {
+      pushJobIdRef.current = saved?.pushJobId || "";
+      alarmAtRef.current = savedAlarmAt;
+      setAlarmAt(savedAlarmAt);
+
+      const nextRemaining = Math.max(
+        0,
+        Math.ceil((savedAlarmAt - Date.now()) / 1000)
+      );
+      setRemaining(nextRemaining);
+      setRunning(nextRemaining > 0);
+      setAlertActive(nextRemaining === 0 || Boolean(saved?.completed));
+      if (saved?.pushJobId) setPushStatus("scheduled");
+      return () => {
+        cancelled = true;
+      };
     }
 
-    return undefined;
-  }, [initialSeconds, autoStart]);
+    setRemaining(initialSeconds);
+    setRunning(false);
+    setAlertActive(false);
+    setAlarmAt(null);
+    alarmAtRef.current = null;
+    pushJobIdRef.current = "";
+
+    if (autoStart) {
+      const timeout = window.setTimeout(() => {
+        if (!cancelled) startTimer(initialSeconds);
+      }, 80);
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timeout);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialSeconds, autoStart, storageKey, timerKey]);
 
   useEffect(() => {
     if (!running || !alarmAt) return undefined;
 
     const tick = () => {
-      const nextRemaining = Math.max(0, Math.ceil((alarmAt - Date.now()) / 1000));
+      const nextRemaining = Math.max(
+        0,
+        Math.ceil((alarmAt - Date.now()) / 1000)
+      );
       setRemaining(nextRemaining);
 
       if (nextRemaining <= 0) {
-        setRunning(false);
-        triggerAlarmOnce();
+        triggerTimerFinished();
       }
     };
 
     tick();
     const interval = window.setInterval(tick, 500);
-
     return () => window.clearInterval(interval);
-  }, [running, alarmAt]);
+  }, [running, alarmAt, alertActive]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
-    const checkExpiredAfterBackground = () => {
-      const savedAlarmAt = alarmAtRef.current;
-      if (!savedAlarmAt) return;
+    const refreshAfterBackground = () => {
+      const target = alarmAtRef.current;
+      if (!target) return;
 
-      const expired = Date.now() >= savedAlarmAt;
-      if (!expired) return;
+      const nextRemaining = Math.max(
+        0,
+        Math.ceil((target - Date.now()) / 1000)
+      );
+      setRemaining(nextRemaining);
 
-      setRemaining(0);
-      setRunning(false);
-      triggerAlarmOnce();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        checkExpiredAfterBackground();
+      if (nextRemaining <= 0) {
+        triggerTimerFinished();
       }
     };
 
-    window.addEventListener("focus", checkExpiredAfterBackground);
-    window.addEventListener("pageshow", checkExpiredAfterBackground);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshAfterBackground();
+    };
+
+    window.addEventListener("focus", refreshAfterBackground);
+    window.addEventListener("pageshow", refreshAfterBackground);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.removeEventListener("focus", checkExpiredAfterBackground);
-      window.removeEventListener("pageshow", checkExpiredAfterBackground);
+      window.removeEventListener("focus", refreshAfterBackground);
+      window.removeEventListener("pageshow", refreshAfterBackground);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [alertActive]);
+
+  async function handlePushEnabled() {
+    if (running && remaining > 0) {
+      await schedulePush(remaining);
+    }
+  }
 
   const minutes = Math.floor(remaining / 60);
   const secs = remaining % 60;
@@ -1416,13 +1852,11 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
                 }
               >
                 {completed
-                  ? alarmActive
-                    ? "Recupero finito: premi STOP per interrompere l'allarme."
-                    : soundPlayed
-                    ? "Recupero finito: allarme interrotto."
-                    : "Recupero finito."
+                  ? alertActive
+                    ? "Recupero terminato: riprendi con la prossima serie."
+                    : "Recupero terminato."
                   : running
-                  ? "Timer in corso"
+                  ? "Timer in corso · la musica continua normalmente"
                   : "Pronto per partire"}
               </p>
             </div>
@@ -1431,26 +1865,26 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
           {prominent && (
             <div className="rounded-2xl bg-white/10 px-3 py-2 text-center">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
-                Allarme
+                Push
               </p>
               <p className="mt-1 text-xs font-black text-white">
-                {soundEnabled ? "ON" : "OFF"}
+                {pushStatus === "scheduled" ? "PRONTA" : "AUTO"}
               </p>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={startTimer}
+            onClick={() => startTimer(initialSeconds)}
             className={
               prominent
                 ? "h-12 rounded-2xl bg-teal-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
                 : "h-11 rounded-xl bg-[#07111f] px-3 text-xs font-black text-white active:scale-[.97]"
             }
           >
-            Start
+            Riavvia timer
           </button>
 
           <button
@@ -1464,56 +1898,39 @@ function RestTimer({ seconds = 90, autoStart = false, prominent = false }) {
           >
             Reset
           </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              primeTmfitTimerAudio();
-              setSoundEnabled((current) => {
-                const next = !current;
-                if (!next) {
-                  stopAlarm();
-                }
-                return next;
-              });
-              setSoundPlayed(false);
-              soundPlayedRef.current = false;
-            }}
-            className={
-              soundEnabled
-                ? "h-12 rounded-2xl bg-amber-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
-                : prominent
-                ? "h-12 rounded-2xl bg-white/10 px-3 text-xs font-black text-white active:scale-[.97]"
-                : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
-            }
-          >
-            {soundEnabled ? "Sveglia Soft" : "Allarme OFF"}
-          </button>
         </div>
 
-        {alarmActive && soundEnabled && (
+        <PushNotificationSetup
+          userId={userId}
+          clientId={clientId}
+          compact
+          onEnabled={handlePushEnabled}
+        />
+
+        {alertActive && (
           <button
             type="button"
-            onClick={stopAlarm}
+            onClick={stopAlert}
             className={
               prominent
-                ? "h-14 rounded-[1.2rem] bg-red-500 px-4 text-sm font-black uppercase tracking-[0.16em] text-white shadow-lg active:scale-[.97]"
-                : "h-12 rounded-2xl bg-red-500 px-4 text-sm font-black uppercase tracking-[0.14em] text-white shadow-lg active:scale-[.97]"
+                ? "h-14 rounded-[1.2rem] bg-teal-300 px-4 text-sm font-black uppercase tracking-[0.16em] text-slate-950 shadow-lg active:scale-[.97]"
+                : "h-12 rounded-2xl bg-teal-300 px-4 text-sm font-black uppercase tracking-[0.14em] text-slate-950 shadow-lg active:scale-[.97]"
             }
           >
-            Stop allarme
+            Riprendi allenamento
           </button>
         )}
 
         {prominent && (
           <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Sveglia Soft TMFIT: suono continuo finché non premi Stop. Se iOS sospende l’app in background, parte appena rientri in TMFIT.
+            Nessun audio viene riprodotto da TMFIT: Spotify e Apple Music non vengono messi in pausa. In background ricevi una notifica di sistema.
           </p>
         )}
       </div>
     </div>
   );
 }
+
 function LegalDocumentModal({ documentKey, onClose }) {
   const selectedDocument = documentKey ? LEGAL_DOCUMENTS[documentKey] : null;
 
@@ -15454,7 +15871,9 @@ function WorkoutPlayerModal({
   getExerciseHistory,
   onWorkoutSaved,
   onWorkoutStateChange,
-  onClearPersistedWorkout
+  onClearPersistedWorkout,
+  userId,
+  clientId
 }) {
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [setIndex, setSetIndex] = useState(0);
@@ -16017,7 +16436,6 @@ function WorkoutPlayerModal({
       return;
     }
 
-    primeTmfitTimerAudio();
     setSaving(true);
     const saveResult = await saveSetLog(plan, day, exercise, currentSet, freshestDraft);
     setSaving(false);
@@ -16350,7 +16768,16 @@ function WorkoutPlayerModal({
 
               {resting && (
                 <div id="tmfit-rest-timer">
-                  <RestTimer seconds={recoverySeconds} autoStart prominent />
+                  <RestTimer
+                    seconds={recoverySeconds}
+                    autoStart
+                    prominent
+                    userId={userId}
+                    clientId={clientId}
+                    timerKey={`${plan?.id || "plan"}-${day?.id || "day"}-${
+                      draftKey || `${exerciseIndex}-${setIndex}`
+                    }`}
+                  />
                 </div>
               )}
 
@@ -17282,6 +17709,24 @@ function ClientDashboard({ session, userProfile, onLogout }) {
 
   useEffect(() => {
     loadClientArea();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tmfit") === "training") {
+      setActiveTab("training");
+      params.delete("tmfit");
+      const nextQuery = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${
+          window.location.hash || ""
+        }`
+      );
+    }
   }, []);
 
   async function loadClientArea() {
@@ -18311,6 +18756,11 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "training" && (
           <div className="space-y-5">
+            <PushNotificationSetup
+              userId={session?.user?.id}
+              clientId={client?.id}
+            />
+
             {workoutRecoveryNotice && (
               <div className="rounded-3xl border border-teal-200 bg-teal-50 p-4 text-sm font-black text-teal-800">
                 {workoutRecoveryNotice}. I dati inseriti durante Allenati vengono salvati sul dispositivo mentre l’allenamento è aperto.
@@ -19400,6 +19850,8 @@ function getExerciseHistory(exercise) {
   onWorkoutSaved={loadClientArea}
   onWorkoutStateChange={persistWorkoutLiveState}
   onClearPersistedWorkout={clearWorkoutLiveState}
+  userId={session?.user?.id}
+  clientId={client?.id}
 />
             </main>
 
