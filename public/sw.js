@@ -37,11 +37,13 @@ self.addEventListener("push", (event) => {
 
   const options = {
     body: payload.body || "È il momento di iniziare la prossima serie.",
-    icon: "/tmfit-logo.png",
-    badge: "/tmfit-logo.png",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
     tag: payload.tag || "tmfit-rest-timer",
     renotify: true,
-    requireInteraction: false,
+    requireInteraction: true,
+    silent: false,
+    timestamp: Date.now(),
     vibrate: [240, 120, 240],
     data: {
       url: payload.url || "/?tmfit=training",
@@ -49,9 +51,7 @@ self.addEventListener("push", (event) => {
     }
   };
 
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-  );
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener("notificationclick", (event) => {
