@@ -127,8 +127,8 @@ async function deliverRestTimer(request) {
 
     const notificationPayload = JSON.stringify({
       title: "TMFIT · Recupero terminato",
-      body: "Tocca Interrompi oppure riprendi la prossima serie.",
-      url: "/?tmfit=training",
+      body: "Tocca la notifica per interrompere il richiamo e aprire la prossima serie.",
+      url: `/?tmfit=training&tmfit_rest_action=next&tmfit_rest_job=${encodeURIComponent(jobId)}`,
       stopUrl: "/api/rest-timer/stop",
       tag: `tmfit-rest-${jobId}`,
       jobId,
