@@ -95,11 +95,13 @@ self.addEventListener("push", (event) => {
       },
       {
         action: "open",
-        title: "Apri Allenati"
+        title: "Prossima serie"
       }
     ],
     data: {
-      url: payload.url || "/?tmfit=training",
+      url:
+        payload.url ||
+        "/?tmfit=training&tmfit_rest_action=next",
       stopUrl: payload.stopUrl || "/api/rest-timer/stop",
       jobId: payload.jobId || null,
       stopToken: payload.stopToken || null,
@@ -121,7 +123,8 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   const destination = new URL(
-    notificationData.url || "/?tmfit=training",
+    notificationData.url ||
+      "/?tmfit=training&tmfit_rest_action=next",
     self.location.origin
   ).href;
 
