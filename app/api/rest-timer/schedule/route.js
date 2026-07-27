@@ -107,9 +107,10 @@ export async function POST(request) {
         client_id: ownership.clientId,
         timer_key: body.timer_key ? String(body.timer_key).slice(0, 240) : null,
         expires_at: expiresAt,
-        status: "scheduled"
+        status: "scheduled",
+        alert_attempt: 0
       })
-      .select("id")
+      .select("id, stop_token")
       .single();
 
     if (jobError) return jsonError(jobError.message, 500);
@@ -123,7 +124,7 @@ export async function POST(request) {
     try {
       const published = await qstash.publishJSON({
         url: destination,
-        body: { job_id: job.id },
+        body: { job_id: job.id, attempt: 0 },
         delay: `${seconds}s`,
         retries: 2
       });
@@ -172,11 +173,12 @@ export async function DELETE(request) {
       .from("rest_timer_jobs")
       .update({
         status: "cancelled",
+        stopped_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq("id", jobId)
       .eq("user_id", auth.user.id)
-      .in("status", ["scheduled", "sending"])
+      .in("status", ["scheduled", "sending", "alerting", "sent"])
       .select("id")
       .maybeSingle();
 
