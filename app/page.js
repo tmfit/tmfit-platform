@@ -717,6 +717,112 @@ function isRecentWorkoutDraft(snapshot) {
   return Date.now() - updated < 1000 * 60 * 60 * 18;
 }
 
+function tmfitWorkoutWeekForPlan(plan) {
+  if (!plan?.start_date) return 1;
+
+  const start = new Date(plan.start_date);
+  const now = new Date();
+  const diffDays = Math.floor(
+    (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const week = Math.floor(diffDays / 7) + 1;
+
+  return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
+}
+
+function tmfitPlannedSetCountForResume(plan, exercise) {
+  const week = tmfitWorkoutWeekForPlan(plan);
+  const progression =
+    exercise?.workout_exercise_progressions?.find(
+      (item) => Number(item.week_number) === week
+    ) || null;
+  const realSets = sortByOrder(
+    exercise?.workout_exercise_sets || [],
+    "set_number"
+  );
+
+  if (realSets.length > 0) return realSets.length;
+
+  return Math.max(
+    1,
+    Number(progression?.target_sets) ||
+      Number(exercise?.sets) ||
+      Number(exercise?.series) ||
+      1
+  );
+}
+
+function advanceTmfitWorkoutSnapshot(plan, day, snapshot = {}) {
+  if (!plan || !day || !snapshot?.resting) return snapshot;
+
+  const exercises = (day.workout_blocks || [])
+    .flatMap((block) => block.workout_exercises || [])
+    .filter(Boolean);
+  const executionBlocks = buildWorkoutExecutionBlocks(exercises);
+  const executionSteps = executionBlocks.flatMap((block) => {
+    if (block.type === "single") {
+      const exerciseIndex = block.exerciseIndexes[0];
+      const count = tmfitPlannedSetCountForResume(
+        plan,
+        exercises[exerciseIndex]
+      );
+
+      return Array.from({ length: count }).map((_, setIndex) => ({
+        exerciseIndex,
+        setIndex
+      }));
+    }
+
+    const roundCount = Math.max(
+      0,
+      ...block.exerciseIndexes.map((exerciseIndex) =>
+        tmfitPlannedSetCountForResume(plan, exercises[exerciseIndex])
+      )
+    );
+    const steps = [];
+
+    for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
+      block.exerciseIndexes.forEach((exerciseIndex) => {
+        if (
+          roundIndex <
+          tmfitPlannedSetCountForResume(plan, exercises[exerciseIndex])
+        ) {
+          steps.push({ exerciseIndex, setIndex: roundIndex });
+        }
+      });
+    }
+
+    return steps;
+  });
+  const currentIndex = executionSteps.findIndex(
+    (step) =>
+      Number(step.exerciseIndex) === Number(snapshot.exerciseIndex || 0) &&
+      Number(step.setIndex) === Number(snapshot.setIndex || 0)
+  );
+  const nextStep =
+    currentIndex >= 0 && currentIndex < executionSteps.length - 1
+      ? executionSteps[currentIndex + 1]
+      : null;
+
+  if (nextStep) {
+    return {
+      ...snapshot,
+      exerciseIndex: nextStep.exerciseIndex,
+      setIndex: nextStep.setIndex,
+      resting: false,
+      finished: false,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  return {
+    ...snapshot,
+    resting: false,
+    finished: currentIndex >= 0,
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function Button({ children, className = "", type = "button", ...props }) {
   return (
     <button
@@ -17677,6 +17783,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   resumeState: null
 });
   const [workoutRecoveryNotice, setWorkoutRecoveryNotice] = useState("");
+  const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
   const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
 
   const [checkinForm, setCheckinForm] = useState({
@@ -17731,9 +17838,21 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     if (typeof window === "undefined") return;
 
     const params = new URLSearchParams(window.location.search);
-    if (params.get("tmfit") === "training") {
+    const openTraining = params.get("tmfit") === "training";
+    const advanceAfterRest = params.get("tmfit_rest_action") === "next";
+
+    if (openTraining || advanceAfterRest) {
       setActiveTab("training");
+    }
+
+    if (advanceAfterRest) {
+      setPendingRestAdvance(true);
+    }
+
+    if (openTraining || advanceAfterRest) {
       params.delete("tmfit");
+      params.delete("tmfit_rest_action");
+      params.delete("tmfit_rest_job");
       const nextQuery = params.toString();
       window.history.replaceState(
         {},
@@ -17840,6 +17959,55 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     return null;
   }
 
+
+  useEffect(() => {
+    if (
+      !pendingRestAdvance ||
+      !client ||
+      !workoutLiveDraftKey ||
+      plans.length === 0
+    ) {
+      return;
+    }
+
+    const saved = safeReadLocalJson(workoutLiveDraftKey, null);
+    const matchingWorkout =
+      saved?.planId &&
+      saved?.dayId &&
+      isRecentWorkoutDraft(saved)
+        ? findWorkoutPlanDay(plans, saved.planId, saved.dayId)
+        : null;
+
+    if (!matchingWorkout || !saved?.resting) {
+      setWorkoutRecoveryNotice(
+        "Recupero terminato. Apri Allenati per continuare dalla sessione salvata."
+      );
+      setPendingRestAdvance(false);
+      return;
+    }
+
+    const advancedState = advanceTmfitWorkoutSnapshot(
+      matchingWorkout.plan,
+      matchingWorkout.day,
+      saved
+    );
+
+    safeWriteLocalJson(workoutLiveDraftKey, advancedState);
+    setDrafts(advancedState.drafts || {});
+    setWorkoutPlayer({
+      open: true,
+      plan: matchingWorkout.plan,
+      day: matchingWorkout.day,
+      resumeState: advancedState
+    });
+    setWorkoutRecoveryNotice(
+      advancedState.finished
+        ? "Recupero terminato: allenamento completato."
+        : "Recupero terminato: aperta direttamente la prossima serie."
+    );
+    setPendingRestAdvance(false);
+  }, [pendingRestAdvance, client?.id, plans, workoutLiveDraftKey]);
+
   function persistWorkoutLiveState(snapshot) {
     if (!workoutLiveDraftKey || !snapshot?.planId || !snapshot?.dayId) return;
 
@@ -17860,7 +18028,14 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   }
 
   useEffect(() => {
-    if (!workoutLiveDraftKey || plans.length === 0 || workoutPlayer.open) return;
+    if (
+      pendingRestAdvance ||
+      !workoutLiveDraftKey ||
+      plans.length === 0 ||
+      workoutPlayer.open
+    ) {
+      return;
+    }
 
     const saved = safeReadLocalJson(workoutLiveDraftKey, null);
     if (!saved?.planId || !saved?.dayId || !isRecentWorkoutDraft(saved)) return;
@@ -17876,7 +18051,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       resumeState: saved
     });
     setWorkoutRecoveryNotice("Allenamento recuperato automaticamente");
-  }, [workoutLiveDraftKey, plans.length]);
+  }, [pendingRestAdvance, workoutLiveDraftKey, plans.length]);
 
   function currentWeekNumber(plan) {
     if (!plan?.start_date) return 1;
