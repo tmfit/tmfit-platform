@@ -40,6 +40,21 @@ const APP_VERSION = "v4.9";
 const APP_VERSION_LABEL = "TMFIT Pro v4.9";
 
 
+function setTmfitTimerAudioSession(type = "ambient") {
+  if (typeof navigator === "undefined") return;
+
+  try {
+    if (navigator.audioSession && "type" in navigator.audioSession) {
+      navigator.audioSession.type = type;
+    }
+  } catch (error) {
+    console.warn(
+      "TMFIT audio session non disponibile",
+      error?.message || error
+    );
+  }
+}
+
 function getTmfitTimerAudioContext() {
   if (typeof window === "undefined") return null;
 
@@ -163,79 +178,40 @@ function getTmfitTimerAudioElement() {
 function primeTmfitTimerAudio() {
   if (typeof window === "undefined") return;
 
+  setTmfitTimerAudioSession("ambient");
+
   try {
     const context = getTmfitTimerAudioContext();
-    if (context && context.state === "suspended") {
+    if (!context) return;
+
+    if (context.state === "suspended") {
       context.resume?.();
     }
 
-    if (context) {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const start = context.currentTime;
+    // Sblocca Web Audio durante un gesto dell'utente senza avviare un media
+    // element: in questo modo Spotify/Apple Music non vengono presi in carico
+    // da TMFIT durante il conto alla rovescia.
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const startAt = context.currentTime;
 
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(880, start);
-      gain.gain.setValueAtTime(0.012, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.08);
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(440, startAt);
+    gain.gain.setValueAtTime(0.00001, startAt);
+    gain.gain.setValueAtTime(0.00001, startAt + 0.04);
 
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.09);
-    }
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + 0.05);
+
+    window.__tmfitTimerAudioUnlocked = true;
   } catch (error) {
-    console.warn("TMFIT timer audio context prime unavailable", error?.message || error);
-  }
-
-  try {
-    const audio = getTmfitTimerAudioElement();
-    if (!audio) return;
-
-    const previousVolume = audio.volume;
-    audio.pause();
-    audio.currentTime = 0;
-    audio.loop = false;
-    audio.muted = false;
-    audio.volume = 0.018;
-
-    const playPromise = audio.play?.();
-    if (playPromise && typeof playPromise.then === "function") {
-      playPromise
-        .then(() => {
-          window.__tmfitTimerAudioUnlocked = true;
-          window.setTimeout(() => {
-            try {
-              audio.pause();
-              audio.currentTime = 0;
-              audio.loop = true;
-              audio.volume = previousVolume || 1;
-            } catch (innerError) {
-              console.warn("TMFIT timer audio prime cleanup unavailable", innerError?.message || innerError);
-            }
-          }, 70);
-        })
-        .catch((error) => {
-          window.__tmfitTimerAudioUnlocked = false;
-          audio.loop = true;
-          audio.volume = previousVolume || 1;
-          console.warn("TMFIT timer audio element prime blocked", error?.message || error);
-        });
-    } else {
-      window.__tmfitTimerAudioUnlocked = true;
-      window.setTimeout(() => {
-        try {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.loop = true;
-          audio.volume = previousVolume || 1;
-        } catch (innerError) {
-          console.warn("TMFIT timer audio prime cleanup unavailable", innerError?.message || innerError);
-        }
-      }, 70);
-    }
-  } catch (error) {
-    console.warn("TMFIT timer audio prime unavailable", error?.message || error);
+    window.__tmfitTimerAudioUnlocked = false;
+    console.warn(
+      "TMFIT timer audio context prime unavailable",
+      error?.message || error
+    );
   }
 }
 
@@ -304,20 +280,24 @@ function stopTmfitTimerAlarmLoop() {
 
     window.__tmfitTimerAlarmLoop = null;
 
+    // Pulisce anche un eventuale elemento audio rimasto aperto da una
+    // precedente versione dell'app, senza crearne uno nuovo.
     const audio = window.__tmfitTimerAudioElement;
     if (audio) {
       audio.pause();
       audio.currentTime = 0;
-      audio.loop = true;
-      audio.volume = 0.72;
-      audio.muted = false;
     }
 
     if (typeof navigator !== "undefined" && navigator.vibrate) {
       navigator.vibrate(0);
     }
+
+    setTmfitTimerAudioSession("auto");
   } catch (error) {
-    console.warn("TMFIT timer alarm stop unavailable", error?.message || error);
+    console.warn(
+      "TMFIT timer alarm stop unavailable",
+      error?.message || error
+    );
   }
 }
 
@@ -326,52 +306,30 @@ function startTmfitTimerAlarmLoop() {
 
   try {
     stopTmfitTimerAlarmLoop();
+    setTmfitTimerAudioSession("ambient");
 
-    let htmlAudioStarted = false;
-    const audio = getTmfitTimerAudioElement();
-    if (audio) {
-      audio.pause();
-      audio.currentTime = 0;
-      audio.loop = true;
-      audio.muted = false;
-      audio.volume = 0.72;
-
-      const playPromise = audio.play?.();
-      if (playPromise && typeof playPromise.then === "function") {
-        playPromise
-          .then(() => {
-            htmlAudioStarted = true;
-            window.__tmfitTimerAudioUnlocked = true;
-          })
-          .catch((error) => {
-            htmlAudioStarted = false;
-            window.__tmfitTimerAudioUnlocked = false;
-            console.warn("TMFIT timer looping audio blocked", error?.message || error);
-          });
-      } else {
-        htmlAudioStarted = true;
-        window.__tmfitTimerAudioUnlocked = true;
-      }
-    }
-
+    // Suoneria locale: brevi impulsi Web Audio ripetuti fino alla pressione
+    // di “Riprendi allenamento”. Non viene usato un elemento audio/media in
+    // loop, così si riduce il rischio di mettere in pausa la musica esterna.
     playTmfitTimerAlarmBurst();
 
     const soundInterval = window.setInterval(() => {
-      if (!htmlAudioStarted) {
-        playTmfitTimerAlarmBurst();
-      }
-    }, 1200);
+      playTmfitTimerAlarmBurst();
+    }, 1350);
 
     const vibrationInterval = window.setInterval(() => {
       vibrateTmfitTimerAlarm();
-    }, 1700);
+    }, 1800);
 
     window.__tmfitTimerAlarmLoop = {
       soundInterval,
       vibrationInterval
     };
   } catch (error) {
-    console.warn("TMFIT timer alarm loop unavailable", error?.message || error);
+    console.warn(
+      "TMFIT timer alarm loop unavailable",
+      error?.message || error
+    );
   }
 }
 
@@ -1428,7 +1386,7 @@ function PushNotificationSetup({
     : "Avvisi anche fuori da TMFIT";
 
   const text = enabled
-    ? "Alla fine del recupero riceverai una notifica di sistema senza interrompere Spotify o Apple Music."
+    ? "Alla fine del recupero riceverai l’avviso anche con schermo bloccato. Quando TMFIT è aperta, la suoneria resta attiva finché non premi Riprendi."
     : status === "install_required"
     ? "Su iPhone apri Condividi → Aggiungi alla schermata Home, poi avvia TMFIT dalla nuova icona e abilita le notifiche."
     : status === "denied"
@@ -1437,7 +1395,7 @@ function PushNotificationSetup({
     ? "Questo browser non supporta le notifiche push della webapp."
     : status === "configuration_missing"
     ? "Configurazione notifiche non completa."
-    : "Abilita una sola volta: il timer continuerà a funzionare anche quando passi a un'altra app.";
+    : "Per utilizzare Allenati devi abilitare le notifiche: il timer potrà avvisarti anche quando passi a un’altra app o blocchi lo schermo.";
 
   if (compact) {
     return (
@@ -1528,6 +1486,7 @@ function RestTimer({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      stopTmfitTimerAlarmLoop();
     };
   }, []);
 
@@ -1621,6 +1580,7 @@ function RestTimer({
 
   function stopAlert() {
     setAlertActive(false);
+    stopTmfitTimerAlarmLoop();
 
     try {
       navigator.vibrate?.(0);
@@ -1637,6 +1597,13 @@ function RestTimer({
     setRemaining(0);
     setRunning(false);
     writeSnapshot({ completed: true, alarmAt: alarmAtRef.current });
+
+    // La suoneria personalizzata può essere riprodotta dalla webapp quando è
+    // visibile. A schermo bloccato o in background resta attiva la push di
+    // sistema, programmata sul server tramite QStash.
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      playTmfitTimerAlarm();
+    }
 
     try {
       navigator.vibrate?.([240, 120, 240]);
@@ -1662,6 +1629,7 @@ function RestTimer({
 
   async function startTimer(durationOverride = initialSeconds) {
     const safeDuration = Math.max(1, Number(durationOverride) || initialSeconds);
+    primeTmfitTimerAudio();
     stopAlert();
     beginLocalTimer(safeDuration);
     await schedulePush(safeDuration);
@@ -1679,6 +1647,7 @@ function RestTimer({
     setAlertActive(false);
     setPushStatus("idle");
     safeRemoveLocal(storageKey);
+    stopTmfitTimerAlarmLoop();
 
     try {
       navigator.vibrate?.(0);
@@ -1923,7 +1892,7 @@ function RestTimer({
 
         {prominent && (
           <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Nessun audio viene riprodotto da TMFIT: Spotify e Apple Music non vengono messi in pausa. In background ricevi una notifica di sistema.
+            Durante il recupero la musica continua. Alla scadenza, con TMFIT aperta parte una suoneria ripetuta; con schermo bloccato ricevi la notifica di sistema.
           </p>
         )}
       </div>
@@ -16387,6 +16356,8 @@ function WorkoutPlayerModal({
   async function handlePrimaryWorkoutAction() {
     if (saving) return;
 
+    primeTmfitTimerAudio();
+
     if (!currentSetSaved) {
       if (!setHasRequiredExecutionData) {
         if (typeof window !== "undefined") {
@@ -17929,6 +17900,90 @@ function getExerciseHistory(exercise) {
     return true;
   }
 
+  async function requireWorkoutNotifications() {
+    if (typeof window === "undefined") return false;
+
+    // Il click su “Inizia” è il gesto esplicito usato sia per sbloccare Web
+    // Audio sia, quando necessario, per mostrare il prompt del browser.
+    primeTmfitTimerAudio();
+
+    if (!tmfitPushIsSupported()) {
+      window.alert(
+        "Per utilizzare Allenati serve un browser compatibile con le notifiche push. Apri TMFIT con Safari su iPhone oppure Chrome/Edge su Android e computer."
+      );
+      return false;
+    }
+
+    if (tmfitIsIosDevice() && !tmfitIsStandalonePwa()) {
+      window.alert(
+        "Per utilizzare Allenati su iPhone devi prima installare TMFIT: apri Condividi → Aggiungi alla schermata Home, poi avvia l’app dalla nuova icona."
+      );
+      return false;
+    }
+
+    if (Notification.permission === "denied") {
+      window.alert(
+        "Le notifiche TMFIT sono bloccate. Riattivale dalle impostazioni del browser o della webapp; senza notifiche non è possibile avviare Allenati."
+      );
+      return false;
+    }
+
+    try {
+      if (Notification.permission === "granted") {
+        const existingSubscription = await currentTmfitPushSubscription();
+
+        if (existingSubscription) {
+          const persisted = await persistTmfitPushSubscription(
+            existingSubscription,
+            session?.user?.id,
+            client?.id
+          );
+
+          if (persisted) return true;
+        }
+      }
+
+      const result = await enableTmfitPushNotifications(
+        session?.user?.id,
+        client?.id
+      );
+
+      if (result.ok) return true;
+
+      const message =
+        result.status === "install_required"
+          ? "Installa TMFIT sulla schermata Home e riaprila dalla nuova icona."
+          : result.status === "denied"
+          ? "Hai negato le notifiche. Riattivale nelle impostazioni del browser o della webapp TMFIT."
+          : result.status === "configuration_missing"
+          ? "La configurazione delle notifiche non è completa. Contatta il coach."
+          : result.status === "unsupported"
+          ? "Questo browser non supporta le notifiche richieste da Allenati."
+          : "Non è stato possibile attivare le notifiche. Riprova prima di avviare Allenati.";
+
+      window.alert(`${message} Senza notifiche Allenati resta bloccato.`);
+      return false;
+    } catch (error) {
+      console.warn(
+        "TMFIT verifica notifiche Allenati non riuscita",
+        error?.message || error
+      );
+      window.alert(
+        "Non è stato possibile verificare le notifiche. Controlla la connessione e riprova."
+      );
+      return false;
+    }
+  }
+
+  async function openWorkoutPlayerWithNotifications(plan, day) {
+    if (!day) return;
+
+    const notificationsReady = await requireWorkoutNotifications();
+    if (!notificationsReady) return;
+
+    await openWorkoutPlayer(plan, day);
+  }
+
   async function openWorkoutPlayer(plan, day) {
     if (!day) return;
 
@@ -18841,7 +18896,7 @@ function getExerciseHistory(exercise) {
                         <Button
                           type="button"
                           disabled={!nextDay}
-                          onClick={() => openWorkoutPlayer(plan, nextDay)}
+                          onClick={() => openWorkoutPlayerWithNotifications(plan, nextDay)}
                           className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
                         >
                           <Dumbbell size={17} className="mr-2" />
@@ -18910,7 +18965,7 @@ function getExerciseHistory(exercise) {
 
                                 <button
                                   type="button"
-                                  onClick={() => openWorkoutPlayer(plan, day)}
+                                  onClick={() => openWorkoutPlayerWithNotifications(plan, day)}
                                   className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.98]"
                                 >
                                   Inizia
