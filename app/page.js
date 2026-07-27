@@ -80,7 +80,7 @@ function createTmfitAlarmWavDataUri() {
     if (window.__tmfitAlarmWavDataUri) return window.__tmfitAlarmWavDataUri;
 
     const sampleRate = 22050;
-    const durationSeconds = 1.13;
+    const durationSeconds = 0.92;
     const samples = Math.floor(sampleRate * durationSeconds);
     const bytesPerSample = 2;
     const dataSize = samples * bytesPerSample;
@@ -124,12 +124,14 @@ function createTmfitAlarmWavDataUri() {
       const t = index / sampleRate;
       let value = 0;
 
-      // Opzione 1: Sveglia Soft TMFIT.
-      // Due toni morbidi e ripetuti: avvisa bene senza risultare aggressiva.
-      if (t < 0.22) {
-        value = softTone(t, 660, 0.22, 0.34);
-      } else if (t >= 0.32 && t < 0.58) {
-        value = softTone(t - 0.32, 784, 0.26, 0.34);
+      // Segnale originale TMFIT: tre impulsi brevi e distinti.
+      // La cadenza richiama un allarme moderno senza copiare suoni Apple.
+      if (t < 0.14) {
+        value = softTone(t, 880, 0.14, 0.31);
+      } else if (t >= 0.22 && t < 0.36) {
+        value = softTone(t - 0.22, 1046, 0.14, 0.31);
+      } else if (t >= 0.44 && t < 0.62) {
+        value = softTone(t - 0.44, 880, 0.18, 0.34);
       }
 
       const clipped = Math.max(-1, Math.min(1, value));
@@ -240,8 +242,9 @@ function playTmfitTimerAlarmBurst() {
 
     const now = context.currentTime;
     const pattern = [
-      { offset: 0, frequency: 660, duration: 0.22 },
-      { offset: 0.32, frequency: 784, duration: 0.26 }
+      { offset: 0, frequency: 880, duration: 0.14 },
+      { offset: 0.22, frequency: 1046, duration: 0.14 },
+      { offset: 0.44, frequency: 880, duration: 0.18 }
     ];
 
     pattern.forEach(({ offset, frequency, duration }) => {
@@ -315,7 +318,7 @@ function startTmfitTimerAlarmLoop() {
 
     const soundInterval = window.setInterval(() => {
       playTmfitTimerAlarmBurst();
-    }, 1350);
+    }, 1120);
 
     const vibrationInterval = window.setInterval(() => {
       vibrateTmfitTimerAlarm();
@@ -1578,9 +1581,18 @@ function RestTimer({
     }
   }
 
-  function stopAlert() {
+  async function stopAlert() {
+    const currentJobId = pushJobIdRef.current;
+    pushJobIdRef.current = "";
+
     setAlertActive(false);
+    setPushStatus("idle");
     stopTmfitTimerAlarmLoop();
+    writeSnapshot({ completed: true, pushJobId: "" });
+
+    if (currentJobId) {
+      await cancelScheduledPush(currentJobId);
+    }
 
     try {
       navigator.vibrate?.(0);
@@ -1630,7 +1642,7 @@ function RestTimer({
   async function startTimer(durationOverride = initialSeconds) {
     const safeDuration = Math.max(1, Number(durationOverride) || initialSeconds);
     primeTmfitTimerAudio();
-    stopAlert();
+    await stopAlert();
     beginLocalTimer(safeDuration);
     await schedulePush(safeDuration);
   }
@@ -1726,6 +1738,39 @@ function RestTimer({
     const interval = window.setInterval(tick, 500);
     return () => window.clearInterval(interval);
   }, [running, alarmAt, alertActive]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.serviceWorker) {
+      return undefined;
+    }
+
+    const handleServiceWorkerMessage = (event) => {
+      const payload = event?.data || {};
+      if (payload.type !== "TMFIT_REST_TIMER_STOP") return;
+
+      const stoppedJobId = String(payload.jobId || "");
+      const activeJobId = String(pushJobIdRef.current || "");
+      if (stoppedJobId && activeJobId && stoppedJobId !== activeJobId) return;
+
+      pushJobIdRef.current = "";
+      setAlertActive(false);
+      setPushStatus("idle");
+      stopTmfitTimerAlarmLoop();
+      writeSnapshot({ completed: true, pushJobId: "" });
+
+      try {
+        navigator.vibrate?.(0);
+        navigator.clearAppBadge?.();
+      } catch {
+        // API opzionali.
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
+    };
+  }, [storageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1892,7 +1937,7 @@ function RestTimer({
 
         {prominent && (
           <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Durante il recupero la musica continua. Alla scadenza, con TMFIT aperta parte una suoneria ripetuta; con schermo bloccato ricevi la notifica di sistema.
+            Durante il recupero la musica continua. Alla scadenza, con TMFIT aperta parte il Segnale TMFIT intermittente; con schermo bloccato ricevi richiami push fino allo Stop.
           </p>
         )}
       </div>
