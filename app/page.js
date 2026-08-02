@@ -18105,147 +18105,403 @@ function CompactWorkoutDayCard({
   day,
   dayIndex,
   currentWeek,
-  onStart
+  onStart,
+  onOpen
 }) {
   const exercises = (day?.workout_blocks || []).flatMap(
     (block) => block.workout_exercises || []
   );
   const estimatedMinutes = day?.estimated_minutes || 60;
+  const totalSets = exercises.reduce((sum, exercise) => {
+    const progression =
+      exercise.workout_exercise_progressions?.find(
+        (item) => Number(item.week_number) === Number(currentWeek)
+      ) || null;
+    const rawSets = progression?.target_sets ?? exercise.sets ?? 0;
+    const numericSets = Number(String(rawSets).match(/\d+/)?.[0] || 0);
+    return sum + numericSets;
+  }, 0);
+  const previewExercises = exercises.slice(0, 3);
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-4">
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-teal-700">
-            Allenamento {dayIndex + 1}
-          </p>
-          <h4 className="mt-1 truncate text-xl font-black text-slate-950">
-            {day?.title || `Allenamento ${dayIndex + 1}`}
-          </h4>
-          <p className="mt-1 text-xs font-bold text-slate-500">
-            {exercises.length} esercizi · {estimatedMinutes} min
-            {week?.week_number ? ` · settimana ${week.week_number}` : ""}
-          </p>
+    <article className="overflow-hidden rounded-[1.8rem] border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+      <div className="h-1.5 bg-teal-300" />
+
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-[#07111f] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white">
+                Allenamento {dayIndex + 1}
+              </span>
+              {week?.week_number && (
+                <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-teal-800">
+                  Settimana {week.week_number}
+                </span>
+              )}
+            </div>
+
+            <h4 className="mt-3 text-2xl font-black leading-tight tracking-tight text-slate-950">
+              {day?.title || `Allenamento ${dayIndex + 1}`}
+            </h4>
+
+            {day?.notes && (
+              <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-500">
+                {day.notes}
+              </p>
+            )}
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onStart}
-          className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-2.5 text-xs font-black text-white active:scale-[.98]"
-        >
-          Inizia
-        </button>
-      </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl bg-slate-50 px-3 py-3 text-center">
+            <p className="text-lg font-black text-slate-950">{exercises.length}</p>
+            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+              Esercizi
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 px-3 py-3 text-center">
+            <p className="text-lg font-black text-slate-950">{totalSets || "—"}</p>
+            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+              Serie
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 px-3 py-3 text-center">
+            <p className="text-lg font-black text-slate-950">{estimatedMinutes}</p>
+            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+              Minuti
+            </p>
+          </div>
+        </div>
 
-      <div className="divide-y divide-slate-100">
-        {exercises.map((exercise, exerciseIndex) => {
-          const progression =
-            exercise.workout_exercise_progressions?.find(
-              (item) => Number(item.week_number) === Number(currentWeek)
-            ) || null;
-          const targetSets = progression?.target_sets || exercise.sets || "—";
-          const targetReps = progression?.target_reps || exercise.reps || "—";
-          const targetRecovery =
-            progression?.recovery_seconds ?? exercise.recovery_seconds ?? "";
-          const targetRir = progression?.target_rir || exercise.target_rir;
-          const targetRpe = progression?.target_rpe || exercise.target_rpe;
-          const intensity = targetRir
-            ? `RIR ${targetRir}`
-            : targetRpe
-            ? `RPE ${targetRpe}`
-            : "";
-          const groupLabel = workoutGroupLabel(exercise);
-          const execution = String(
-            exercise.execution_mode || cleanWorkoutNotes(exercise.notes || "")
-          ).trim();
-          const progressionLoad = String(
-            progression?.target_load_text || progression?.target_load_kg || ""
-          ).trim();
+        {previewExercises.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {previewExercises.map((exercise, exerciseIndex) => {
+              const progression =
+                exercise.workout_exercise_progressions?.find(
+                  (item) => Number(item.week_number) === Number(currentWeek)
+                ) || null;
+              const targetSets = progression?.target_sets || exercise.sets || "—";
+              const targetReps = progression?.target_reps || exercise.reps || "—";
 
-          return (
-            <div
-              key={exercise.id || `${day?.id || "day"}-${exerciseIndex}`}
-              className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 px-4 py-3.5"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-black text-slate-700">
-                {exerciseIndex + 1}
-              </span>
-
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <h5 className="min-w-0 flex-1 text-sm font-black leading-5 text-slate-950">
+              return (
+                <div
+                  key={exercise.id || `${day?.id || "day"}-${exerciseIndex}`}
+                  className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-black text-slate-700">
+                    {exerciseIndex + 1}
+                  </span>
+                  <p className="min-w-0 flex-1 truncate text-sm font-black text-slate-900">
                     {exercise.exercise_name || "Esercizio"}
-                  </h5>
-                  {groupLabel && (
-                    <span className="rounded-full bg-teal-100 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-teal-800">
-                      {groupLabel}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
+                  </p>
+                  <span className="shrink-0 text-xs font-black text-slate-500">
                     {targetSets} × {targetReps}
                   </span>
-                  <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
-                    Rec. {compactWorkoutRecoveryLabel(targetRecovery)}
-                  </span>
-                  {intensity && (
-                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
-                      {intensity}
-                    </span>
-                  )}
-                  {progressionLoad && (
-                    <span className="rounded-lg bg-teal-50 px-2 py-1 text-[11px] font-black text-teal-800">
-                      {progressionLoad}
-                      {progression?.target_load_kg && !progression?.target_load_text
-                        ? " kg"
-                        : ""}
-                    </span>
-                  )}
                 </div>
+              );
+            })}
 
-                {execution && (
-                  <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                    {execution}
-                  </p>
-                )}
+            {exercises.length > previewExercises.length && (
+              <p className="px-1 text-xs font-bold text-slate-400">
+                +{exercises.length - previewExercises.length} esercizi
+              </p>
+            )}
+          </div>
+        )}
 
-                {(exercise.video_url || exercise.image_url) && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {exercise.video_url && (
-                      <a
-                        href={exercise.video_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[11px] font-black text-teal-700"
-                      >
-                        Video
-                      </a>
-                    )}
-                    {exercise.image_url && (
-                      <a
-                        href={exercise.image_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[11px] font-black text-teal-700"
-                      >
-                        Immagine
-                      </a>
-                    )}
-                  </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onOpen}
+            className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
+          >
+            <FileText size={16} className="mr-2" />
+            Visualizza scheda
+          </button>
+          <button
+            type="button"
+            onClick={onStart}
+            className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
+          >
+            <Dumbbell size={16} className="mr-2" />
+            Inizia
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function WorkoutDayPreviewModal({
+  preview,
+  onClose,
+  onStart,
+  getExerciseHistory
+}) {
+  if (!preview?.day) return null;
+
+  const { plan, week, day, dayIndex = 0, currentWeek } = preview;
+  const blocks = day.workout_blocks || [];
+  const exercises = blocks.flatMap((block) => block.workout_exercises || []);
+  const estimatedMinutes = day.estimated_minutes || 60;
+
+  return (
+    <div className="fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/70 px-3 pb-3 pt-10 backdrop-blur-sm md:items-center md:p-6">
+      <button
+        type="button"
+        aria-label="Chiudi scheda allenamento"
+        onClick={onClose}
+        className="absolute inset-0"
+      />
+
+      <section className="relative z-[126] flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] bg-[#f5f7fb] shadow-2xl md:rounded-[2rem]">
+        <header className="shrink-0 bg-[#07111f] px-5 pb-5 pt-4 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-teal-300 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">
+                  Allenamento {dayIndex + 1}
+                </span>
+                {week?.week_number && (
+                  <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                    Settimana {week.week_number}
+                  </span>
                 )}
               </div>
-            </div>
-          );
-        })}
 
-        {exercises.length === 0 && (
-          <p className="px-4 py-5 text-sm font-semibold text-slate-500">
-            Nessun esercizio inserito.
-          </p>
-        )}
-      </div>
+              <h3 className="mt-3 text-3xl font-black leading-tight tracking-tight">
+                {day.title || `Allenamento ${dayIndex + 1}`}
+              </h3>
+
+              <p className="mt-2 text-sm font-bold text-slate-300">
+                {plan?.title || "Scheda allenamento"}
+                {plan?.goal ? ` · ${plan.goal}` : ""}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white transition active:scale-[.96]"
+              aria-label="Chiudi"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-white/10 px-3 py-3">
+              <p className="text-xl font-black">{exercises.length}</p>
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                Esercizi
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/10 px-3 py-3">
+              <p className="text-xl font-black">{estimatedMinutes}</p>
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                Minuti stimati
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <div className="tmfit-workout-scroll flex-1 overflow-y-auto px-4 py-4">
+          {day.notes && (
+            <div className="mb-4 rounded-3xl border border-teal-100 bg-teal-50 p-4 text-sm font-semibold leading-6 text-teal-900">
+              {day.notes}
+            </div>
+          )}
+
+          <div className="space-y-5">
+            {blocks.map((block, blockIndex) => {
+              const blockExercises = block.workout_exercises || [];
+
+              return (
+                <section key={block.id || `block-${blockIndex}`}>
+                  {(block.title || blocks.length > 1) && (
+                    <div className="mb-2 flex items-center gap-3 px-1">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-[#07111f] text-[11px] font-black text-white">
+                        {blockIndex + 1}
+                      </span>
+                      <h4 className="text-sm font-black uppercase tracking-[0.18em] text-slate-700">
+                        {block.title || `Blocco ${blockIndex + 1}`}
+                      </h4>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {blockExercises.map((exercise, exerciseIndex) => {
+                      const progression =
+                        exercise.workout_exercise_progressions?.find(
+                          (item) => Number(item.week_number) === Number(currentWeek)
+                        ) || null;
+                      const targetSets = progression?.target_sets || exercise.sets || "—";
+                      const targetReps = progression?.target_reps || exercise.reps || "—";
+                      const targetRecovery =
+                        progression?.recovery_seconds ??
+                        exercise.recovery_seconds ??
+                        "";
+                      const targetRir = progression?.target_rir || exercise.target_rir;
+                      const targetRpe = progression?.target_rpe || exercise.target_rpe;
+                      const intensity = targetRir
+                        ? `RIR ${targetRir}`
+                        : targetRpe
+                        ? `RPE ${targetRpe}`
+                        : "";
+                      const progressionLoad = String(
+                        progression?.target_load_text ||
+                          progression?.target_load_kg ||
+                          ""
+                      ).trim();
+                      const groupLabel = workoutGroupLabel(exercise);
+                      const execution = String(
+                        exercise.execution_mode ||
+                          cleanWorkoutNotes(exercise.notes || "")
+                      ).trim();
+                      const exerciseHistory = getExerciseHistory?.(exercise) || [];
+
+                      return (
+                        <article
+                          key={exercise.id || `exercise-${blockIndex}-${exerciseIndex}`}
+                          className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                        >
+                          <div className="p-4">
+                            <div className="flex gap-3">
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-xs font-black text-slate-700">
+                                {exerciseIndex + 1}
+                              </span>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <h5 className="min-w-0 flex-1 text-base font-black leading-5 text-slate-950">
+                                    {exercise.exercise_name || "Esercizio"}
+                                  </h5>
+                                  {groupLabel && (
+                                    <span className="rounded-full bg-teal-100 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-teal-800">
+                                      {groupLabel}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="mt-3 grid grid-cols-3 gap-2">
+                                  <div className="rounded-2xl bg-slate-50 px-2 py-2.5 text-center">
+                                    <p className="text-sm font-black text-slate-950">
+                                      {targetSets} × {targetReps}
+                                    </p>
+                                    <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                      Serie / reps
+                                    </p>
+                                  </div>
+                                  <div className="rounded-2xl bg-slate-50 px-2 py-2.5 text-center">
+                                    <p className="text-sm font-black text-slate-950">
+                                      {compactWorkoutRecoveryLabel(targetRecovery)}
+                                    </p>
+                                    <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                      Recupero
+                                    </p>
+                                  </div>
+                                  <div className="rounded-2xl bg-slate-50 px-2 py-2.5 text-center">
+                                    <p className="text-sm font-black text-slate-950">
+                                      {intensity || "—"}
+                                    </p>
+                                    <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                      Intensità
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {progressionLoad && (
+                                  <div className="mt-3 rounded-2xl bg-teal-50 px-3 py-2.5 text-sm font-black text-teal-900">
+                                    Carico: {progressionLoad}
+                                    {progression?.target_load_kg &&
+                                    !progression?.target_load_text
+                                      ? " kg"
+                                      : ""}
+                                  </div>
+                                )}
+
+                                {execution && (
+                                  <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
+                                      Esecuzione
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">
+                                      {execution}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {(exercise.video_url || exercise.image_url) && (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {exercise.video_url && (
+                                      <a
+                                        href={exercise.video_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
+                                      >
+                                        Video
+                                      </a>
+                                    )}
+                                    {exercise.image_url && (
+                                      <a
+                                        href={exercise.image_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                                      >
+                                        Immagine
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <ExerciseHistoryBox history={exerciseHistory} />
+                          </div>
+                        </article>
+                      );
+                    })}
+
+                    {blockExercises.length === 0 && (
+                      <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">
+                        Nessun esercizio inserito.
+                      </p>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+
+            {exercises.length === 0 && (
+              <Empty
+                title="Nessun esercizio"
+                text="Il coach non ha ancora completato questo allenamento."
+              />
+            )}
+          </div>
+        </div>
+
+        <footer className="grid shrink-0 grid-cols-[0.8fr_1.2fr] gap-2 border-t border-slate-200 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
+          >
+            Chiudi
+          </button>
+          <button
+            type="button"
+            onClick={onStart}
+            className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-4 text-sm font-black text-white"
+          >
+            <Dumbbell size={17} className="mr-2" />
+            Inizia allenamento
+          </button>
+        </footer>
+      </section>
     </div>
   );
 }
@@ -18598,10 +18854,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
 });
   const [, setWorkoutRecoveryNotice] = useState("");
   const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
-  const [trainingView, setTrainingView] = usePersistedState(
-    "tmfit_client_training_view",
-    "compact"
-  );
+  const [workoutDayPreview, setWorkoutDayPreview] = useState(null);
   const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
 
   const [checkinForm, setCheckinForm] = useState({
@@ -19915,31 +20168,6 @@ function getExerciseHistory(exercise) {
               plans={workoutCalendarPlans.length ? workoutCalendarPlans : plans}
             />
 
-            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-200 p-1">
-              <button
-                type="button"
-                onClick={() => setTrainingView("compact")}
-                className={`rounded-xl px-3 py-2.5 text-xs font-black transition ${
-                  trainingView === "compact"
-                    ? "bg-white text-slate-950 shadow-sm"
-                    : "text-slate-500"
-                }`}
-              >
-                Allenamento compatto
-              </button>
-              <button
-                type="button"
-                onClick={() => setTrainingView("detailed")}
-                className={`rounded-xl px-3 py-2.5 text-xs font-black transition ${
-                  trainingView === "detailed"
-                    ? "bg-white text-slate-950 shadow-sm"
-                    : "text-slate-500"
-                }`}
-              >
-                Vista completa
-              </button>
-            </div>
-
             {plans.map((plan) => {
               const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
                 (week.workout_days || []).map((day) => ({ week, day }))
@@ -20024,30 +20252,26 @@ function getExerciseHistory(exercise) {
                     </div>
                   </Card>
 
-                  <Card className="p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
+                  <Card className="overflow-hidden border-none bg-transparent p-0 shadow-none">
+                    <div className="rounded-[1.8rem] border border-slate-200 bg-white p-4 shadow-sm">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-[0.28em] text-teal-600">
+                        <p className="text-xs font-black uppercase tracking-[0.28em] text-teal-700">
                           Scheda
                         </p>
-
-                        <h3 className="mt-1 text-xl font-black text-slate-950">
-                          Allenamenti settimana corrente
+                        <h3 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+                          I tuoi allenamenti
                         </h3>
+                        <p className="mt-1 text-sm font-semibold text-slate-500">
+                          Apri un allenamento per visualizzare esercizi, target e indicazioni complete.
+                        </p>
                       </div>
 
-                      <Pill className="bg-teal-100 text-teal-700">
-                        {visibleTrainingDays.length} sedute
-                      </Pill>
-                    </div>
+                      {plan.notes && (
+                        <p className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-500">
+                          {plan.notes}
+                        </p>
+                      )}
 
-                    {plan.notes && (
-                      <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-500">
-                        {plan.notes}
-                      </p>
-                    )}
-
-                    {trainingView === "compact" ? (
                       <div className="mt-4 space-y-3">
                         {visibleTrainingDays.map(({ week, day }, dayIndex) => (
                           <CompactWorkoutDayCard
@@ -20056,6 +20280,15 @@ function getExerciseHistory(exercise) {
                             day={day}
                             dayIndex={dayIndex}
                             currentWeek={currentWeek}
+                            onOpen={() =>
+                              setWorkoutDayPreview({
+                                plan,
+                                week,
+                                day,
+                                dayIndex,
+                                currentWeek
+                              })
+                            }
                             onStart={() =>
                               openWorkoutPlayerWithNotifications(plan, day)
                             }
@@ -20069,171 +20302,7 @@ function getExerciseHistory(exercise) {
                           />
                         )}
                       </div>
-                    ) : (
-                    <div className="mt-4 space-y-3">
-                      {visibleTrainingDays.map(({ week, day }, dayIndex) => {
-                        const exerciseCount =
-                          day.workout_blocks?.reduce(
-                            (sum, block) =>
-                              sum + (block.workout_exercises?.length || 0),
-                            0
-                          ) || 0;
-                        const estimatedMinutes = day.estimated_minutes || 60;
-
-                        return (
-                          <div
-                            key={`${week?.id || week?.week_number || "week"}-${day.id}`}
-                            className="rounded-3xl border border-slate-200 bg-white p-4"
-                          >
-                            <div className="flex flex-col gap-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-400">
-                                    Allenamento {dayIndex + 1}
-                                  </p>
-
-                                  <h4 className="mt-1 truncate text-xl font-black text-slate-950">
-                                    {day.title}
-                                  </h4>
-
-                                  <p className="mt-1 text-sm font-bold text-slate-500">
-                                    {exerciseCount} esercizi · {estimatedMinutes} min
-                                    {week?.week_number
-                                      ? ` · settimana ${week.week_number}`
-                                      : ""}
-                                  </p>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => openWorkoutPlayerWithNotifications(plan, day)}
-                                  className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.98]"
-                                >
-                                  Inizia
-                                </button>
-                              </div>
-
-                              {day.notes && (
-                                <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-500">
-                                  {day.notes}
-                                </p>
-                              )}
-
-                              <details className="group rounded-2xl bg-slate-50 p-3">
-                                <summary className="cursor-pointer list-none text-sm font-black text-slate-800">
-                                  Vedi esercizi e target
-                                </summary>
-
-                                <div className="mt-3 space-y-3">
-                                  {day.workout_blocks?.map((block) =>
-                                    block.workout_exercises?.map((exercise) => {
-                                      const progression = progressionForExercise(
-                                        plan,
-                                        exercise
-                                      );
-
-                                      const targetSets =
-                                        progression?.target_sets || exercise.sets;
-                                      const targetReps =
-                                        progression?.target_reps || exercise.reps;
-                                      const targetRecovery =
-                                        progression?.recovery_seconds ||
-                                        exercise.recovery_seconds ||
-                                        90;
-                                      const exerciseHistory =
-                                        getExerciseHistory(exercise);
-
-                                      return (
-                                        <div
-                                          key={exercise.id}
-                                          className="rounded-2xl bg-white p-3 shadow-sm"
-                                        >
-                                          <div className="flex gap-3">
-                                            <ExerciseMediaPreview
-                                              media={
-                                                exercise.exercise_media_library
-                                              }
-                                            />
-
-                                            <div className="min-w-0 flex-1">
-                                              <h5 className="truncate text-base font-black text-slate-950">
-                                                {exercise.exercise_name}
-                                              </h5>
-
-                                              <p className="mt-1 text-sm font-bold text-slate-600">
-                                                {targetSets || "—"} serie ·{" "}
-                                                {targetReps || "—"} reps ·{" "}
-                                                recupero {targetRecovery}s
-                                              </p>
-
-                                              {progression && (
-                                                <p className="mt-2 rounded-xl bg-teal-50 px-3 py-2 text-xs font-bold leading-5 text-teal-800">
-                                                  Target settimana{" "}
-                                                  {progression.week_number}:{" "}
-                                                  {progression.target_load_text ||
-                                                    progression.target_load_kg ||
-                                                    "carico libero"}
-                                                </p>
-                                              )}
-
-                                              {exercise.notes && (
-                                                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                                                  Note: {exercise.notes}
-                                                </p>
-                                              )}
-
-                                              <div className="mt-2 flex flex-wrap gap-2">
-                                                {exercise.video_url && (
-                                                  <a
-                                                    href={exercise.video_url}
-                                                    target="_blank"
-                                                    className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
-                                                  >
-                                                    Video
-                                                  </a>
-                                                )}
-
-                                                {exercise.image_url && (
-                                                  <a
-                                                    href={exercise.image_url}
-                                                    target="_blank"
-                                                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                                                  >
-                                                    Immagine
-                                                  </a>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          <ExerciseHistoryBox
-                                            history={exerciseHistory}
-                                          />
-                                        </div>
-                                      );
-                                    })
-                                  )}
-
-                                  {exerciseCount === 0 && (
-                                    <p className="text-sm font-semibold text-slate-500">
-                                      Nessun esercizio inserito per questa seduta.
-                                    </p>
-                                  )}
-                                </div>
-                              </details>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {visibleTrainingDays.length === 0 && (
-                        <Empty
-                          title="Nessun allenamento nella settimana corrente"
-                          text="Il programma è attivo, ma non ci sono sedute disponibili."
-                        />
-                      )}
                     </div>
-                    )}
                   </Card>
                 </div>
               );
@@ -21029,6 +21098,19 @@ function getExerciseHistory(exercise) {
             </div>
           </Card>
         )}
+
+<WorkoutDayPreviewModal
+  preview={workoutDayPreview}
+  onClose={() => setWorkoutDayPreview(null)}
+  onStart={() => {
+    if (!workoutDayPreview?.plan || !workoutDayPreview?.day) return;
+    const selectedPlan = workoutDayPreview.plan;
+    const selectedDay = workoutDayPreview.day;
+    setWorkoutDayPreview(null);
+    openWorkoutPlayerWithNotifications(selectedPlan, selectedDay);
+  }}
+  getExerciseHistory={getExerciseHistory}
+/>
 
 <WorkoutPlayerModal
   player={workoutPlayer}
