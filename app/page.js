@@ -949,7 +949,7 @@ function AppFooter({ role = "coach" }) {
       <div
         className={`mx-auto flex max-w-7xl flex-col px-4 md:flex-row md:items-center md:justify-between md:px-6 ${
           isClient
-            ? "gap-3 py-5 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:py-5 md:pb-5"
+            ? "gap-3 py-5 pb-[calc(7.25rem+env(safe-area-inset-bottom))] md:py-5 md:pb-5"
             : "gap-4 py-7 pb-32 md:py-7 md:pb-7"
         }`}
       >
@@ -1149,6 +1149,50 @@ function SideDrawer({
 }) {
   const drawerSideClass = side === "right" ? "right-0" : "left-0";
   const drawerClosedClass = side === "right" ? "translate-x-full" : "-translate-x-full";
+
+  useEffect(() => {
+    if (!open || typeof window === "undefined") return undefined;
+
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const html = document.documentElement;
+    const previousBodyStyles = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow
+    };
+    const previousHtmlStyles = {
+      overflow: html.style.overflow,
+      overscrollBehavior: html.style.overscrollBehavior
+    };
+
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+
+    return () => {
+      body.style.position = previousBodyStyles.position;
+      body.style.top = previousBodyStyles.top;
+      body.style.left = previousBodyStyles.left;
+      body.style.right = previousBodyStyles.right;
+      body.style.width = previousBodyStyles.width;
+      body.style.overflow = previousBodyStyles.overflow;
+      html.style.overflow = previousHtmlStyles.overflow;
+      html.style.overscrollBehavior = previousHtmlStyles.overscrollBehavior;
+
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+      });
+    };
+  }, [open]);
 
   return (
     <>
@@ -20111,7 +20155,7 @@ function getExerciseHistory(exercise) {
   userProfile={userProfile}
   side="right"
 />
-      <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(3.7rem+env(safe-area-inset-bottom))] md:p-5">
+      <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(7.25rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
           <div className="space-y-5">
             <Card className="overflow-hidden border-none bg-transparent shadow-none">
