@@ -99,13 +99,35 @@ export async function POST(request) {
       return jsonError("Notifiche push non ancora abilitate.", 409);
     }
 
+    const timerKey = body.timer_key
+      ? String(body.timer_key).slice(0, 240)
+      : null;
+
+    if (timerKey) {
+      const { error: previousJobsError } = await admin
+        .from("rest_timer_jobs")
+        .update({
+          status: "cancelled",
+          stopped_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq("user_id", auth.user.id)
+        .eq("client_id", ownership.clientId)
+        .eq("timer_key", timerKey)
+        .in("status", ["scheduled", "sending", "alerting", "sent"]);
+
+      if (previousJobsError) {
+        return jsonError(previousJobsError.message, 500);
+      }
+    }
+
     const expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
     const { data: job, error: jobError } = await admin
       .from("rest_timer_jobs")
       .insert({
         user_id: auth.user.id,
         client_id: ownership.clientId,
-        timer_key: body.timer_key ? String(body.timer_key).slice(0, 240) : null,
+        timer_key: timerKey,
         expires_at: expiresAt,
         status: "scheduled",
         alert_attempt: 0
@@ -166,25 +188,72 @@ export async function DELETE(request) {
 
     const body = await request.json().catch(() => ({}));
     const jobId = String(body.job_id || "").trim();
-    if (!jobId) return NextResponse.json({ success: true, cancelled: false });
+    const timerKey = String(body.timer_key || "").trim().slice(0, 240);
+    const numericClientId = Number(body.client_id);
+
+    if (!jobId && !timerKey) {
+      return NextResponse.json({ success: true, cancelled: 0 });
+    }
 
     const admin = adminClient();
-    const { data, error } = await admin
-      .from("rest_timer_jobs")
-      .update({
-        status: "cancelled",
-        stopped_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", jobId)
-      .eq("user_id", auth.user.id)
-      .in("status", ["scheduled", "sending", "alerting", "sent"])
-      .select("id")
-      .maybeSingle();
+    const activeStatuses = ["scheduled", "sending", "alerting", "sent"];
+    const cancelledIds = new Set();
+    const stoppedAt = new Date().toISOString();
 
-    if (error) return jsonError(error.message, 500);
-    return NextResponse.json({ success: true, cancelled: Boolean(data?.id) });
+    if (jobId) {
+      const { data, error } = await admin
+        .from("rest_timer_jobs")
+        .update({
+          status: "cancelled",
+          stopped_at: stoppedAt,
+          updated_at: stoppedAt
+        })
+        .eq("id", jobId)
+        .eq("user_id", auth.user.id)
+        .in("status", activeStatuses)
+        .select("id");
+
+      if (error) return jsonError(error.message, 500);
+      (data || []).forEach((item) => cancelledIds.add(String(item.id)));
+    }
+
+    if (
+      timerKey &&
+      Number.isInteger(numericClientId) &&
+      numericClientId > 0
+    ) {
+      const ownership = await verifyOwnedClient(
+        admin,
+        auth.user.id,
+        numericClientId
+      );
+      if (ownership.error) return ownership.error;
+
+      const { data, error } = await admin
+        .from("rest_timer_jobs")
+        .update({
+          status: "cancelled",
+          stopped_at: stoppedAt,
+          updated_at: stoppedAt
+        })
+        .eq("user_id", auth.user.id)
+        .eq("client_id", numericClientId)
+        .eq("timer_key", timerKey)
+        .in("status", activeStatuses)
+        .select("id");
+
+      if (error) return jsonError(error.message, 500);
+      (data || []).forEach((item) => cancelledIds.add(String(item.id)));
+    }
+
+    return NextResponse.json({
+      success: true,
+      cancelled: cancelledIds.size
+    });
   } catch (error) {
-    return jsonError(error?.message || "Errore durante l'annullamento del timer.", 500);
+    return jsonError(
+      error?.message || "Errore durante l'annullamento del timer.",
+      500
+    );
   }
 }
