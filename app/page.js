@@ -36,8 +36,8 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v4.10";
-const APP_VERSION_LABEL = "TMFIT Pro v4.10";
+const APP_VERSION = "v4.11";
+const APP_VERSION_LABEL = "TMFIT Pro v4.11";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -18084,6 +18084,172 @@ function CoachMonitorPanel({
 }
 
 
+
+function compactWorkoutRecoveryLabel(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "—";
+
+  const seconds = Number(raw.replace(",", "."));
+  if (!Number.isFinite(seconds)) return raw;
+
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+
+  if (minutes > 0) return `${minutes}:${String(remaining).padStart(2, "0")}`;
+  return `${remaining}s`;
+}
+
+function CompactWorkoutDayCard({
+  week,
+  day,
+  dayIndex,
+  currentWeek,
+  onStart
+}) {
+  const exercises = (day?.workout_blocks || []).flatMap(
+    (block) => block.workout_exercises || []
+  );
+  const estimatedMinutes = day?.estimated_minutes || 60;
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-4">
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-teal-700">
+            Allenamento {dayIndex + 1}
+          </p>
+          <h4 className="mt-1 truncate text-xl font-black text-slate-950">
+            {day?.title || `Allenamento ${dayIndex + 1}`}
+          </h4>
+          <p className="mt-1 text-xs font-bold text-slate-500">
+            {exercises.length} esercizi · {estimatedMinutes} min
+            {week?.week_number ? ` · settimana ${week.week_number}` : ""}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onStart}
+          className="shrink-0 rounded-2xl bg-[#07111f] px-4 py-2.5 text-xs font-black text-white active:scale-[.98]"
+        >
+          Inizia
+        </button>
+      </div>
+
+      <div className="divide-y divide-slate-100">
+        {exercises.map((exercise, exerciseIndex) => {
+          const progression =
+            exercise.workout_exercise_progressions?.find(
+              (item) => Number(item.week_number) === Number(currentWeek)
+            ) || null;
+          const targetSets = progression?.target_sets || exercise.sets || "—";
+          const targetReps = progression?.target_reps || exercise.reps || "—";
+          const targetRecovery =
+            progression?.recovery_seconds ?? exercise.recovery_seconds ?? "";
+          const targetRir = progression?.target_rir || exercise.target_rir;
+          const targetRpe = progression?.target_rpe || exercise.target_rpe;
+          const intensity = targetRir
+            ? `RIR ${targetRir}`
+            : targetRpe
+            ? `RPE ${targetRpe}`
+            : "";
+          const groupLabel = workoutGroupLabel(exercise);
+          const execution = String(
+            exercise.execution_mode || cleanWorkoutNotes(exercise.notes || "")
+          ).trim();
+          const progressionLoad = String(
+            progression?.target_load_text || progression?.target_load_kg || ""
+          ).trim();
+
+          return (
+            <div
+              key={exercise.id || `${day?.id || "day"}-${exerciseIndex}`}
+              className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 px-4 py-3.5"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-black text-slate-700">
+                {exerciseIndex + 1}
+              </span>
+
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <h5 className="min-w-0 flex-1 text-sm font-black leading-5 text-slate-950">
+                    {exercise.exercise_name || "Esercizio"}
+                  </h5>
+                  {groupLabel && (
+                    <span className="rounded-full bg-teal-100 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-teal-800">
+                      {groupLabel}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
+                    {targetSets} × {targetReps}
+                  </span>
+                  <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
+                    Rec. {compactWorkoutRecoveryLabel(targetRecovery)}
+                  </span>
+                  {intensity && (
+                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
+                      {intensity}
+                    </span>
+                  )}
+                  {progressionLoad && (
+                    <span className="rounded-lg bg-teal-50 px-2 py-1 text-[11px] font-black text-teal-800">
+                      {progressionLoad}
+                      {progression?.target_load_kg && !progression?.target_load_text
+                        ? " kg"
+                        : ""}
+                    </span>
+                  )}
+                </div>
+
+                {execution && (
+                  <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                    {execution}
+                  </p>
+                )}
+
+                {(exercise.video_url || exercise.image_url) && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {exercise.video_url && (
+                      <a
+                        href={exercise.video_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-black text-teal-700"
+                      >
+                        Video
+                      </a>
+                    )}
+                    {exercise.image_url && (
+                      <a
+                        href={exercise.image_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-black text-teal-700"
+                      >
+                        Immagine
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {exercises.length === 0 && (
+          <p className="px-4 py-5 text-sm font-semibold text-slate-500">
+            Nessun esercizio inserito.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState("");
@@ -18222,9 +18388,6 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
               Ultimi 6 mesi
             </h3>
           </div>
-          <Pill className="bg-teal-100 text-teal-800">
-            {sessions.length} sedute
-          </Pill>
         </div>
 
         <div className="mt-4 flex items-center justify-between gap-3">
@@ -18433,8 +18596,12 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   day: null,
   resumeState: null
 });
-  const [workoutRecoveryNotice, setWorkoutRecoveryNotice] = useState("");
+  const [, setWorkoutRecoveryNotice] = useState("");
   const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
+  const [trainingView, setTrainingView] = usePersistedState(
+    "tmfit_client_training_view",
+    "compact"
+  );
   const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
 
   const [checkinForm, setCheckinForm] = useState({
@@ -19742,22 +19909,36 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "training" && (
           <div className="space-y-5">
-            <PushNotificationSetup
-              userId={session?.user?.id}
-              clientId={client?.id}
-            />
-
-            {workoutRecoveryNotice && (
-              <div className="rounded-3xl border border-teal-200 bg-teal-50 p-4 text-sm font-black text-teal-800">
-                {workoutRecoveryNotice}. I dati inseriti durante Allenati vengono salvati sul dispositivo mentre l’allenamento è aperto.
-              </div>
-            )}
-
             <WorkoutHistoryCalendar
               sessions={workoutCalendarSessions}
               logs={workoutCalendarLogs}
               plans={workoutCalendarPlans.length ? workoutCalendarPlans : plans}
             />
+
+            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-200 p-1">
+              <button
+                type="button"
+                onClick={() => setTrainingView("compact")}
+                className={`rounded-xl px-3 py-2.5 text-xs font-black transition ${
+                  trainingView === "compact"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                Allenamento compatto
+              </button>
+              <button
+                type="button"
+                onClick={() => setTrainingView("detailed")}
+                className={`rounded-xl px-3 py-2.5 text-xs font-black transition ${
+                  trainingView === "detailed"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                Vista completa
+              </button>
+            </div>
 
             {plans.map((plan) => {
               const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
@@ -19866,6 +20047,29 @@ function getExerciseHistory(exercise) {
                       </p>
                     )}
 
+                    {trainingView === "compact" ? (
+                      <div className="mt-4 space-y-3">
+                        {visibleTrainingDays.map(({ week, day }, dayIndex) => (
+                          <CompactWorkoutDayCard
+                            key={`${week?.id || week?.week_number || "week"}-${day.id}`}
+                            week={week}
+                            day={day}
+                            dayIndex={dayIndex}
+                            currentWeek={currentWeek}
+                            onStart={() =>
+                              openWorkoutPlayerWithNotifications(plan, day)
+                            }
+                          />
+                        ))}
+
+                        {visibleTrainingDays.length === 0 && (
+                          <Empty
+                            title="Nessun allenamento nella settimana corrente"
+                            text="Il programma è attivo, ma non ci sono allenamenti disponibili."
+                          />
+                        )}
+                      </div>
+                    ) : (
                     <div className="mt-4 space-y-3">
                       {visibleTrainingDays.map(({ week, day }, dayIndex) => {
                         const exerciseCount =
@@ -20029,6 +20233,7 @@ function getExerciseHistory(exercise) {
                         />
                       )}
                     </div>
+                    )}
                   </Card>
                 </div>
               );
