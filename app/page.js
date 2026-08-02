@@ -2,8 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import ClientHomePanel from "../components/client/ClientHomePanel";
+import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
+import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
 import {
   Activity,
+  Bell,
+  BellRing,
   Camera,
   Check,
   ClipboardCheck,
@@ -14,6 +19,7 @@ import {
   FileText,
   HomeIcon,
   Link as LinkIcon,
+  LifeBuoy,
   LogOut,
   Megaphone,
   KeyRound,
@@ -26,6 +32,7 @@ import {
   Trash2,
   Upload,
   UserPlus,
+  UserRound,
   Users,
   X
 } from "lucide-react";
@@ -36,8 +43,8 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v4.11";
-const APP_VERSION_LABEL = "TMFIT Pro v4.11";
+const APP_VERSION = "v5.0";
+const APP_VERSION_LABEL = "TMFIT Pro v5.0";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -997,7 +1004,7 @@ function AppFooter({ role = "coach" }) {
       </div>
     </footer>
   );
-}function LegalDrawerSection({ userProfile }) {
+}function LegalDrawerSection({ userProfile, title = "Documenti legali" }) {
   const [expanded, setExpanded] = useState(false);
   const [openLegal, setOpenLegal] = useState(null);
 
@@ -1054,7 +1061,7 @@ function AppFooter({ role = "coach" }) {
         >
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
-              Documenti legali
+              {title}
             </p>
 
             <p className="mt-1 text-xs font-bold text-slate-400">
@@ -1259,7 +1266,10 @@ function SideDrawer({
           </nav>
 
           <div className="border-t border-white/10 p-4">
-            <LegalDrawerSection userProfile={userProfile} />
+            <LegalDrawerSection
+                userProfile={userProfile}
+                title={role === "client" ? "Documenti e privacy" : "Documenti legali"}
+              />
               
             <Button
               onClick={onLogout}
@@ -1318,13 +1328,15 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`flex h-11 min-w-0 flex-col items-center justify-center rounded-[1rem] px-0.5 text-[8.5px] font-black leading-none transition active:scale-[.96] ${
+              className={`flex min-w-0 flex-col items-center justify-center rounded-[1rem] px-0.5 font-black leading-none transition active:scale-[.96] ${
+                tabs.length === 5 ? "h-12 text-[10px]" : "h-11 text-[8.5px]"
+              } ${
                 active === tab.id
                   ? "bg-[#07111f] text-white"
                   : "text-slate-500"
               }`}
             >
-              <span className="mb-0.5 scale-[.82]">{tab.icon}</span>
+              <span className={`mb-0.5 ${tabs.length === 5 ? "scale-[.92]" : "scale-[.82]"}`}>{tab.icon}</span>
               <span className="max-w-full truncate">{tab.label}</span>
             </button>
           ))}
@@ -13880,7 +13892,7 @@ PDF
             </div>
           )}
 
-          {activeTab === "posts" && (
+        {activeTab === "posts" && (
             <div className="space-y-5">
               <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
                 <div className="bg-[#07111f] p-5 text-white md:p-6">
@@ -16334,7 +16346,8 @@ function WorkoutPlayerModal({
   onWorkoutStateChange,
   onClearPersistedWorkout,
   userId,
-  clientId
+  clientId,
+  onCompleteWorkout
 }) {
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [setIndex, setSetIndex] = useState(0);
@@ -16345,11 +16358,13 @@ function WorkoutPlayerModal({
   const [feedback, setFeedback] = useState({
     difficulty: "",
     feeling: "",
+    session_rpe: "",
     notes: ""
   });
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [completingWorkout, setCompletingWorkout] = useState(false);
   const latestWorkoutSnapshotRef = useRef(null);
   const restTimerControllerRef = useRef(null);
   const latestDraftsRef = useRef(drafts || {});
@@ -16393,9 +16408,10 @@ function WorkoutPlayerModal({
           ? {
               difficulty: resumeState.feedback.difficulty || "",
               feeling: resumeState.feedback.feeling || "",
+              session_rpe: resumeState.feedback.session_rpe || "",
               notes: resumeState.feedback.notes || ""
             }
-          : { difficulty: "", feeling: "", notes: "" }
+          : { difficulty: "", feeling: "", session_rpe: "", notes: "" }
       );
       setSessionStartedAt(
         shouldResume
@@ -16978,7 +16994,12 @@ function WorkoutPlayerModal({
   async function requestCloseWorkout() {
     persistWorkoutStateNow();
 
-    if (finished || completedCount === 0 || typeof window === "undefined") {
+    if (finished) {
+      await closeCompletedWorkout();
+      return;
+    }
+
+    if (completedCount === 0 || typeof window === "undefined") {
       await stopActiveRestTimer();
       persistWorkoutStateNow({ resting: false });
       setResting(false);
@@ -17016,9 +17037,27 @@ function WorkoutPlayerModal({
   }
 
   async function closeCompletedWorkout() {
+    if (completingWorkout) return;
+
+    setCompletingWorkout(true);
     await stopActiveRestTimer();
+
+    const completed = onCompleteWorkout
+      ? await onCompleteWorkout({
+          plan,
+          day,
+          completedSets: completedCount,
+          plannedSets: totalPlannedSets,
+          durationSeconds: elapsedSeconds,
+          feedback
+        })
+      : true;
+
+    setCompletingWorkout(false);
+    if (!completed) return;
+
     if (onClearPersistedWorkout) onClearPersistedWorkout();
-    if (onWorkoutSaved) onWorkoutSaved();
+    if (onWorkoutSaved) await onWorkoutSaved();
     onClose();
   }
 
@@ -17080,79 +17119,16 @@ function WorkoutPlayerModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4">
           {finished ? (
-            <div className="space-y-4 pb-36">
-              <Card className="p-5 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
-                  <Check size={28} />
-                </div>
-                <h3 className="mt-4 text-2xl font-black text-slate-950">
-                  Allenamento completato
-                </h3>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                  Hai salvato {completedCount}/{totalPlannedSets} serie.
-                </p>
-              </Card>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                  <p className="text-2xl font-black text-slate-950">{exercises.length}</p>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Esercizi</p>
-                </div>
-                <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                  <p className="text-2xl font-black text-slate-950">{completedCount}</p>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Serie</p>
-                </div>
-                <div className="rounded-2xl bg-white p-3 text-center shadow-sm">
-                  <p className="text-2xl font-black text-slate-950">{formatElapsed(elapsedSeconds)}</p>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Tempo</p>
-                </div>
-              </div>
-
-              <Card className="p-4">
-                <Label title="Difficoltà percepita">
-                  <Select
-                    value={feedback.difficulty}
-                    onChange={(event) =>
-                      setFeedback((prev) => ({ ...prev, difficulty: event.target.value }))
-                    }
-                    className="text-base"
-                  >
-                    <option value="">Seleziona</option>
-                    <option value="facile">Facile</option>
-                    <option value="giusta">Giusta</option>
-                    <option value="dura">Dura</option>
-                    <option value="troppo_dura">Troppo dura</option>
-                  </Select>
-                </Label>
-
-                <Label title="Sensazioni" className="mt-3">
-                  <Select
-                    value={feedback.feeling}
-                    onChange={(event) =>
-                      setFeedback((prev) => ({ ...prev, feeling: event.target.value }))
-                    }
-                    className="text-base"
-                  >
-                    <option value="">Seleziona</option>
-                    <option value="ottime">Ottime</option>
-                    <option value="buone">Buone</option>
-                    <option value="normali">Normali</option>
-                    <option value="scarse">Scarse</option>
-                  </Select>
-                </Label>
-
-                <Label title="Note per il coach" className="mt-3">
-                  <Textarea
-                    value={feedback.notes}
-                    onChange={(event) =>
-                      setFeedback((prev) => ({ ...prev, notes: event.target.value }))
-                    }
-                    placeholder="Es. carico ok, fastidio, esercizio difficile..."
-                    className="text-base"
-                  />
-                </Label>
-              </Card>
-            </div>
+            <WorkoutCompletionPanel
+              completedCount={completedCount}
+              totalPlannedSets={totalPlannedSets}
+              exerciseCount={exercises.length}
+              durationLabel={`${Math.max(1, Math.round(elapsedSeconds / 60))} min`}
+              feedback={feedback}
+              setFeedback={setFeedback}
+              onConfirm={closeCompletedWorkout}
+              busy={completingWorkout}
+            />
           ) : !exercise ? (
             <Empty title="Nessun esercizio" text="Questo allenamento non contiene esercizi." />
           ) : (
@@ -17562,14 +17538,8 @@ function WorkoutPlayerModal({
         )}
 
         {finished && (
-          <div className="shrink-0 bg-slate-50/95 px-4 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-2">
-            <button
-              type="button"
-              onClick={closeCompletedWorkout}
-              className="w-full rounded-[1.35rem] border border-slate-200 bg-[#07111f] px-4 py-4 text-base font-black text-white shadow-[0_-10px_30px_rgba(15,23,42,0.16)] active:scale-[.98]"
-            >
-              Chiudi allenamento
-            </button>
+          <div className="shrink-0 bg-slate-50 px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1 text-center text-[11px] font-bold text-slate-400">
+            Il riepilogo viene salvato insieme alla sessione.
           </div>
         )}
       </div>
@@ -17642,6 +17612,12 @@ function CoachMonitorPanel({
     }
     if (Number(checkin.training_adherence) > 0 && Number(checkin.training_adherence) <= 5) {
       alerts.push({ label: "Aderenza allenamento bassa", text: `${checkin.training_adherence}/10`, tone: "amber" });
+    }
+    if (checkin.diet_difficulty === "si") {
+      alerts.push({ label: "Difficoltà con la dieta", text: checkin.diet_difficulty_notes || "Segnalata dal cliente", tone: "amber" });
+    }
+    if (checkin.training_difficulty === "si") {
+      alerts.push({ label: "Difficoltà in allenamento", text: checkin.training_difficulty_notes || "Segnalata dal cliente", tone: "amber" });
     }
 
     return alerts;
@@ -17740,6 +17716,10 @@ function CoachMonitorPanel({
         averageRir: rirValues.length
           ? rirValues.reduce((sum, value) => sum + value, 0) / rirValues.length
           : null,
+        durationSeconds: Number(sessionItem.duration_seconds) || 0,
+        sessionRpe: Number(sessionItem.session_rpe) || null,
+        sessionFeeling: sessionItem.session_feeling || "",
+        clientNotes: sessionItem.client_notes || "",
         exerciseCount: exerciseGroups.size,
         exercises: Array.from(exerciseGroups.values())
       };
@@ -18031,13 +18011,14 @@ function CoachMonitorPanel({
               </button>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               {[
                 ["Completamento", `${selectedWorkoutReport.completion}%`],
+                ["Durata", selectedWorkoutReport.durationSeconds ? `${Math.max(1, Math.round(selectedWorkoutReport.durationSeconds / 60))} min` : "—"],
                 ["Esercizi", selectedWorkoutReport.exerciseCount],
                 ["Serie", `${selectedWorkoutReport.completedSets}/${selectedWorkoutReport.plannedSets || selectedWorkoutReport.completedSets}`],
                 ["Volume", `${formatDecimal(selectedWorkoutReport.totalVolume, 0)} kg`],
-                ["RPE medio", formatDecimal(selectedWorkoutReport.averageRpe)]
+                ["RPE sessione", selectedWorkoutReport.sessionRpe || "—"]
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
@@ -18045,6 +18026,19 @@ function CoachMonitorPanel({
                 </div>
               ))}
             </div>
+
+            {(selectedWorkoutReport.sessionFeeling || selectedWorkoutReport.clientNotes) && (
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sensazioni cliente</p>
+                  <p className="mt-2 text-sm font-black capitalize text-slate-950">{selectedWorkoutReport.sessionFeeling || "—"}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Note fine allenamento</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{selectedWorkoutReport.clientNotes || "Nessuna nota."}</p>
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 space-y-4">
               {selectedWorkoutReport.exercises.map((exercise) => (
@@ -18107,6 +18101,21 @@ function CoachMonitorPanel({
                 </div>
               ))}
             </div>
+
+            {(selectedCheckinDetail.diet_difficulty || selectedCheckinDetail.training_difficulty) && (
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Difficoltà dieta</p>
+                  <p className="mt-2 text-sm font-black capitalize text-slate-950">{String(selectedCheckinDetail.diet_difficulty || "—").replaceAll("_", " ")}</p>
+                  {selectedCheckinDetail.diet_difficulty_notes && <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{selectedCheckinDetail.diet_difficulty_notes}</p>}
+                </div>
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Difficoltà allenamento</p>
+                  <p className="mt-2 text-sm font-black capitalize text-slate-950">{String(selectedCheckinDetail.training_difficulty || "—").replaceAll("_", " ")}</p>
+                  {selectedCheckinDetail.training_difficulty_notes && <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{selectedCheckinDetail.training_difficulty_notes}</p>}
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="rounded-3xl border border-slate-200 bg-white p-4">
@@ -18899,7 +18908,10 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [, setWorkoutRecoveryNotice] = useState("");
   const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
   const [workoutDayPreview, setWorkoutDayPreview] = useState(null);
+  const [lastSeenPostsAt, setLastSeenPostsAt] = useState("");
   const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
+  const checkinDraftKey = `tmfit_client_checkin_draft_${session?.user?.id || "guest"}`;
+  const postsSeenKey = `tmfit_client_posts_seen_${session?.user?.id || "guest"}`;
 
   const [checkinForm, setCheckinForm] = useState({
     checkin_date: today(),
@@ -18911,6 +18923,10 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     digestion_level: "",
     diet_adherence: "",
     training_adherence: "",
+    diet_difficulty: "",
+    diet_difficulty_notes: "",
+    training_difficulty: "",
+    training_difficulty_notes: "",
     water_liters: "",
     steps: "",
     notes: ""
@@ -18937,17 +18953,47 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [dietFullscreenOpen, setDietFullscreenOpen] = useState(false);
 
   const clientTabs = [
-    { id: "home", label: "Home", icon: <HomeIcon size={17} /> },
-    { id: "training", label: "Scheda", icon: <Dumbbell size={17} /> },
-    { id: "checkin", label: "Check-in", icon: <ClipboardCheck size={17} /> },
-    { id: "progress", label: "Progressi", icon: <Camera size={17} /> },
-    { id: "diet", label: "Dieta", icon: <FileText size={17} /> },
-    { id: "posts", label: "Bacheca", icon: <Megaphone size={17} /> }
+    { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
+    { id: "training", label: "Scheda", icon: <Dumbbell size={19} /> },
+    { id: "checkin", label: "Check-in", icon: <ClipboardCheck size={19} /> },
+    { id: "progress", label: "Progressi", icon: <Camera size={19} /> },
+    { id: "diet", label: "Dieta", icon: <FileText size={19} /> }
+  ];
+
+  const clientDrawerTabs = [
+    { id: "profile", label: "Profilo", icon: <UserRound size={18} /> },
+    { id: "notifications", label: "Notifiche", icon: <BellRing size={18} /> },
+    { id: "posts", label: "Bacheca", icon: <Megaphone size={18} /> },
+    { id: "support", label: "Assistenza", icon: <LifeBuoy size={18} /> }
   ];
 
   useEffect(() => {
     loadClientArea();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setLastSeenPostsAt(window.localStorage.getItem(postsSeenKey) || "");
+  }, [postsSeenKey]);
+
+  function openClientPosts() {
+    const latestTimestamp = posts[0]?.created_at || new Date().toISOString();
+    setLastSeenPostsAt(latestTimestamp);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(postsSeenKey, latestTimestamp);
+    }
+    setActiveTab("posts");
+    setDrawerOpen(false);
+  }
+
+  useEffect(() => {
+    if (activeTab !== "posts" || posts.length === 0) return;
+    const latestTimestamp = posts[0]?.created_at || new Date().toISOString();
+    setLastSeenPostsAt(latestTimestamp);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(postsSeenKey, latestTimestamp);
+    }
+  }, [activeTab, posts, postsSeenKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -19498,7 +19544,8 @@ function getExerciseHistory(exercise) {
         plan_id: planId,
         day_id: dayId,
         session_date: today(),
-        status: "completed"
+        status: "completed",
+        started_at: new Date().toISOString()
       })
       .select()
       .single();
@@ -19521,6 +19568,38 @@ function getExerciseHistory(exercise) {
     }
 
     return data.id;
+  }
+
+  async function completeWorkoutSession({
+    plan,
+    day,
+    completedSets,
+    plannedSets,
+    durationSeconds,
+    feedback
+  }) {
+    const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
+    if (!sessionId) return false;
+
+    const { data, error } = await supabase.rpc(
+      "tmfit_complete_workout_session",
+      {
+        p_session_id: String(sessionId),
+        p_duration_seconds: Math.max(0, Number(durationSeconds) || 0),
+        p_completed_sets: Math.max(0, Number(completedSets) || 0),
+        p_planned_sets: Math.max(0, Number(plannedSets) || 0),
+        p_session_rpe: numberOrNull(feedback?.session_rpe),
+        p_session_feeling: feedback?.feeling || null,
+        p_client_notes: feedback?.notes || null
+      }
+    );
+
+    if (error || data !== true) {
+      alert(error?.message || "Non è stato possibile salvare il riepilogo dell’allenamento.");
+      return false;
+    }
+
+    return true;
   }
 
   async function saveSetLog(plan, day, exercise, set, draftOverride = null) {
@@ -19621,9 +19700,9 @@ function getExerciseHistory(exercise) {
 
 
   async function saveCheckin(event) {
-    event.preventDefault();
+    event?.preventDefault?.();
 
-    if (!client) return;
+    if (!client) return false;
 
     const { error } = await supabase.from("client_checkins").insert({
       client_id: Number(client.id),
@@ -19637,6 +19716,10 @@ function getExerciseHistory(exercise) {
       digestion_level: numberOrNull(checkinForm.digestion_level),
       diet_adherence: numberOrNull(checkinForm.diet_adherence),
       training_adherence: numberOrNull(checkinForm.training_adherence),
+      diet_difficulty: checkinForm.diet_difficulty || null,
+      diet_difficulty_notes: checkinForm.diet_difficulty_notes || null,
+      training_difficulty: checkinForm.training_difficulty || null,
+      training_difficulty_notes: checkinForm.training_difficulty_notes || null,
       water_liters: numberOrNull(checkinForm.water_liters),
       steps: numberOrNull(checkinForm.steps),
       notes: checkinForm.notes || null
@@ -19644,7 +19727,7 @@ function getExerciseHistory(exercise) {
 
     if (error) {
       alert(error.message);
-      return;
+      return false;
     }
 
     setCheckinForm({
@@ -19657,6 +19740,10 @@ function getExerciseHistory(exercise) {
       digestion_level: "",
       diet_adherence: "",
       training_adherence: "",
+      diet_difficulty: "",
+      diet_difficulty_notes: "",
+      training_difficulty: "",
+      training_difficulty_notes: "",
       water_liters: "",
       steps: "",
       notes: ""
@@ -19664,6 +19751,7 @@ function getExerciseHistory(exercise) {
 
     await loadClientArea();
     alert("Check-in salvato.");
+    return true;
   }
 
   async function uploadProgressPhoto(event) {
@@ -19859,12 +19947,6 @@ function getExerciseHistory(exercise) {
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  function daysSince(value) {
-    const date = clientDate(value);
-    if (!date) return null;
-    return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
-  }
-
   function formatClientDate(value) {
     const date = clientDate(value);
     if (!date) return "non disponibile";
@@ -19884,9 +19966,6 @@ function getExerciseHistory(exercise) {
     null;
   const latestCheckin = checkins[0] || null;
   const latestPhoto = photos[0] || null;
-  const latestCheckinDays = daysSince(latestCheckin?.checkin_date || latestCheckin?.created_at);
-  const latestPhotoDays = daysSince(latestPhoto?.photo_date || latestPhoto?.created_at);
-
   useEffect(() => {
     if (activeTab !== "diet") return;
     if (dietView !== "pdf") return;
@@ -19896,89 +19975,60 @@ function getExerciseHistory(exercise) {
     previewDietInApp(latestDiet);
   }, [activeTab, dietView, latestDiet?.id]);
 
-  const completedWorkoutKeys = new Set(
-    loadHistory
-      .map((item) => item.session_id || item.workout_sessions?.session_date)
-      .filter(Boolean)
-  );
-
-  const clientCompletedWorkoutCount = completedWorkoutKeys.size;
   const lastWorkoutLog = loadHistory[0] || null;
   const lastWorkoutDate =
     lastWorkoutLog?.workout_sessions?.session_date || lastWorkoutLog?.created_at;
 
-  const nextWorkoutTitle = activePlan
-    ? activePlan.workout_weeks?.[0]?.workout_days?.[0]?.title || "Allenamento disponibile"
-    : "Programma non disponibile";
 
-  const clientReminderItems = [
-    activePlan
-      ? {
-          id: "client-training",
-          priority: "Oggi",
-          title: "Allenamento disponibile",
-          text: "Apri la scheda e avvia la modalità Allenati quando sei pronto.",
-          actionLabel: "Vai alla scheda",
-          tone: "teal",
-          onAction: () => setActiveTab("training")
-        }
-      : {
-          id: "client-no-training",
-          priority: "Setup",
-          title: "Programma non ancora disponibile",
-          text: "Il coach non ha ancora assegnato una scheda attiva.",
-          actionLabel: "Aggiorna",
-          tone: "amber",
-          onAction: loadClientArea
-        },
-    latestCheckinDays === null || latestCheckinDays >= 7
-      ? {
-          id: "client-checkin",
-          priority: "Da fare",
-          title: "Compila il check-in settimanale",
-          text: latestCheckin
-            ? `Ultimo check-in: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}.`
-            : "Non hai ancora inviato un check-in.",
-          actionLabel: "Vai al check-in",
-          tone: "red",
-          onAction: () => setActiveTab("checkin")
-        }
-      : null,
-    latestDiet
-      ? {
-          id: "client-diet",
-          priority: "Piano",
-          title: "Piano alimentare disponibile",
-          text: `Ultima dieta caricata: ${formatClientDate(latestDiet.created_at || latestDiet.start_date)}.`,
-          actionLabel: "Apri dieta",
-          tone: "slate",
-          onAction: () => setActiveTab("diet")
-        }
-      : {
-          id: "client-no-diet",
-          priority: "Setup",
-          title: "Dieta non ancora caricata",
-          text: "Quando il coach caricherà il piano, lo troverai nella sezione Dieta.",
-          actionLabel: "Aggiorna",
-          tone: "amber",
-          onAction: loadClientArea
-        },
-    latestPhotoDays === null || latestPhotoDays >= 14
-      ? {
-          id: "client-photo",
-          priority: "Progressi",
-          title: "Aggiorna le foto progressi",
-          text: latestPhoto
-            ? `Ultima foto: ${formatClientDate(latestPhoto.photo_date || latestPhoto.created_at)}.`
-            : "Non hai ancora caricato foto progressi.",
-          actionLabel: "Vai ai progressi",
-          tone: "amber",
-          onAction: () => setActiveTab("progress")
-        }
-      : null
-  ].filter(Boolean);
+  const currentWeekStart = (() => {
+    const date = new Date();
+    const day = date.getDay() || 7;
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - day + 1);
+    return date;
+  })();
+  const currentWeekEnd = new Date(currentWeekStart);
+  currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
 
-  const primaryClientReminder = clientReminderItems[0] || null;
+  const activePlanWeekNumber = activePlan ? currentWeekNumber(activePlan) : 1;
+  const activePlanWeek = activePlan?.workout_weeks?.find(
+    (week) => Number(week.week_number) === Number(activePlanWeekNumber)
+  ) || activePlan?.workout_weeks?.[0] || null;
+  const activeWeekDays = activePlanWeek?.workout_days || [];
+  const currentWeekSessions = workoutCalendarSessions.filter((item) => {
+    const date = clientDate(item.session_date || item.created_at);
+    return date && date >= currentWeekStart && date < currentWeekEnd;
+  });
+  const completedWeekDayIds = new Set(
+    currentWeekSessions
+      .filter((item) => Boolean(item.completed_at))
+      .map((item) => String(item.day_id || item.id))
+  );
+  const pendingWorkoutDay = activeWeekDays.find(
+    (day) => !completedWeekDayIds.has(String(day.id))
+  ) || null;
+  const weekTrainingComplete =
+    activeWeekDays.length > 0 && !pendingWorkoutDay;
+  const nextWorkoutDay =
+    pendingWorkoutDay ||
+    activeWeekDays[0] ||
+    activePlan?.workout_weeks?.flatMap((week) => week.workout_days || [])?.[0] ||
+    null;
+  const latestCoachPost = posts[0] || null;
+  const unreadPostCount = posts.filter((post) => {
+    if (!post?.created_at) return false;
+    if (!lastSeenPostsAt) return true;
+    return new Date(post.created_at).getTime() > new Date(lastSeenPostsAt).getTime();
+  }).length;
+  const checkinCompletedThisWeek = Boolean(
+    latestCheckin &&
+      clientDate(latestCheckin.checkin_date || latestCheckin.created_at) >= currentWeekStart
+  );
+  const adherencePercent =
+    checkinCompletedThisWeek && hasValue(latestCheckin?.diet_adherence)
+      ? Math.max(0, Math.min(100, Number(latestCheckin.diet_adherence) * 10))
+      : null;
+  const nextWorkoutMinutes = nextWorkoutDay?.estimated_minutes || 60;
 
   const clientTimelineItems = [
     latestCheckin && {
@@ -20012,38 +20062,6 @@ function getExerciseHistory(exercise) {
   ]
     .filter(Boolean)
     .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-
-  function ClientReminderCard({ item }) {
-    const toneClass =
-      item.tone === "red"
-        ? "bg-red-50 text-red-700"
-        : item.tone === "amber"
-        ? "bg-amber-50 text-amber-700"
-        : item.tone === "teal"
-        ? "bg-teal-50 text-teal-700"
-        : "bg-slate-100 text-slate-700";
-
-    return (
-      <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${toneClass}`}>
-              {item.priority}
-            </span>
-            <p className="font-black text-slate-950">{item.title}</p>
-          </div>
-
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-            {item.text}
-          </p>
-        </div>
-
-        <Button onClick={item.onAction} className="shrink-0 bg-[#07111f] text-white">
-          {item.actionLabel}
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="tmfit-client-stage min-h-[100dvh] bg-[#07111f] text-slate-950">
@@ -20131,15 +20149,32 @@ function getExerciseHistory(exercise) {
             </p>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="tmfit-tap flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
-          >
-            <span className="block h-0.5 w-6 rounded bg-white" />
-            <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
-            <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openClientPosts}
+              className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition active:scale-[.96]"
+              aria-label="Apri Bacheca"
+            >
+              <Bell size={19} />
+              {unreadPostCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white ring-2 ring-[#07111f]">
+                  {unreadPostCount > 9 ? "9+" : unreadPostCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="tmfit-tap flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+              aria-label="Apri menu"
+            >
+              <span className="block h-0.5 w-6 rounded bg-white" />
+              <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+              <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -20147,7 +20182,7 @@ function getExerciseHistory(exercise) {
 <SideDrawer
   open={drawerOpen}
   onClose={() => setDrawerOpen(false)}
-  tabs={clientTabs}
+  tabs={clientDrawerTabs}
   active={activeTab}
   onChange={setActiveTab}
   role="client"
@@ -20157,51 +20192,54 @@ function getExerciseHistory(exercise) {
 />
       <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(7.25rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
-          <div className="space-y-5">
-            <Card className="overflow-hidden border-none bg-transparent shadow-none">
-  <div className="rounded-[1.9rem] bg-[#07111f] p-5 text-white shadow-xl ring-1 ring-slate-900/10 md:p-7">
-    <p className="text-[11px] font-black uppercase tracking-[0.45em] text-teal-300">
-      BENVENUTO
-    </p>
-
-    <h2 className="mt-4 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-5xl">
-      {client ? fullName(client) : "Cliente"}
-    </h2>
-
-    <p className="mt-3 max-w-xl text-sm font-bold leading-6 text-slate-300 md:text-base">
-      Scheda, timer, carichi, dieta, check-in e progressi.
-    </p>
-  </div>
-</Card>
-
-            <Card className="overflow-hidden border-none shadow-lg">
-              <div className="bg-white p-4 md:p-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-600">
-                      Promemoria
-                    </p>
-
-                    <h3 className="mt-2 text-2xl font-black text-slate-950">
-                      Cose da fare oggi
-                    </h3>
-
-                   
-                  </div>
-
-                  <Pill className="bg-teal-100 text-teal-700">
-                    {clientReminderItems.length} attivi
-                  </Pill>
-                </div>
-
-                <div className="mt-5 grid gap-3 md:grid-cols-2">
-                  {clientReminderItems.map((item) => (
-                    <ClientReminderCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </div>
-            </Card>
-          </div>
+          <ClientHomePanel
+            firstName={client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
+            nextWorkout={{
+              available: Boolean(activePlan && nextWorkoutDay),
+              statusLabel: weekTrainingComplete
+                ? "Programma settimanale completato"
+                : activePlan
+                ? "Allenamento programmato"
+                : "Il tuo percorso",
+              title: weekTrainingComplete
+                ? "Settimana completata"
+                : nextWorkoutDay?.title || "Nessun allenamento disponibile",
+              minutes: weekTrainingComplete ? null : nextWorkoutMinutes,
+              week: activePlanWeekNumber,
+              planTitle: activePlan?.title || "",
+              actionLabel: weekTrainingComplete ? "Apri la scheda" : "Inizia allenamento",
+              onStart: () =>
+                activePlan && nextWorkoutDay && !weekTrainingComplete
+                  ? openWorkoutPlayerWithNotifications(activePlan, nextWorkoutDay)
+                  : setActiveTab("training")
+            }}
+            checkinStatus={{
+              completed: checkinCompletedThisWeek,
+              label: checkinCompletedThisWeek ? "Completato" : "Da compilare",
+              detail: latestCheckin
+                ? `Ultimo: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}`
+                : "Nessun check-in inviato",
+              onClick: () => setActiveTab("checkin")
+            }}
+            dietStatus={{
+              active: Boolean(latestDiet),
+              label: latestDiet ? "Attiva" : "Non disponibile",
+              detail: latestDiet?.title || latestDiet?.file_name || "Il coach non ha ancora pubblicato una dieta",
+              onClick: () => setActiveTab("diet")
+            }}
+            latestMessage={{
+              unread: unreadPostCount > 0,
+              label: posts.length ? "Apri" : "Vuota",
+              title: latestCoachPost?.title || "Nessun messaggio",
+              onClick: openClientPosts
+            }}
+            weeklySummary={{
+              completedWorkouts: Math.min(completedWeekDayIds.size, activeWeekDays.length),
+              plannedWorkouts: activeWeekDays.length,
+              checkinCompleted: checkinCompletedThisWeek,
+              adherencePercent
+            }}
+          />
         )}
 
         {activeTab === "training" && (
@@ -20363,138 +20401,13 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "checkin" && (
           <div className="space-y-4">
-            <Card className="overflow-hidden">
-              <div className="border-b border-slate-200 bg-white px-5 py-4">
-                <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-700">
-                  Check-in
-                </p>
-                <h2 className="mt-1 text-xl font-black text-slate-950">
-                  Aggiornamento settimanale
-                </h2>
-                <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                  Compila solo i dati richiesti e invia il riepilogo al coach.
-                </p>
-              </div>
-
-              <form
-                onSubmit={saveCheckin}
-                className="grid gap-3 p-5 sm:grid-cols-2"
-              >
-                <Label title="Data">
-                  <Input
-                    type="date"
-                    className="text-center appearance-none"
-                    value={checkinForm.checkin_date}
-                    onChange={(event) =>
-                      setCheckinForm({
-                        ...checkinForm,
-                        checkin_date: event.target.value
-                      })
-                    }
-                  />
-                </Label>
-
-                <Label title="Peso kg">
-                  <Input
-                    type="number"
-                    value={checkinForm.weight_kg}
-                    onChange={(event) =>
-                      setCheckinForm({
-                        ...checkinForm,
-                        weight_kg: event.target.value
-                      })
-                    }
-                  />
-                </Label>
-
-                {[
-                  ["energy_level", "Energia"],
-                  ["sleep_quality", "Sonno"],
-                  ["hunger_level", "Fame"],
-                  ["stress_level", "Stress"],
-                  ["digestion_level", "Digestione"],
-                  ["diet_adherence", "Aderenza dieta"],
-                  ["training_adherence", "Aderenza allenamento"]
-                ].map(([field, label]) => (
-                  <div key={field} className="md:col-span-2">
-                    <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">
-                      {label} 1-10
-                    </p>
-                    <div className="grid grid-cols-10 gap-1 rounded-2xl bg-slate-50 p-1">
-                      {Array.from({ length: 10 }, (_, index) => {
-                        const value = String(index + 1);
-                        const selected = String(checkinForm[field]) === value;
-
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() =>
-                              setCheckinForm({
-                                ...checkinForm,
-                                [field]: value
-                              })
-                            }
-                            className={`h-9 rounded-xl text-[11px] font-black transition active:scale-[.96] ${
-                              selected
-                                ? "bg-[#07111f] text-white shadow-md"
-                                : "border border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
-                            }`}
-                          >
-                            {value}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-
-                <Label title="Acqua litri">
-                  <Input
-                    type="number"
-                    value={checkinForm.water_liters}
-                    onChange={(event) =>
-                      setCheckinForm({
-                        ...checkinForm,
-                        water_liters: event.target.value
-                      })
-                    }
-                  />
-                </Label>
-
-                <Label title="Passi">
-                  <Input
-                    type="number"
-                    value={checkinForm.steps}
-                    onChange={(event) =>
-                      setCheckinForm({
-                        ...checkinForm,
-                        steps: event.target.value
-                      })
-                    }
-                  />
-                </Label>
-
-                <Textarea
-                  className="md:col-span-2"
-                  placeholder="Note della settimana"
-                  value={checkinForm.notes}
-                  onChange={(event) =>
-                    setCheckinForm({
-                      ...checkinForm,
-                      notes: event.target.value
-                    })
-                  }
-                />
-
-                <Button
-                  type="submit"
-                  className="bg-[#07111f] text-white md:col-span-2"
-                >
-                  Invia check-in
-                </Button>
-              </form>
-            </Card>
+            <ClientCheckinWizard
+              form={checkinForm}
+              setForm={setCheckinForm}
+              latestCheckin={latestCheckin}
+              onSubmit={saveCheckin}
+              draftKey={checkinDraftKey}
+            />
 
             <Card className="overflow-hidden">
               <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
@@ -21084,6 +20997,62 @@ function getExerciseHistory(exercise) {
           </div>
         )}
 
+        {activeTab === "profile" && (
+          <Card className="overflow-hidden">
+            <div className="bg-[#07111f] p-5 text-white">
+              <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">Profilo</p>
+              <h2 className="mt-2 text-2xl font-black">{client ? fullName(client) : "Cliente"}</h2>
+            </div>
+            <div className="space-y-3 p-5">
+              {[
+                ["Email", session?.user?.email || "—"],
+                ["Telefono", client?.phone || client?.mobile || "—"],
+                ["Percorso", activePlan?.title || "Nessun programma attivo"]
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+                  <p className="mt-1 break-words text-sm font-black text-slate-950">{value}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {activeTab === "notifications" && (
+          <div className="space-y-4">
+            <PushNotificationSetup
+              userId={session?.user?.id}
+              clientId={client?.id}
+            />
+            <Card className="p-5">
+              <p className="text-sm font-black text-slate-950">Gestione notifiche</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                Le notifiche di recupero funzionano anche a schermo bloccato quando TMFIT è installata come webapp e il sistema consente gli avvisi.
+              </p>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === "support" && (
+          <Card className="overflow-hidden">
+            <div className="bg-[#07111f] p-5 text-white">
+              <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">Assistenza</p>
+              <h2 className="mt-2 text-2xl font-black">Contatta TMFIT</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+                Per dubbi sulla piattaforma o sul percorso puoi scrivere direttamente al professionista.
+              </p>
+            </div>
+            <div className="p-5">
+              <a
+                href="mailto:info@tmfit.it"
+                className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-teal-300 px-4 text-sm font-black text-slate-950"
+              >
+                Scrivi a info@tmfit.it
+              </a>
+            </div>
+          </Card>
+        )}
+
         {activeTab === "posts" && (
           <Card className="overflow-hidden">
             <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
@@ -21175,6 +21144,7 @@ function getExerciseHistory(exercise) {
   onClearPersistedWorkout={clearWorkoutLiveState}
   userId={session?.user?.id}
   clientId={client?.id}
+  onCompleteWorkout={completeWorkoutSession}
 />
             </main>
 
