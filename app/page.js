@@ -36,8 +36,8 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v4.9";
-const APP_VERSION_LABEL = "TMFIT Pro v4.9";
+const APP_VERSION = "v4.10";
+const APP_VERSION_LABEL = "TMFIT Pro v4.10";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -1572,24 +1572,44 @@ function RestTimer({
   prominent = false,
   userId = "",
   clientId = null,
-  timerKey = ""
+  timerKey = "",
+  controllerRef = null
 }) {
-  const initialSeconds = Math.max(1, Number(seconds) || 90);
+  const initialSeconds = Math.max(1, Math.min(3599, Number(seconds) || 90));
   const storageKey = useMemo(
     () =>
-      `tmfit_rest_timer_v2_${userId || "guest"}_${
+      `tmfit_rest_timer_v3_${userId || "guest"}_${
         timerKey || String(initialSeconds)
       }`,
     [userId, timerKey, initialSeconds]
   );
+  const [configuredSeconds, setConfiguredSeconds] = useState(initialSeconds);
   const [remaining, setRemaining] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
   const [alertActive, setAlertActive] = useState(false);
   const [alarmAt, setAlarmAt] = useState(null);
   const [pushStatus, setPushStatus] = useState("idle");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerMinutes, setPickerMinutes] = useState(
+    Math.floor(initialSeconds / 60)
+  );
+  const [pickerSeconds, setPickerSeconds] = useState(initialSeconds % 60);
   const alarmAtRef = useRef(null);
   const pushJobIdRef = useRef("");
   const mountedRef = useRef(true);
+  const scheduleGenerationRef = useRef(0);
+  const stopTimerRef = useRef(null);
+
+  function formatTimerValue(value) {
+    const safe = Math.max(0, Number(value) || 0);
+    return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
+  }
+
+  function syncPicker(value) {
+    const safe = Math.max(1, Math.min(3599, Number(value) || initialSeconds));
+    setPickerMinutes(Math.floor(safe / 60));
+    setPickerSeconds(safe % 60);
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1599,6 +1619,18 @@ function RestTimer({
     };
   }, []);
 
+  useEffect(() => {
+    if (!controllerRef) return undefined;
+
+    controllerRef.current = {
+      stop: () => stopTimerRef.current?.()
+    };
+
+    return () => {
+      if (controllerRef.current?.stop) controllerRef.current = null;
+    };
+  }, [controllerRef]);
+
   function writeSnapshot(patch = {}) {
     if (!storageKey) return;
 
@@ -1607,6 +1639,7 @@ function RestTimer({
       ...previous,
       timerKey,
       initialSeconds,
+      durationSeconds: configuredSeconds,
       alarmAt: alarmAtRef.current,
       pushJobId: pushJobIdRef.current || previous.pushJobId || "",
       updatedAt: new Date().toISOString(),
@@ -1614,29 +1647,45 @@ function RestTimer({
     });
   }
 
-  async function cancelScheduledPush(jobId = pushJobIdRef.current) {
-    if (!jobId || !supabase) return;
+  async function cancelScheduledPush(
+    jobId = pushJobIdRef.current,
+    { keepalive = false } = {}
+  ) {
+    if ((!jobId && !timerKey) || !supabase) return false;
 
     try {
       const { data } = await supabase.auth.getSession();
       const accessToken = data?.session?.access_token;
-      if (!accessToken) return;
+      if (!accessToken) return false;
 
-      await fetch("/api/rest-timer/schedule", {
+      const response = await fetch("/api/rest-timer/schedule", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`
         },
-        body: JSON.stringify({ job_id: jobId })
+        body: JSON.stringify({
+          job_id: jobId || null,
+          timer_key: timerKey || null,
+          client_id: clientId ? Number(clientId) : null
+        }),
+        keepalive
       });
+
+      return response.ok;
     } catch (error) {
-      console.warn("TMFIT annullamento timer push non riuscito", error?.message || error);
+      console.warn(
+        "TMFIT annullamento timer push non riuscito",
+        error?.message || error
+      );
+      return false;
     }
   }
 
   async function schedulePush(delaySeconds) {
     if (!supabase || delaySeconds <= 0) return null;
+
+    const generation = scheduleGenerationRef.current;
 
     try {
       const subscription = await currentTmfitPushSubscription();
@@ -1676,29 +1725,36 @@ function RestTimer({
         return null;
       }
 
+      if (generation !== scheduleGenerationRef.current) {
+        await cancelScheduledPush(result.job_id);
+        return null;
+      }
+
       pushJobIdRef.current = result.job_id;
       writeSnapshot({ pushJobId: result.job_id });
       if (mountedRef.current) setPushStatus("scheduled");
       return result.job_id;
     } catch (error) {
-      console.warn("TMFIT programmazione notifica non riuscita", error?.message || error);
+      console.warn(
+        "TMFIT programmazione notifica non riuscita",
+        error?.message || error
+      );
       if (mountedRef.current) setPushStatus("error");
       return null;
     }
   }
 
   async function stopAlert() {
+    scheduleGenerationRef.current += 1;
     const currentJobId = pushJobIdRef.current;
     pushJobIdRef.current = "";
 
     setAlertActive(false);
     setPushStatus("idle");
     stopTmfitTimerAlarmLoop();
-    writeSnapshot({ completed: true, pushJobId: "" });
+    safeRemoveLocal(storageKey);
 
-    if (currentJobId) {
-      await cancelScheduledPush(currentJobId);
-    }
+    await cancelScheduledPush(currentJobId);
 
     try {
       navigator.vibrate?.(0);
@@ -1708,17 +1764,52 @@ function RestTimer({
     }
   }
 
+  async function stopTimer({ resetToCoach = false } = {}) {
+    scheduleGenerationRef.current += 1;
+    const currentJobId = pushJobIdRef.current;
+    pushJobIdRef.current = "";
+
+    const nextValue = resetToCoach ? initialSeconds : configuredSeconds;
+    alarmAtRef.current = null;
+    setAlarmAt(null);
+    setRunning(false);
+    setAlertActive(false);
+    setPushStatus("idle");
+    setRemaining(nextValue);
+    stopTmfitTimerAlarmLoop();
+    safeRemoveLocal(storageKey);
+
+    if (resetToCoach) {
+      setConfiguredSeconds(initialSeconds);
+      syncPicker(initialSeconds);
+    }
+
+    await cancelScheduledPush(currentJobId, { keepalive: true });
+
+    try {
+      navigator.vibrate?.(0);
+      navigator.clearAppBadge?.();
+    } catch {
+      // Funzioni opzionali.
+    }
+
+    return true;
+  }
+
+  stopTimerRef.current = stopTimer;
+
   function triggerTimerFinished() {
     if (alertActive) return;
 
     setAlertActive(true);
     setRemaining(0);
     setRunning(false);
-    writeSnapshot({ completed: true, alarmAt: alarmAtRef.current });
+    writeSnapshot({
+      completed: true,
+      alertActive: true,
+      alarmAt: alarmAtRef.current
+    });
 
-    // La suoneria personalizzata può essere riprodotta dalla webapp quando è
-    // visibile. A schermo bloccato o in background resta attiva la push di
-    // sistema, programmata sul server tramite QStash.
     if (typeof document === "undefined" || document.visibilityState === "visible") {
       playTmfitTimerAlarm();
     }
@@ -1732,57 +1823,89 @@ function RestTimer({
   }
 
   function beginLocalTimer(durationSeconds, existingAlarmAt = null) {
-    const nextAlarmAt = existingAlarmAt || Date.now() + durationSeconds * 1000;
+    const safeDuration = Math.max(
+      1,
+      Math.min(3599, Number(durationSeconds) || initialSeconds)
+    );
+    const nextAlarmAt = existingAlarmAt || Date.now() + safeDuration * 1000;
+
+    setConfiguredSeconds(safeDuration);
+    syncPicker(safeDuration);
     alarmAtRef.current = nextAlarmAt;
     setAlarmAt(nextAlarmAt);
     setRemaining(Math.max(0, Math.ceil((nextAlarmAt - Date.now()) / 1000)));
     setAlertActive(false);
     setRunning(nextAlarmAt > Date.now());
-    writeSnapshot({ completed: nextAlarmAt <= Date.now(), alarmAt: nextAlarmAt });
+    writeSnapshot({
+      completed: nextAlarmAt <= Date.now(),
+      alertActive: nextAlarmAt <= Date.now(),
+      alarmAt: nextAlarmAt,
+      durationSeconds: safeDuration
+    });
 
     if (nextAlarmAt <= Date.now()) {
       triggerTimerFinished();
     }
   }
 
-  async function startTimer(durationOverride = initialSeconds) {
-    const safeDuration = Math.max(1, Number(durationOverride) || initialSeconds);
+  async function startTimer(durationOverride = configuredSeconds) {
+    const safeDuration = Math.max(
+      1,
+      Math.min(3599, Number(durationOverride) || initialSeconds)
+    );
     primeTmfitTimerAudio();
     await stopAlert();
     beginLocalTimer(safeDuration);
     await schedulePush(safeDuration);
   }
 
-  async function resetTimer() {
-    const currentJobId = pushJobIdRef.current;
-    pushJobIdRef.current = "";
-    await cancelScheduledPush(currentJobId);
+  async function adjustTimer(deltaSeconds) {
+    const baseValue = running ? remaining : configuredSeconds;
+    const nextValue = Math.max(
+      5,
+      Math.min(3599, Number(baseValue || initialSeconds) + deltaSeconds)
+    );
 
+    setConfiguredSeconds(nextValue);
+    syncPicker(nextValue);
+
+    if (running) {
+      await startTimer(nextValue);
+      return;
+    }
+
+    if (alertActive) await stopAlert();
+    setRemaining(nextValue);
     alarmAtRef.current = null;
     setAlarmAt(null);
     setRunning(false);
-    setRemaining(initialSeconds);
-    setAlertActive(false);
-    setPushStatus("idle");
     safeRemoveLocal(storageKey);
-    stopTmfitTimerAlarmLoop();
+  }
 
-    try {
-      navigator.vibrate?.(0);
-      navigator.clearAppBadge?.();
-    } catch {
-      // Funzioni opzionali.
-    }
+  async function applyPickerTimer() {
+    const selected = Math.max(
+      1,
+      Math.min(3599, Number(pickerMinutes) * 60 + Number(pickerSeconds))
+    );
+    setPickerOpen(false);
+    await startTimer(selected);
   }
 
   useEffect(() => {
     let cancelled = false;
     const saved = safeReadLocalJson(storageKey, null);
     const savedAlarmAt = Number(saved?.alarmAt) || 0;
+    const savedDuration = Math.max(
+      1,
+      Math.min(3599, Number(saved?.durationSeconds) || initialSeconds)
+    );
     const savedMatches =
       savedAlarmAt &&
       Number(saved?.initialSeconds || initialSeconds) === initialSeconds &&
       String(saved?.timerKey || timerKey || "") === String(timerKey || "");
+
+    setConfiguredSeconds(savedMatches ? savedDuration : initialSeconds);
+    syncPicker(savedMatches ? savedDuration : initialSeconds);
 
     if (savedMatches) {
       pushJobIdRef.current = saved?.pushJobId || "";
@@ -1795,7 +1918,7 @@ function RestTimer({
       );
       setRemaining(nextRemaining);
       setRunning(nextRemaining > 0);
-      setAlertActive(nextRemaining === 0 || Boolean(saved?.completed));
+      setAlertActive(nextRemaining === 0 && Boolean(saved?.alertActive));
       if (saved?.pushJobId) setPushStatus("scheduled");
       return () => {
         cancelled = true;
@@ -1858,11 +1981,13 @@ function RestTimer({
       const activeJobId = String(pushJobIdRef.current || "");
       if (stoppedJobId && activeJobId && stoppedJobId !== activeJobId) return;
 
+      scheduleGenerationRef.current += 1;
       pushJobIdRef.current = "";
       setAlertActive(false);
+      setRunning(false);
       setPushStatus("idle");
       stopTmfitTimerAlarmLoop();
-      writeSnapshot({ completed: true, pushJobId: "" });
+      safeRemoveLocal(storageKey);
 
       try {
         navigator.vibrate?.(0);
@@ -1920,134 +2045,306 @@ function RestTimer({
   const minutes = Math.floor(remaining / 60);
   const secs = remaining % 60;
   const completed = remaining === 0;
+  const customDuration = configuredSeconds !== initialSeconds;
 
   return (
-    <div
-      id={prominent ? "tmfit-rest-timer" : undefined}
-      className={
-        prominent
-          ? "sticky top-0 z-20 rounded-[1.8rem] border-2 border-teal-300 bg-[#07111f] p-4 text-white shadow-xl"
-          : "rounded-3xl border border-slate-200 bg-white p-4 text-slate-950"
-      }
-    >
-      <div className="grid gap-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div
-              className={
-                prominent
-                  ? "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950"
-                  : "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"
-              }
-            >
-              <Timer size={24} />
+    <>
+      <div
+        id={prominent ? "tmfit-rest-timer" : undefined}
+        className={
+          prominent
+            ? "sticky top-0 z-20 rounded-[1.8rem] border-2 border-teal-300 bg-[#07111f] p-4 text-white shadow-xl"
+            : "rounded-3xl border border-slate-200 bg-white p-4 text-slate-950"
+        }
+      >
+        <div className="grid gap-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className={
+                  prominent
+                    ? "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950"
+                    : "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"
+                }
+              >
+                <Timer size={24} />
+              </div>
+
+              <div className="min-w-0">
+                <p
+                  className={
+                    prominent
+                      ? "text-[11px] font-black uppercase tracking-[0.25em] text-teal-300"
+                      : "text-[11px] font-black uppercase tracking-[0.25em] text-slate-400"
+                  }
+                >
+                  Recupero
+                </p>
+
+                <p
+                  className={
+                    prominent
+                      ? "mt-1 text-5xl font-black leading-none tracking-tight text-white"
+                      : "mt-1 text-3xl font-black leading-none tracking-tight text-slate-950"
+                  }
+                >
+                  {minutes}:{String(secs).padStart(2, "0")}
+                </p>
+
+                <p
+                  className={
+                    prominent
+                      ? "mt-1 text-xs font-bold text-slate-300"
+                      : "mt-1 text-xs font-bold text-slate-500"
+                  }
+                >
+                  {completed
+                    ? alertActive
+                      ? "Recupero terminato: riprendi con la prossima serie."
+                      : "Timer interrotto."
+                    : running
+                    ? "Timer in corso · la musica continua normalmente"
+                    : "Pronto per partire"}
+                </p>
+              </div>
             </div>
 
-            <div className="min-w-0">
-              <p
-                className={
-                  prominent
-                    ? "text-[11px] font-black uppercase tracking-[0.25em] text-teal-300"
-                    : "text-[11px] font-black uppercase tracking-[0.25em] text-slate-400"
-                }
-              >
-                Recupero
-              </p>
+            {prominent && (
+              <div className="rounded-2xl bg-white/10 px-3 py-2 text-center">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
+                  Push
+                </p>
+                <p className="mt-1 text-xs font-black text-white">
+                  {pushStatus === "scheduled" ? "PRONTA" : "AUTO"}
+                </p>
+              </div>
+            )}
+          </div>
 
-              <p
-                className={
-                  prominent
-                    ? "mt-1 text-5xl font-black leading-none tracking-tight text-white"
-                    : "mt-1 text-3xl font-black leading-none tracking-tight text-slate-950"
-                }
-              >
-                {minutes}:{String(secs).padStart(2, "0")}
-              </p>
+          <div
+            className={
+              prominent
+                ? "rounded-2xl bg-white/10 p-3"
+                : "rounded-2xl bg-slate-50 p-3"
+            }
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p
+                  className={
+                    prominent
+                      ? "text-[10px] font-black uppercase tracking-[0.18em] text-slate-400"
+                      : "text-[10px] font-black uppercase tracking-[0.18em] text-slate-400"
+                  }
+                >
+                  Tempo del professionista
+                </p>
+                <p className={prominent ? "mt-1 text-sm font-black text-white" : "mt-1 text-sm font-black text-slate-900"}>
+                  {formatTimerValue(initialSeconds)}
+                </p>
+              </div>
 
-              <p
+              {customDuration && (
+                <Pill className={prominent ? "bg-teal-300 text-slate-950" : "bg-teal-100 text-teal-800"}>
+                  Personalizzato {formatTimerValue(configuredSeconds)}
+                </Pill>
+              )}
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => adjustTimer(-15)}
                 className={
                   prominent
-                    ? "mt-1 text-xs font-bold text-slate-300"
-                    : "mt-1 text-xs font-bold text-slate-500"
+                    ? "h-11 rounded-xl bg-white/10 px-2 text-xs font-black text-white active:scale-[.97]"
+                    : "h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs font-black text-slate-700 active:scale-[.97]"
                 }
               >
-                {completed
-                  ? alertActive
-                    ? "Recupero terminato: riprendi con la prossima serie."
-                    : "Recupero terminato."
-                  : running
-                  ? "Timer in corso · la musica continua normalmente"
-                  : "Pronto per partire"}
-              </p>
+                −15 sec
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  syncPicker(running ? remaining : configuredSeconds);
+                  setPickerOpen(true);
+                }}
+                className={
+                  prominent
+                    ? "h-11 rounded-xl bg-teal-300 px-2 text-xs font-black text-slate-950 active:scale-[.97]"
+                    : "h-11 rounded-xl bg-[#07111f] px-2 text-xs font-black text-white active:scale-[.97]"
+                }
+              >
+                Imposta
+              </button>
+
+              <button
+                type="button"
+                onClick={() => adjustTimer(15)}
+                className={
+                  prominent
+                    ? "h-11 rounded-xl bg-white/10 px-2 text-xs font-black text-white active:scale-[.97]"
+                    : "h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs font-black text-slate-700 active:scale-[.97]"
+                }
+              >
+                +15 sec
+              </button>
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => startTimer(configuredSeconds)}
+              className={
+                prominent
+                  ? "h-12 rounded-2xl bg-teal-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
+                  : "h-11 rounded-xl bg-[#07111f] px-3 text-xs font-black text-white active:scale-[.97]"
+              }
+            >
+              {running ? "Riavvia timer" : "Avvia timer"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => stopTimer()}
+              className={
+                prominent
+                  ? "h-12 rounded-2xl bg-white/10 px-3 text-xs font-black text-white active:scale-[.97]"
+                  : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
+              }
+            >
+              Interrompi
+            </button>
+          </div>
+
+          {customDuration && (
+            <button
+              type="button"
+              onClick={() => stopTimer({ resetToCoach: true })}
+              className={
+                prominent
+                  ? "text-center text-[11px] font-black uppercase tracking-[0.16em] text-teal-300"
+                  : "text-center text-[11px] font-black uppercase tracking-[0.16em] text-teal-700"
+              }
+            >
+              Ripristina tempo del professionista
+            </button>
+          )}
+
+          <PushNotificationSetup
+            userId={userId}
+            clientId={clientId}
+            compact
+            onEnabled={handlePushEnabled}
+          />
+
+          {alertActive && (
+            <button
+              type="button"
+              onClick={stopAlert}
+              className={
+                prominent
+                  ? "h-14 rounded-[1.2rem] bg-teal-300 px-4 text-sm font-black uppercase tracking-[0.16em] text-slate-950 shadow-lg active:scale-[.97]"
+                  : "h-12 rounded-2xl bg-teal-300 px-4 text-sm font-black uppercase tracking-[0.14em] text-slate-950 shadow-lg active:scale-[.97]"
+              }
+            >
+              Interrompi richiamo
+            </button>
+          )}
+
           {prominent && (
-            <div className="rounded-2xl bg-white/10 px-3 py-2 text-center">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
-                Push
-              </p>
-              <p className="mt-1 text-xs font-black text-white">
-                {pushStatus === "scheduled" ? "PRONTA" : "AUTO"}
-              </p>
-            </div>
+            <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
+              Puoi modificare il recupero senza cambiare il tempo prescritto nella scheda. Stop, cambio serie e uscita da Allenati annullano anche la push programmata.
+            </p>
           )}
         </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => startTimer(initialSeconds)}
-            className={
-              prominent
-                ? "h-12 rounded-2xl bg-teal-300 px-3 text-xs font-black text-slate-950 active:scale-[.97]"
-                : "h-11 rounded-xl bg-[#07111f] px-3 text-xs font-black text-white active:scale-[.97]"
-            }
-          >
-            Riavvia timer
-          </button>
-
-          <button
-            type="button"
-            onClick={resetTimer}
-            className={
-              prominent
-                ? "h-12 rounded-2xl bg-white/10 px-3 text-xs font-black text-white active:scale-[.97]"
-                : "h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 active:scale-[.97]"
-            }
-          >
-            Reset
-          </button>
-        </div>
-
-        <PushNotificationSetup
-          userId={userId}
-          clientId={clientId}
-          compact
-          onEnabled={handlePushEnabled}
-        />
-
-        {alertActive && (
-          <button
-            type="button"
-            onClick={stopAlert}
-            className={
-              prominent
-                ? "h-14 rounded-[1.2rem] bg-teal-300 px-4 text-sm font-black uppercase tracking-[0.16em] text-slate-950 shadow-lg active:scale-[.97]"
-                : "h-12 rounded-2xl bg-teal-300 px-4 text-sm font-black uppercase tracking-[0.14em] text-slate-950 shadow-lg active:scale-[.97]"
-            }
-          >
-            Riprendi allenamento
-          </button>
-        )}
-
-        {prominent && (
-          <p className="text-center text-[11px] font-bold leading-5 text-slate-400">
-            Durante il recupero la musica continua. Alla scadenza, con TMFIT aperta parte il Segnale TMFIT intermittente; con schermo bloccato ricevi richiami push fino allo Stop.
-          </p>
-        )}
       </div>
-    </div>
+
+      {pickerOpen && (
+        <div className="fixed inset-0 z-[190] flex items-end justify-center bg-slate-950/70 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-10 backdrop-blur-sm">
+          <button
+            type="button"
+            aria-label="Chiudi selettore timer"
+            onClick={() => setPickerOpen(false)}
+            className="absolute inset-0"
+          />
+
+          <div className="relative z-[191] w-full max-w-[440px] rounded-[2rem] bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                  Timer personalizzato
+                </p>
+                <h3 className="mt-1 text-2xl font-black text-slate-950">
+                  Imposta recupero
+                </h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Su iPhone i selettori si aprono con la rotella nativa.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700"
+                aria-label="Chiudi"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Label title="Minuti">
+                <Select
+                  value={pickerMinutes}
+                  onChange={(event) => setPickerMinutes(Number(event.target.value))}
+                  className="h-14 text-lg font-black"
+                >
+                  {Array.from({ length: 60 }).map((_, value) => (
+                    <option key={`timer-minute-${value}`} value={value}>
+                      {value} min
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+
+              <Label title="Secondi">
+                <Select
+                  value={pickerSeconds}
+                  onChange={(event) => setPickerSeconds(Number(event.target.value))}
+                  className="h-14 text-lg font-black"
+                >
+                  {Array.from({ length: 60 }).map((_, value) => (
+                    <option key={`timer-second-${value}`} value={value}>
+                      {value} sec
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-center">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                Durata scelta
+              </p>
+              <p className="mt-1 text-4xl font-black text-slate-950">
+                {formatTimerValue(Number(pickerMinutes) * 60 + Number(pickerSeconds))}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={applyPickerTimer}
+              className="mt-4 h-14 w-full rounded-2xl bg-[#07111f] px-4 text-sm font-black uppercase tracking-[0.14em] text-white active:scale-[.98]"
+            >
+              Avvia questo timer
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -16010,6 +16307,7 @@ function WorkoutPlayerModal({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const latestWorkoutSnapshotRef = useRef(null);
+  const restTimerControllerRef = useRef(null);
   const latestDraftsRef = useRef(drafts || {});
   const [, forceDraftRender] = useState(0);
 
@@ -16441,9 +16739,17 @@ function WorkoutPlayerModal({
     return true;
   }
 
-  function goPrevious() {
+  async function stopActiveRestTimer() {
+    const controller = restTimerControllerRef.current;
+    if (controller?.stop) {
+      await controller.stop();
+    }
+  }
+
+  async function goPrevious() {
     if (!previousExecutionStep) return;
 
+    await stopActiveRestTimer();
     setResting(false);
     persistWorkoutStateNow({
       resting: false,
@@ -16454,7 +16760,8 @@ function WorkoutPlayerModal({
     setSetIndex(previousExecutionStep.setIndex);
   }
 
-  function goNext() {
+  async function goNext() {
+    await stopActiveRestTimer();
     setResting(false);
 
     if (nextExecutionStep) {
@@ -16521,7 +16828,7 @@ function WorkoutPlayerModal({
       return;
     }
 
-    goNext();
+    await goNext();
   }
 
   function applyLastSet() {
@@ -16624,10 +16931,13 @@ function WorkoutPlayerModal({
     }
   }
 
-  function requestCloseWorkout() {
+  async function requestCloseWorkout() {
     persistWorkoutStateNow();
 
     if (finished || completedCount === 0 || typeof window === "undefined") {
+      await stopActiveRestTimer();
+      persistWorkoutStateNow({ resting: false });
+      setResting(false);
       onClose();
       return;
     }
@@ -16636,10 +16946,15 @@ function WorkoutPlayerModal({
       "Vuoi uscire da Allenati? Le serie già salvate restano registrate."
     );
 
-    if (confirmed) onClose();
+    if (confirmed) {
+      await stopActiveRestTimer();
+      persistWorkoutStateNow({ resting: false });
+      setResting(false);
+      onClose();
+    }
   }
 
-  function requestFinishWorkout() {
+  async function requestFinishWorkout() {
     persistWorkoutStateNow();
 
     if (completedCount < totalPlannedSets && typeof window !== "undefined") {
@@ -16650,11 +16965,14 @@ function WorkoutPlayerModal({
       if (!confirmed) return;
     }
 
-    persistWorkoutStateNow({ finished: true });
+    await stopActiveRestTimer();
+    persistWorkoutStateNow({ finished: true, resting: false });
+    setResting(false);
     setFinished(true);
   }
 
-  function closeCompletedWorkout() {
+  async function closeCompletedWorkout() {
+    await stopActiveRestTimer();
     if (onClearPersistedWorkout) onClearPersistedWorkout();
     if (onWorkoutSaved) onWorkoutSaved();
     onClose();
@@ -16899,6 +17217,7 @@ function WorkoutPlayerModal({
                     timerKey={`${plan?.id || "plan"}-${day?.id || "day"}-${
                       draftKey || `${exerciseIndex}-${setIndex}`
                     }`}
+                    controllerRef={restTimerControllerRef}
                   />
                 </div>
               )}
@@ -16932,7 +17251,8 @@ function WorkoutPlayerModal({
                     <button
                       key={set.id || set.temp_id || index}
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        await stopActiveRestTimer();
                         setSetIndex(index);
                         setResting(false);
                       }}
@@ -17763,6 +18083,334 @@ function CoachMonitorPanel({
   );
 }
 
+
+function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [selectedDateKey, setSelectedDateKey] = useState("");
+
+  function localDateKey(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function parseSessionDate(value) {
+    const clean = String(value || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(clean)) return null;
+    const [year, month, day] = clean.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  const todayDate = useMemo(() => {
+    const value = new Date();
+    value.setHours(0, 0, 0, 0);
+    return value;
+  }, []);
+
+  const minimumDate = useMemo(() => {
+    const value = new Date(todayDate);
+    value.setMonth(value.getMonth() - 6);
+    value.setHours(0, 0, 0, 0);
+    return value;
+  }, [todayDate]);
+
+  const dayMetaById = useMemo(() => {
+    const map = new Map();
+    (plans || []).forEach((plan) => {
+      (plan.workout_weeks || []).forEach((week) => {
+        (week.workout_days || []).forEach((day) => {
+          map.set(String(day.id), { day, week, plan });
+        });
+      });
+    });
+    return map;
+  }, [plans]);
+
+  const sessionsByDate = useMemo(() => {
+    const map = new Map();
+    (sessions || []).forEach((sessionItem) => {
+      const key = String(sessionItem.session_date || sessionItem.created_at || "").slice(0, 10);
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(sessionItem);
+    });
+    return map;
+  }, [sessions]);
+
+  const logsBySession = useMemo(() => {
+    const map = new Map();
+    (logs || []).forEach((log) => {
+      const sessionId = String(log.session_id || "");
+      if (!sessionId) return;
+      if (!map.has(sessionId)) map.set(sessionId, []);
+      map.get(sessionId).push(log);
+    });
+    return map;
+  }, [logs]);
+
+  const weekDays = useMemo(() => {
+    const monday = new Date(todayDate);
+    const weekday = monday.getDay() || 7;
+    monday.setDate(monday.getDate() - weekday + 1 + weekOffset * 7);
+
+    return Array.from({ length: 7 }).map((_, index) => {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + index);
+      return date;
+    });
+  }, [todayDate, weekOffset]);
+
+  const firstWeekDate = weekDays[0];
+  const lastWeekDate = weekDays[6];
+  const canGoPrevious = firstWeekDate.getTime() > minimumDate.getTime();
+  const canGoNext = weekOffset < 0;
+  const todayKey = localDateKey(todayDate);
+  const selectedSessions = selectedDateKey
+    ? sessionsByDate.get(selectedDateKey) || []
+    : [];
+  const selectedDate = selectedDateKey ? parseSessionDate(selectedDateKey) : null;
+
+  function sessionTitle(sessionItem, index) {
+    const linked = dayMetaById.get(String(sessionItem?.day_id || ""));
+    return (
+      linked?.day?.title ||
+      linked?.plan?.title ||
+      `Allenamento ${index + 1}`
+    );
+  }
+
+  function formatSelectedDate(date) {
+    if (!date) return "Allenamento";
+    return date.toLocaleDateString("it-IT", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    });
+  }
+
+  function exerciseGroupsForSession(sessionItem) {
+    const sessionLogs = logsBySession.get(String(sessionItem.id)) || [];
+    const groups = new Map();
+
+    sessionLogs.forEach((log) => {
+      const name = log.workout_exercises?.exercise_name || "Esercizio";
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(log);
+    });
+
+    return Array.from(groups.entries()).map(([name, exerciseLogs]) => ({
+      name,
+      logs: [...exerciseLogs].sort(
+        (a, b) => Number(a.set_number || 0) - Number(b.set_number || 0)
+      )
+    }));
+  }
+
+  return (
+    <>
+      <Card className="overflow-hidden border-none bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-teal-700">
+              Diario allenamenti
+            </p>
+            <h3 className="mt-1 text-xl font-black text-slate-950">
+              Ultimi 6 mesi
+            </h3>
+          </div>
+          <Pill className="bg-teal-100 text-teal-800">
+            {sessions.length} sedute
+          </Pill>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setWeekOffset((value) => value - 1)}
+            disabled={!canGoPrevious}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-xl font-black text-slate-700 disabled:opacity-30"
+            aria-label="Settimana precedente"
+          >
+            ‹
+          </button>
+
+          <p className="text-sm font-black capitalize text-slate-700">
+            {firstWeekDate.toLocaleDateString("it-IT", { day: "numeric", month: "short" })}
+            {" – "}
+            {lastWeekDate.toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setWeekOffset((value) => Math.min(0, value + 1))}
+            disabled={!canGoNext}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-xl font-black text-slate-700 disabled:opacity-30"
+            aria-label="Settimana successiva"
+          >
+            ›
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-7 gap-1.5">
+          {weekDays.map((date) => {
+            const key = localDateKey(date);
+            const isToday = key === todayKey;
+            const hasWorkout = (sessionsByDate.get(key) || []).length > 0;
+            const outsideRange =
+              date.getTime() < minimumDate.getTime() ||
+              date.getTime() > todayDate.getTime();
+
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={outsideRange}
+                onClick={() => setSelectedDateKey(key)}
+                className="flex min-w-0 flex-col items-center rounded-2xl px-1 py-2 disabled:opacity-30"
+              >
+                <span className="text-[10px] font-black uppercase text-slate-400">
+                  {date
+                    .toLocaleDateString("it-IT", { weekday: "short" })
+                    .slice(0, 1)}
+                </span>
+                <span
+                  className={`mt-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-black transition ${
+                    isToday
+                      ? "bg-teal-400 text-slate-950 shadow-md"
+                      : hasWorkout
+                      ? "border-2 border-teal-400 bg-teal-50 text-teal-900"
+                      : "bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  {date.getDate()}
+                </span>
+                <span
+                  className={`mt-1 h-1.5 w-1.5 rounded-full ${
+                    hasWorkout ? "bg-teal-500" : "bg-transparent"
+                  }`}
+                />
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="mt-3 text-center text-[11px] font-bold leading-5 text-slate-400">
+          Il cerchio indica oggi. Il punto segnala un allenamento registrato: tocca il giorno per vedere esercizi, carichi e ripetizioni.
+        </p>
+      </Card>
+
+      {selectedDateKey && (
+        <div className="fixed inset-0 z-[175] flex items-end justify-center bg-slate-950/70 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-10 backdrop-blur-sm">
+          <button
+            type="button"
+            aria-label="Chiudi dettaglio allenamento"
+            onClick={() => setSelectedDateKey("")}
+            className="absolute inset-0"
+          />
+
+          <div className="relative z-[176] max-h-[84dvh] w-full max-w-[440px] overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
+                  Dettaglio seduta
+                </p>
+                <h3 className="mt-1 text-xl font-black capitalize text-slate-950">
+                  {formatSelectedDate(selectedDate)}
+                </h3>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  {selectedSessions.length
+                    ? `${selectedSessions.length} allenamento${selectedSessions.length === 1 ? "" : "i"} registrato${selectedSessions.length === 1 ? "" : "i"}`
+                    : "Nessun allenamento registrato"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedDateKey("")}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700"
+                aria-label="Chiudi"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {selectedSessions.length === 0 && (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
+                  <p className="text-sm font-black text-slate-700">
+                    Nessuna seduta in questa data.
+                  </p>
+                </div>
+              )}
+
+              {selectedSessions.map((sessionItem, sessionIndex) => {
+                const exerciseGroups = exerciseGroupsForSession(sessionItem);
+                const totalSets = exerciseGroups.reduce(
+                  (sum, group) => sum + group.logs.length,
+                  0
+                );
+
+                return (
+                  <div
+                    key={sessionItem.id || `${selectedDateKey}-${sessionIndex}`}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                          Seduta {sessionIndex + 1}
+                        </p>
+                        <h4 className="mt-1 text-lg font-black text-slate-950">
+                          {sessionTitle(sessionItem, sessionIndex)}
+                        </h4>
+                      </div>
+                      <Pill className="bg-white text-slate-700">
+                        {totalSets} serie
+                      </Pill>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {exerciseGroups.length === 0 && (
+                        <p className="rounded-2xl bg-white p-3 text-sm font-semibold text-slate-500">
+                          Seduta registrata, ma senza carichi salvati.
+                        </p>
+                      )}
+
+                      {exerciseGroups.map((group) => (
+                        <div key={group.name} className="rounded-2xl bg-white p-3 shadow-sm">
+                          <p className="text-sm font-black text-slate-950">
+                            {group.name}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {group.logs.map((log, index) => (
+                              <span
+                                key={log.id || `${group.name}-${index}`}
+                                className="rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-black text-slate-700"
+                              >
+                                S{log.set_number || index + 1}: {log.load_kg ?? "—"} kg × {log.reps_done ?? "—"}
+                                {log.rpe ? ` · RPE ${log.rpe}` : ""}
+                                {log.rir ? ` · RIR ${log.rir}` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ClientDashboard({ session, userProfile, onLogout }) {
   const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -17774,6 +18422,9 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [photos, setPhotos] = useState([]);
   const [loadHistory, setLoadHistory] = useState([]);
   const [loadHistoryLoaded, setLoadHistoryLoaded] = useState(false);
+  const [workoutCalendarSessions, setWorkoutCalendarSessions] = useState([]);
+  const [workoutCalendarLogs, setWorkoutCalendarLogs] = useState([]);
+  const [workoutCalendarPlans, setWorkoutCalendarPlans] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
   const [workoutPlayer, setWorkoutPlayer] = useState({
@@ -17943,6 +18594,66 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
+
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const sixMonthsDate = `${sixMonthsAgo.getFullYear()}-${String(
+      sixMonthsAgo.getMonth() + 1
+    ).padStart(2, "0")}-${String(sixMonthsAgo.getDate()).padStart(2, "0")}`;
+
+    const [calendarSessionsResult, calendarLogsResult, calendarPlansResult] =
+      await Promise.all([
+        supabase
+          .from("workout_sessions")
+          .select("*")
+          .eq("client_id", numericClientId)
+          .gte("session_date", sixMonthsDate)
+          .order("session_date", { ascending: false })
+          .limit(500),
+        supabase
+          .from("workout_set_logs")
+          .select(
+            "*, workout_exercises(exercise_name), workout_sessions!inner(id, client_id, session_date, plan_id, day_id, status)"
+          )
+          .eq("workout_sessions.client_id", numericClientId)
+          .gte("workout_sessions.session_date", sixMonthsDate)
+          .order("created_at", { ascending: true })
+          .limit(3000),
+        supabase
+          .from("workout_plans")
+          .select(
+            `
+            id,
+            title,
+            status,
+            workout_weeks (
+              id,
+              week_number,
+              workout_days (
+                id,
+                title
+              )
+            )
+          `
+          )
+          .eq("client_id", numericClientId)
+      ]);
+
+    if (calendarSessionsResult.error) {
+      console.warn(calendarSessionsResult.error.message);
+    }
+    if (calendarLogsResult.error) {
+      console.warn(calendarLogsResult.error.message);
+    }
+    if (calendarPlansResult.error) {
+      console.warn(calendarPlansResult.error.message);
+    }
+
+    setWorkoutCalendarSessions(calendarSessionsResult.data || []);
+    setWorkoutCalendarLogs(calendarLogsResult.data || []);
+    setWorkoutCalendarPlans(
+      normalizePlans(calendarPlansResult.data || planData || [])
+    );
   }
 
   function findWorkoutPlanDay(planList = [], planId, dayId) {
@@ -19041,6 +19752,12 @@ function getExerciseHistory(exercise) {
                 {workoutRecoveryNotice}. I dati inseriti durante Allenati vengono salvati sul dispositivo mentre l’allenamento è aperto.
               </div>
             )}
+
+            <WorkoutHistoryCalendar
+              sessions={workoutCalendarSessions}
+              logs={workoutCalendarLogs}
+              plans={workoutCalendarPlans.length ? workoutCalendarPlans : plans}
+            />
 
             {plans.map((plan) => {
               const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
