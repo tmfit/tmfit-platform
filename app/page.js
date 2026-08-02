@@ -1306,13 +1306,13 @@ function TopTabs({ tabs, active, onChange, contained = false }) {
         </div>
       </div>
 
-      <div className={`fixed bottom-0 z-50 bg-transparent px-3 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-0 md:hidden ${
+      <div className={`fixed bottom-0 z-50 border-t border-slate-200/80 bg-white px-3 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] md:hidden ${
           contained
             ? "left-1/2 w-full max-w-[480px] -translate-x-1/2"
             : "left-0 right-0"
         }`}
       >
-        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.35rem] border border-slate-200 bg-white/95 p-1 shadow-[0_-6px_22px_rgba(15,23,42,0.10)] backdrop-blur-xl`}>
+        <div className={`grid ${mobileGridClass} gap-1 rounded-[1.35rem] border border-slate-200 bg-white p-1 shadow-sm`}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
