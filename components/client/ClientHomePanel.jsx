@@ -31,7 +31,11 @@ function StatusRow({ icon: Icon, title, value, detail, onClick, accent = false }
           </span>
         )}
       </span>
-      <span className={`shrink-0 text-xs font-black ${accent ? "text-teal-700" : "text-slate-600"}`}>
+      <span
+        className={`shrink-0 text-xs font-black ${
+          accent ? "text-teal-700" : "text-slate-600"
+        }`}
+      >
         {value}
       </span>
       <ChevronRight size={17} className="shrink-0 text-slate-300" />
@@ -50,61 +54,56 @@ export default function ClientHomePanel({
 }) {
   const completed = Number(weeklySummary?.completedWorkouts || 0);
   const planned = Number(weeklySummary?.plannedWorkouts || 0);
-  const workoutProgress = planned > 0 ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
+  const workoutProgress =
+    planned > 0 ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-[2rem] bg-[#07111f] text-white shadow-xl">
-        <div className="p-5">
-          <p className="text-[11px] font-black uppercase tracking-[0.32em] text-teal-300">
-            Il tuo prossimo passo
-          </p>
-
-          <div className="mt-5 flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950">
-              <Dumbbell size={25} />
-            </div>
-
+      <section className="overflow-hidden rounded-[1.75rem] bg-[#07111f] text-white shadow-lg">
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-300">
-                {nextWorkout?.statusLabel || (nextWorkout?.available ? "Allenamento programmato" : `Ciao ${firstName || ""}`.trim())}
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
+                Il tuo prossimo passo
               </p>
-              <h1 className="mt-1 text-3xl font-black leading-tight tracking-tight">
+              <h1 className="mt-1.5 truncate text-2xl font-black leading-tight tracking-tight">
                 {nextWorkout?.title || "Nessun allenamento disponibile"}
               </h1>
-              {nextWorkout?.minutes && (
-                <p className="mt-2 text-sm font-bold text-slate-300">
-                  {nextWorkout.minutes} minuti · Settimana {nextWorkout.week}
-                </p>
-              )}
-              {nextWorkout?.planTitle && (
-                <p className="mt-1 truncate text-xs font-semibold text-slate-400">
-                  {nextWorkout.planTitle}
-                </p>
-              )}
+              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
+                {nextWorkout?.minutes && <span>{nextWorkout.minutes} min</span>}
+                {nextWorkout?.minutes && nextWorkout?.week && (
+                  <span className="text-slate-600">•</span>
+                )}
+                {nextWorkout?.week && <span>Settimana {nextWorkout.week}</span>}
+                {nextWorkout?.planTitle && (
+                  <>
+                    <span className="text-slate-600">•</span>
+                    <span className="min-w-0 truncate">{nextWorkout.planTitle}</span>
+                  </>
+                )}
+              </div>
             </div>
+
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-300 text-slate-950">
+              <Dumbbell size={19} />
+            </span>
           </div>
 
           {weekSelection?.options?.length > 1 && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">
-                  Scegli la settimana
-                </p>
-                <p className="text-xs font-black text-teal-300">
-                  Progressione {weekSelection.value}
-                </p>
-              </div>
-              <div className="mt-2 grid grid-cols-4 gap-2">
+            <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-2">
+              <span className="shrink-0 pl-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
+                Settimana
+              </span>
+              <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
                 {weekSelection.options.map((weekNumber) => (
                   <button
                     key={weekNumber}
                     type="button"
                     onClick={() => weekSelection.onChange?.(weekNumber)}
-                    className={`min-h-10 rounded-xl text-sm font-black transition active:scale-[.97] ${
+                    className={`min-h-9 rounded-xl border text-sm font-black transition active:scale-[.97] ${
                       Number(weekSelection.value) === Number(weekNumber)
-                        ? "bg-teal-300 text-slate-950"
-                        : "bg-white/10 text-white"
+                        ? "border-teal-300 bg-teal-300 text-slate-950"
+                        : "border-white/10 bg-white/[0.06] text-white"
                     }`}
                     aria-pressed={Number(weekSelection.value) === Number(weekNumber)}
                   >
@@ -119,10 +118,11 @@ export default function ClientHomePanel({
             type="button"
             disabled={!nextWorkout?.onStart}
             onClick={nextWorkout?.onStart}
-            className="mt-5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-teal-300 px-4 py-3 text-base font-black text-slate-950 transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-45"
+            className="mt-3 flex min-h-11 w-full items-center justify-center rounded-2xl bg-teal-300 px-4 py-2.5 text-sm font-black text-slate-950 transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <Dumbbell size={18} className="mr-2" />
-            {nextWorkout?.actionLabel || (nextWorkout?.available ? "Inizia allenamento" : "Apri la scheda")}
+            <Dumbbell size={17} className="mr-2" />
+            {nextWorkout?.actionLabel ||
+              (nextWorkout?.available ? "Inizia allenamento" : "Apri la scheda")}
           </button>
         </div>
       </section>
@@ -171,7 +171,9 @@ export default function ClientHomePanel({
           <div>
             <div className="flex items-center justify-between text-sm">
               <span className="font-bold text-slate-600">Allenamenti</span>
-              <span className="font-black text-slate-950">{completed}/{planned || "—"}</span>
+              <span className="font-black text-slate-950">
+                {completed}/{planned || "—"}
+              </span>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
               <div
@@ -183,13 +185,17 @@ export default function ClientHomePanel({
 
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-2xl bg-slate-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Check-in</p>
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                Check-in
+              </p>
               <p className="mt-1 text-sm font-black text-slate-950">
                 {weeklySummary?.checkinCompleted ? "Completato" : "Da compilare"}
               </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Aderenza</p>
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                Aderenza
+              </p>
               <p className="mt-1 text-sm font-black text-slate-950">
                 {weeklySummary?.adherencePercent == null
                   ? "—"
