@@ -737,8 +737,13 @@ function tmfitWorkoutWeekForPlan(plan) {
   return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
 }
 
-function tmfitPlannedSetCountForResume(plan, exercise) {
-  const week = tmfitWorkoutWeekForPlan(plan);
+function tmfitPlannedSetCountForResume(plan, exercise, selectedWeek = null) {
+  const maxWeek = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+  const requestedWeek = Number(selectedWeek);
+  const week =
+    Number.isFinite(requestedWeek) && requestedWeek >= 1 && requestedWeek <= maxWeek
+      ? requestedWeek
+      : tmfitWorkoutWeekForPlan(plan);
   const progression =
     exercise?.workout_exercise_progressions?.find(
       (item) => Number(item.week_number) === week
@@ -748,11 +753,10 @@ function tmfitPlannedSetCountForResume(plan, exercise) {
     "set_number"
   );
 
-  if (realSets.length > 0) return realSets.length;
-
   return Math.max(
     1,
     Number(progression?.target_sets) ||
+      realSets.length ||
       Number(exercise?.sets) ||
       Number(exercise?.series) ||
       1
@@ -771,7 +775,8 @@ function advanceTmfitWorkoutSnapshot(plan, day, snapshot = {}) {
       const exerciseIndex = block.exerciseIndexes[0];
       const count = tmfitPlannedSetCountForResume(
         plan,
-        exercises[exerciseIndex]
+        exercises[exerciseIndex],
+        snapshot?.selectedWeek
       );
 
       return Array.from({ length: count }).map((_, setIndex) => ({
@@ -783,7 +788,11 @@ function advanceTmfitWorkoutSnapshot(plan, day, snapshot = {}) {
     const roundCount = Math.max(
       0,
       ...block.exerciseIndexes.map((exerciseIndex) =>
-        tmfitPlannedSetCountForResume(plan, exercises[exerciseIndex])
+        tmfitPlannedSetCountForResume(
+          plan,
+          exercises[exerciseIndex],
+          snapshot?.selectedWeek
+        )
       )
     );
     const steps = [];
@@ -792,7 +801,11 @@ function advanceTmfitWorkoutSnapshot(plan, day, snapshot = {}) {
       block.exerciseIndexes.forEach((exerciseIndex) => {
         if (
           roundIndex <
-          tmfitPlannedSetCountForResume(plan, exercises[exerciseIndex])
+          tmfitPlannedSetCountForResume(
+            plan,
+            exercises[exerciseIndex],
+            snapshot?.selectedWeek
+          )
         ) {
           steps.push({ exerciseIndex, setIndex: roundIndex });
         }
@@ -5658,48 +5671,207 @@ function cleanWorkoutExcelCell(value) {
     return value.toLocaleDateString("it-IT");
   }
 
-  return cleanWorkoutPdfLine(String(value).replace(/\u00a0/g, " "));
+  return cleanWorkoutPdfLine(
+    String(value)
+      .replace(/\u00a0/g, " ")
+      .replace(/[\r\n]+/g, " · ")
+  );
+}
+
+function normalizeWorkoutExcelHeader(value) {
+  return normalizeWorkoutPdfText(cleanWorkoutExcelCell(value))
+    .replace(/[._/\\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function workoutExcelColumnRole(value) {
+  const normalized = normalizeWorkoutExcelHeader(value);
+  const compact = normalized.replace(/[^A-Z0-9]/g, "");
+
+  if (!normalized) return null;
+
+  const weekMatch = normalized.match(
+    /^(?:SETT(?:IMANA)?|WEEK|W)\s*0*([1-9]\d*)\b/i
+  );
+  if (weekMatch) {
+    return { type: "week", weekNumber: Number(weekMatch[1]) };
+  }
+
+  if (/ESERCIZ|EXERCISE|MOVIMENTO/.test(compact)) {
+    return { type: "exercise" };
+  }
+
+  if (
+    /SERIE.*RIP|RIP.*SERIE|SETS?.*REPS?|VOLUME|SERIERIP|SERIEBASE|TARGETBASE/.test(
+      compact
+    )
+  ) {
+    return { type: "base" };
+  }
+
+  if (/^(?:SERIE|SETS?)$/.test(compact)) {
+    return { type: "sets" };
+  }
+
+  if (/^(?:RIPETIZIONI?|REPS?)$/.test(compact)) {
+    return { type: "reps" };
+  }
+
+  if (/RECUPERO|REST|PAUSA/.test(compact)) {
+    return { type: "recovery" };
+  }
+
+  if (/SUPERSET|SUPERSERIE|TRISET|GRUPPO|CIRCUITO|BLOCCO/.test(compact)) {
+    return { type: "group" };
+  }
+
+  if (/ESECUZIONE|EXECUTION|MODALITA|INDICAZION|NOTETECNICHE|TECNICA/.test(compact)) {
+    return { type: "execution" };
+  }
+
+  return null;
+}
+
+function workoutExcelHeaderInfo(row = [], rowIndex = -1) {
+  const columns = {
+    exercise: null,
+    base: null,
+    sets: null,
+    reps: null,
+    recovery: null,
+    execution: null,
+    group: null,
+    weeks: new Map()
+  };
+  let score = 0;
+
+  row.forEach((value, index) => {
+    const role = workoutExcelColumnRole(value);
+    if (!role) return;
+
+    if (role.type === "week") {
+      if (!columns.weeks.has(role.weekNumber)) {
+        columns.weeks.set(role.weekNumber, index);
+        score += role.weekNumber <= 4 ? 3 : 1;
+      }
+      return;
+    }
+
+    if (columns[role.type] === null) {
+      columns[role.type] = index;
+      score += role.type === "exercise" ? 6 : role.type === "base" ? 3 : 2;
+    }
+  });
+
+  return {
+    rowIndex,
+    score,
+    columns,
+    valid:
+      columns.exercise !== null &&
+      (columns.base !== null ||
+        (columns.sets !== null && columns.reps !== null) ||
+        columns.weeks.size > 0) &&
+      score >= 9
+  };
+}
+
+function findWorkoutExcelHeader(rows = []) {
+  let best = null;
+  const limit = Math.min(rows.length, 100);
+
+  for (let index = 0; index < limit; index += 1) {
+    const candidate = workoutExcelHeaderInfo(rows[index] || [], index);
+    if (!best || candidate.score > best.score) best = candidate;
+  }
+
+  return best?.valid ? best : null;
+}
+
+function defaultWorkoutExcelColumns() {
+  return {
+    exercise: 0,
+    base: 1,
+    sets: null,
+    reps: null,
+    recovery: 2,
+    execution: 3,
+    group: 4,
+    weeks: new Map([
+      [1, 5],
+      [2, 6],
+      [3, 7],
+      [4, 8]
+    ])
+  };
 }
 
 function isWorkoutExcelSheetHeader(row = []) {
-  const first = compactWorkoutPdfText(row[0]);
-  return first === "ESERCIZIO";
+  const info = workoutExcelHeaderInfo(row);
+  return info.valid;
 }
 
-function extractWorkoutExcelDayMeta(row = []) {
-  const first = cleanWorkoutExcelCell(row[0]);
-  const match = first.match(/^ALLENAMENTO\s+([A-Z])(?:\b|\s|$)/i);
+function extractWorkoutExcelDayMeta(row = [], fallbackLetter = "") {
+  const firstCells = row
+    .slice(0, 5)
+    .map(cleanWorkoutExcelCell)
+    .filter(Boolean);
+  const text = cleanWorkoutPdfLine(firstCells.join(" "));
+  const normalized = normalizeWorkoutPdfText(text);
+  const match = normalized.match(
+    /^(?:ALLENAMENTO|WORKOUT|SESSIONE|GIORNO|SCHEDA)\s*[-:]?\s*([A-Z0-9]+)\b(.*)$/i
+  );
 
   if (!match) return null;
 
-  const disabled = /non\s+usato/i.test(first);
+  const disabled = /NON\s+USAT|DISATTIV|ESCLUS|SKIP|OFF\b/i.test(normalized);
+  const rawSuffix = cleanWorkoutPdfLine(match[2] || "")
+    .replace(/^[-:–—\s]+/, "")
+    .replace(/\b(?:NON\s+USATO|DISATTIVO|ESCLUSO|SKIP|OFF)\b.*$/i, "")
+    .trim();
+  const token = String(match[1] || fallbackLetter || "A").toUpperCase();
 
   return {
-    letter: match[1].toUpperCase(),
+    letter: token,
+    title: rawSuffix ? `Allenamento ${token} · ${rawSuffix}` : `Allenamento ${token}`,
     disabled
   };
 }
 
+function workoutExcelMetadataValue(rows = [], labelPattern) {
+  for (const row of rows) {
+    const cells = (row || []).map(cleanWorkoutExcelCell);
+    const labelIndex = cells.findIndex((cell) => labelPattern.test(cell));
+    if (labelIndex < 0) continue;
+
+    const inline = cells[labelIndex].replace(labelPattern, "").replace(/^\s*[:=-]\s*/, "").trim();
+    if (inline) return inline;
+
+    const next = cells.slice(labelIndex + 1).find(Boolean);
+    if (next) return next;
+  }
+
+  return "";
+}
+
 function parseWorkoutExcelDuration(rows = []) {
-  const found = rows.find((row) => /^durata$/i.test(cleanWorkoutExcelCell(row[0])));
-  const text = found ? cleanWorkoutExcelCell(found[1]) : "";
-  const match = text.match(/(\d+)\s*settimane/i);
-  return match ? Number(match[1]) || 4 : 4;
+  const text = workoutExcelMetadataValue(rows, /^durata\b/i);
+  const match = String(text).match(/(\d+)\s*(?:settimane?|weeks?)?/i);
+  const value = match ? Number(match[1]) : 4;
+  return Math.max(1, Math.min(12, value || 4));
 }
 
 function parseWorkoutExcelGoal(rows = []) {
-  const found = rows.find((row) => /^obiettivo$/i.test(cleanWorkoutExcelCell(row[0])));
-  return found ? cleanWorkoutExcelCell(found[1]) : "";
+  return workoutExcelMetadataValue(rows, /^obiettivo\b/i);
 }
 
 function parseWorkoutExcelAthlete(rows = []) {
-  const found = rows.find((row) => /^nome$/i.test(cleanWorkoutExcelCell(row[0])));
-  return found ? cleanWorkoutExcelCell(found[1]) : "";
+  return workoutExcelMetadataValue(rows, /^(?:nome|atleta|cliente)\b/i);
 }
 
 function parseWorkoutExcelGroup(value = "", execution = "") {
   const text = cleanWorkoutPdfLine(`${value || ""} ${execution || ""}`);
-  const normalized = normalizeWorkoutPdfText(text);
 
   if (!text) return { type: "", label: "" };
 
@@ -5723,39 +5895,145 @@ function parseWorkoutExcelGroup(value = "", execution = "") {
   };
 }
 
-function parseWorkoutExcelExerciseRow(row = [], durationWeeks = 4) {
-  const exerciseName = cleanWorkoutExcelCell(row[0]);
-  const fixed = cleanWorkoutExcelCell(row[1]);
-  const recovery = cleanWorkoutExcelCell(row[2]);
-  const execution = cleanWorkoutExcelCell(row[3]);
-  const groupRaw = cleanWorkoutExcelCell(row[4]);
-  const weekValues = [5, 6, 7, 8].map((index) => cleanWorkoutExcelCell(row[index]));
+function parseWorkoutExcelRecoverySeconds(value) {
+  const text = cleanWorkoutExcelCell(value);
+  if (!text || text === "—" || text === "-") return 90;
 
-  if (!exerciseName || isWorkoutExcelSheetHeader(row)) return null;
+  const clock = text.match(/^(\d+)\s*:\s*(\d{1,2})$/);
+  if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
+
+  const minutes = text.match(/(\d+(?:[.,]\d+)?)\s*min/i);
+  if (minutes) return Math.max(1, Math.round(Number(minutes[1].replace(",", ".")) * 60));
+
+  const seconds = text.match(/(\d+)\s*(?:sec|secondi?|s)\b/i);
+  if (seconds) return Number(seconds[1]) || 90;
+
+  const numeric = Number(text.replace(",", "."));
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : 90;
+}
+
+function cleanWorkoutExcelWeekValue(value, weekNumber) {
+  return cleanWorkoutExcelCell(value)
+    .replace(
+      new RegExp(`^(?:SETT(?:IMANA)?|WEEK|W)\\s*0*${weekNumber}\\s*[:.\\-–—]?\\s*`, "i"),
+      ""
+    )
+    .trim();
+}
+
+function parseWorkoutExcelSetsReps(value) {
+  const text = cleanWorkoutExcelCell(value).replace(/×/g, "x");
+  const parsed = parseWorkoutSetsReps(text);
+  const explicit = text.match(
+    /(\d+(?:\s*(?:-|–)\s*\d+)?)\s*x\s*((?:\d+(?:\s*(?:-|–|\/)\s*\d+)?|AMRAP|MAX|CEDIMENTO)(?:\s*(?:REPS?|SEC|MIN(?:UTI)?|GIRI?))?)/i
+  );
+
+  if (explicit) {
+    parsed.sets = explicit[1].replace(/\s+/g, "");
+    parsed.reps = cleanWorkoutPdfLine(explicit[2]);
+  } else if (parsed.reps) {
+    parsed.reps = cleanWorkoutPdfLine(
+      parsed.reps.replace(
+        /\s+(?:RIR|RPE|@|CARICO|TEMPO|PAUSA|NOTE?|KG|%)\b.*$/i,
+        ""
+      )
+    );
+  }
+
+  return parsed;
+}
+
+function workoutExcelProgressionLoadText(value) {
+  const text = cleanWorkoutExcelCell(value);
+  if (!text) return "";
+
+  const explicitKg = text.match(
+    /(?:@|CARICO\s*[:=]?\s*)?([+\-]?\d+(?:[.,]\d+)?\s*KG)\b/i
+  );
+  if (explicitKg) return cleanWorkoutPdfLine(explicitKg[1]);
+
+  const percentage = text.match(/(?:@|CARICO\s*[:=]?\s*)?([+\-]?\d+(?:[.,]\d+)?\s*%)/i);
+  if (percentage) return cleanWorkoutPdfLine(percentage[1]);
+
+  return "";
+}
+
+function workoutExcelProgressionNotes(value) {
+  let text = cleanWorkoutExcelCell(value);
+  if (!text) return "";
+
+  text = text
+    .replace(
+      /\b\d+(?:\s*(?:-|–)\s*\d+)?\s*[x×]\s*(?:\d+(?:\s*(?:-|–|\/)\s*\d+)?|AMRAP|MAX|CEDIMENTO)(?:\s*(?:REPS?|SEC|MIN(?:UTI)?|GIRI?))?\b/i,
+      ""
+    )
+    .replace(/\bRIR\s*\d+(?:\s*(?:-|–)\s*\d+)?/gi, "")
+    .replace(/\bRPE\s*\d+(?:\s*(?:-|–)\s*\d+)?/gi, "")
+    .replace(/(?:@|CARICO\s*[:=]?\s*)?[+\-]?\d+(?:[.,]\d+)?\s*(?:KG|%)/gi, "")
+    .replace(/[@·;|]+/g, " ");
+
+  return cleanWorkoutPdfLine(text);
+}
+
+function workoutExcelCellAt(row, index) {
+  if (index === null || index === undefined || index < 0) return "";
+  return cleanWorkoutExcelCell(row?.[index]);
+}
+
+function workoutExcelWeekValues(row = [], columns = defaultWorkoutExcelColumns(), durationWeeks = 4) {
+  const safeWeeks = Math.max(4, Math.min(12, Number(durationWeeks) || 4));
+  return Array.from({ length: safeWeeks }).map((_, index) => {
+    const weekNumber = index + 1;
+    const columnIndex = columns.weeks?.get(weekNumber);
+    return cleanWorkoutExcelWeekValue(workoutExcelCellAt(row, columnIndex), weekNumber);
+  });
+}
+
+function parseWorkoutExcelExerciseRow(
+  row = [],
+  durationWeeks = 4,
+  columns = defaultWorkoutExcelColumns()
+) {
+  const exerciseName = workoutExcelCellAt(row, columns.exercise);
+  const separateSets = workoutExcelCellAt(row, columns.sets);
+  const separateReps = workoutExcelCellAt(row, columns.reps);
+  const fixed =
+    workoutExcelCellAt(row, columns.base) ||
+    (separateSets || separateReps
+      ? `${separateSets || ""}x${separateReps || ""}`
+      : "");
+  const recovery = workoutExcelCellAt(row, columns.recovery);
+  const execution = workoutExcelCellAt(row, columns.execution);
+  const groupRaw = workoutExcelCellAt(row, columns.group);
+  const weekValues = workoutExcelWeekValues(row, columns, durationWeeks);
+
+  if (!exerciseName) return null;
   if (extractWorkoutExcelDayMeta(row)) return null;
   if (isWorkoutBadExerciseTitle(exerciseName)) return null;
 
-  const baseParsed = parseWorkoutSetsReps(fixed);
-  const recoverySeconds = recovery && recovery !== "—" && recovery !== "-" ? workoutRecoverySeconds(recovery) : 90;
+  const firstWeeklyValue = weekValues.find(Boolean) || "";
+  const baseParsed = parseWorkoutExcelSetsReps(fixed || firstWeeklyValue);
+  const recoverySeconds = parseWorkoutExcelRecoverySeconds(recovery);
   const groupMeta = parseWorkoutExcelGroup(groupRaw, execution);
   const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, 4);
 
   const progressions = Array.from({ length: safeDurationWeeks }).map((_, index) => {
     const weekNumber = index + 1;
     const value = weekValues[index] || "";
-    const parsed = parseWorkoutSetsReps(value);
+    const parsed = parseWorkoutExcelSetsReps(value);
 
     return {
       temp_id: uid(),
       week_number: weekNumber,
+      _excel_source_value: value,
       target_sets: parsed.sets || baseParsed.sets,
       target_reps: parsed.reps || baseParsed.reps,
-      target_load_text: value,
+      target_load_text: workoutExcelProgressionLoadText(value),
       target_load_kg: "",
-      target_rpe: parsed.target_rpe || baseParsed.target_rpe,
-      target_rir: parsed.target_rir || baseParsed.target_rir,
+      target_rpe: parsed.target_rpe || (fixed ? baseParsed.target_rpe : ""),
+      target_rir: parsed.target_rir || (fixed ? baseParsed.target_rir : ""),
       recovery_seconds: recovery && recovery !== "—" && recovery !== "-" ? String(recoverySeconds) : "",
-      notes: value && !parsed.sets && !parsed.reps && !parsed.target_rpe && !parsed.target_rir ? value : ""
+      notes: workoutExcelProgressionNotes(value)
     };
   });
 
@@ -5764,7 +6042,7 @@ function parseWorkoutExcelExerciseRow(row = [], durationWeeks = 4) {
     exercise_name: exerciseName,
     exercise_media_id: "",
     sets: baseParsed.sets || "3",
-    reps: baseParsed.reps || fixed || "8-10",
+    reps: baseParsed.reps || fixed || firstWeeklyValue || "8-10",
     recovery_seconds: recoverySeconds,
     target_rpe: baseParsed.target_rpe,
     target_rir: baseParsed.target_rir,
@@ -5779,89 +6057,236 @@ function parseWorkoutExcelExerciseRow(row = [], durationWeeks = 4) {
   };
 }
 
-function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx") {
-  const sheetName = workbook.SheetNames?.includes("SCHEDA")
-    ? "SCHEDA"
-    : workbook.SheetNames?.[0];
+function mergeWorkoutExcelContinuation(
+  exercise,
+  row = [],
+  durationWeeks = 4,
+  columns = defaultWorkoutExcelColumns()
+) {
+  if (!exercise) return false;
 
-  if (!sheetName || !workbook.Sheets?.[sheetName]) {
-    throw new Error("Nessun foglio Excel leggibile trovato.");
+  const execution = workoutExcelCellAt(row, columns.execution);
+  const recovery = workoutExcelCellAt(row, columns.recovery);
+  const groupRaw = workoutExcelCellAt(row, columns.group);
+  const weekValues = workoutExcelWeekValues(row, columns, durationWeeks);
+  const hasContinuation = Boolean(execution || recovery || groupRaw || weekValues.some(Boolean));
+
+  if (!hasContinuation) return false;
+
+  if (execution) {
+    exercise.execution_mode = cleanWorkoutPdfLine(
+      [exercise.execution_mode, execution].filter(Boolean).join(" · ")
+    );
+    exercise.notes = exercise.execution_mode;
   }
 
+  if (recovery && recovery !== "—" && recovery !== "-") {
+    exercise.recovery_seconds = parseWorkoutExcelRecoverySeconds(recovery);
+  }
+
+  const groupMeta = parseWorkoutExcelGroup(groupRaw, execution);
+  if (groupMeta.type) exercise.group_type = groupMeta.type;
+  if (groupMeta.label) exercise.group_label = groupMeta.label;
+
+  weekValues.forEach((value, index) => {
+    if (!value) return;
+    const progression = exercise.progressions?.[index];
+    if (!progression) return;
+
+    const parsed = parseWorkoutExcelSetsReps(value);
+    const loadText = workoutExcelProgressionLoadText(value);
+    const notes = workoutExcelProgressionNotes(value);
+    progression._excel_source_value = cleanWorkoutPdfLine(
+      [progression._excel_source_value, value].filter(Boolean).join(" · ")
+    );
+    progression.target_sets = parsed.sets || progression.target_sets;
+    progression.target_reps = parsed.reps || progression.target_reps;
+    progression.target_rpe = parsed.target_rpe || progression.target_rpe;
+    progression.target_rir = parsed.target_rir || progression.target_rir;
+    progression.target_load_text = cleanWorkoutPdfLine(
+      [progression.target_load_text, loadText].filter(Boolean).join(" · ")
+    );
+    progression.notes = cleanWorkoutPdfLine(
+      [progression.notes, notes].filter(Boolean).join(" · ")
+    );
+  });
+
+  exercise.has_weekly_progression =
+    exercise.has_weekly_progression || weekValues.some(Boolean);
+  return true;
+}
+
+function scoreWorkoutExcelSheet(rows = [], sheetName = "") {
+  const header = findWorkoutExcelHeader(rows);
+  let score = header?.score || 0;
+  if (/^SCHEDA$/i.test(sheetName)) score += 30;
+  else if (/SCHEDA|ALLENAMENTO|WORKOUT|PROGRAMMA/i.test(sheetName)) score += 12;
+
+  score += rows.slice(0, 120).filter((row) => extractWorkoutExcelDayMeta(row)).length * 5;
+  return { score, header };
+}
+
+function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx") {
   const XLSX = typeof window !== "undefined" ? window.XLSX : null;
 
   if (!XLSX) {
     throw new Error("Libreria Excel non disponibile.");
   }
 
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-    header: 1,
-    raw: false,
-    defval: ""
-  });
+  const candidates = (workbook.SheetNames || [])
+    .map((sheetName) => {
+      const sheet = workbook.Sheets?.[sheetName];
+      if (!sheet) return null;
 
-  const durationWeeks = parseWorkoutExcelDuration(rows);
-  const goal = parseWorkoutExcelGoal(rows);
-  const athleteName = parseWorkoutExcelAthlete(rows);
+      const rows = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        raw: false,
+        defval: "",
+        blankrows: false
+      });
+      const scored = scoreWorkoutExcelSheet(rows, sheetName);
+      return { sheetName, rows, ...scored };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score);
+
+  if (candidates.length === 0) {
+    throw new Error("Nessun foglio Excel leggibile trovato.");
+  }
+
+  const exactSheet = candidates.find((item) => /^SCHEDA$/i.test(item.sheetName));
+  const selectedSheets = exactSheet
+    ? [exactSheet]
+    : candidates.filter(
+        (item, index) =>
+          item.header?.valid &&
+          (index === 0 || /SCHEDA|ALLENAMENTO|WORKOUT|PROGRAMMA/i.test(item.sheetName))
+      );
+  const sheetsToParse = selectedSheets.length ? selectedSheets : [candidates[0]];
+  const allRows = sheetsToParse.flatMap((item) => item.rows || []);
+  const durationWeeks = parseWorkoutExcelDuration(allRows);
+  const goal = parseWorkoutExcelGoal(allRows);
+  const athleteName = parseWorkoutExcelAthlete(allRows);
   const days = [];
-  let currentDay = null;
-  let skipCurrentDay = false;
+  const warnings = [];
+  let nextFallbackLetterCode = "A".charCodeAt(0);
 
-  rows.forEach((row) => {
-    const limitedRow = Array.from({ length: 9 }).map((_, index) => row[index] || "");
-    const dayMeta = extractWorkoutExcelDayMeta(limitedRow);
+  sheetsToParse.forEach(({ sheetName, rows, header }) => {
+    const columns = header?.columns || defaultWorkoutExcelColumns();
+    let currentDay = null;
+    let skipCurrentDay = false;
+    let lastExercise = null;
 
-    if (dayMeta) {
-      skipCurrentDay = dayMeta.disabled;
-      currentDay = skipCurrentDay
-        ? null
-        : {
-            temp_id: uid(),
-            title: `Allenamento ${dayMeta.letter}`,
-            estimated_minutes: 60,
-            notes: `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
-            exercises: []
-          };
+    rows.forEach((sourceRow, rowIndex) => {
+      const row = Array.from({ length: Math.max(sourceRow.length, 16) }).map(
+        (_, index) => sourceRow[index] ?? ""
+      );
+      const fallbackLetter = String.fromCharCode(nextFallbackLetterCode);
+      const dayMeta = extractWorkoutExcelDayMeta(row, fallbackLetter);
 
-      if (currentDay) days.push(currentDay);
-      return;
-    }
+      if (dayMeta) {
+        skipCurrentDay = dayMeta.disabled;
+        lastExercise = null;
+        currentDay = skipCurrentDay
+          ? null
+          : {
+              temp_id: uid(),
+              title: dayMeta.title,
+              estimated_minutes: 60,
+              notes: `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
+              exercises: []
+            };
 
-    if (!currentDay || skipCurrentDay) return;
-    if (isWorkoutExcelSheetHeader(limitedRow)) return;
+        if (currentDay) {
+          days.push(currentDay);
+          nextFallbackLetterCode += 1;
+        }
+        return;
+      }
 
-    const exercise = parseWorkoutExcelExerciseRow(limitedRow, durationWeeks);
+      if (rowIndex === header?.rowIndex || isWorkoutExcelSheetHeader(row)) return;
 
-    if (exercise) currentDay.exercises.push(exercise);
+      if (!currentDay && header && rowIndex > header.rowIndex) {
+        const fallbackToken = /ALLENAMENTO\s*([A-Z0-9]+)/i.exec(sheetName)?.[1] ||
+          String.fromCharCode(nextFallbackLetterCode);
+        currentDay = {
+          temp_id: uid(),
+          title: /^SCHEDA$/i.test(sheetName)
+            ? `Allenamento ${fallbackToken}`
+            : cleanWorkoutPdfLine(sheetName),
+          estimated_minutes: 60,
+          notes: `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
+          exercises: []
+        };
+        days.push(currentDay);
+        nextFallbackLetterCode += 1;
+      }
+
+      if (!currentDay || skipCurrentDay) return;
+
+      const exerciseName = workoutExcelCellAt(row, columns.exercise);
+      if (!exerciseName) {
+        mergeWorkoutExcelContinuation(lastExercise, row, durationWeeks, columns);
+        return;
+      }
+
+      const exercise = parseWorkoutExcelExerciseRow(row, durationWeeks, columns);
+      if (exercise) {
+        currentDay.exercises.push(exercise);
+        lastExercise = exercise;
+      }
+    });
   });
 
-  days.forEach((day) => {
+  const uniqueDays = days.filter((day, index, array) => {
+    const key = normalizeWorkoutPdfText(day.title);
+    return array.findIndex((candidate) => normalizeWorkoutPdfText(candidate.title) === key) === index;
+  });
+
+  uniqueDays.forEach((day) => {
     if (!day.exercises.length) {
+      warnings.push(`${day.title}: nessun esercizio riconosciuto.`);
       day.exercises = [defaultExerciseRow()];
     }
   });
 
-  const totalExercises = days.reduce(
+  const totalExercises = uniqueDays.reduce(
     (sum, day) => sum + day.exercises.filter((exercise) => exercise.exercise_name).length,
     0
   );
-  const groupCount = days.reduce(
+  const groupCount = uniqueDays.reduce(
     (sum, day) =>
       sum + new Set(day.exercises.map((exercise) => exercise.group_label).filter(Boolean)).size,
     0
   );
-  const foundWeeks = days.reduce(
+  const foundWeeks = uniqueDays.reduce(
     (max, day) =>
       Math.max(
         max,
         ...day.exercises.flatMap((exercise) =>
           (exercise.progressions || [])
-            .filter((progression) => progression.target_load_text)
+            .filter((progression) =>
+              String(progression._excel_source_value || "").trim()
+            )
             .map((progression) => Number(progression.week_number) || 0)
         )
       ),
     0
   );
+  const incompleteProgressions = uniqueDays.reduce(
+    (count, day) =>
+      count +
+      day.exercises.filter((exercise) => {
+        if (!exercise.has_weekly_progression) return false;
+        const firstFour = (exercise.progressions || []).slice(0, Math.min(4, durationWeeks));
+        return firstFour.some(
+          (progression) =>
+            !String(progression._excel_source_value || "").trim()
+        );
+      }).length,
+    0
+  );
+  const sheetLabel = sheetsToParse.map((item) => item.sheetName).join(", ");
 
   return {
     builder: {
@@ -5874,26 +6299,37 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       location: "palestra",
       notes: [
         `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
-        `Fonte lettura: foglio ${sheetName}, colonne A-I.`,
-        foundWeeks && foundWeeks < durationWeeks
-          ? `Nell’Excel sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa manualmente le settimane restanti se necessario.`
-          : "Controlla la bozza prima della pubblicazione al cliente."
-      ].filter(Boolean).join("\n"),
-      days: days.length ? days : [defaultWorkoutDay("A")]
+        `Fonte lettura: ${sheetLabel}. Intestazioni e colonne riconosciute automaticamente.`,
+        foundWeeks && foundWeeks < Math.min(durationWeeks, 4)
+          ? `Sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa le settimane mancanti prima della pubblicazione.`
+          : "Controlla la bozza prima della pubblicazione al cliente.",
+        incompleteProgressions > 0
+          ? `${incompleteProgressions} esercizi hanno una progressione settimanale incompleta.`
+          : ""
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      days: uniqueDays.length ? uniqueDays : [defaultWorkoutDay("A")]
     },
     summary: {
       sourceName,
-      parserMode: "excel",
-      sheetName,
-      days: days.length,
+      parserMode: "excel-smart",
+      sheetName: sheetLabel,
+      days: uniqueDays.length,
       exercises: totalExercises,
       expectedExercises: 0,
       groups: groupCount,
       durationWeeks,
       foundWeeks,
       warnings: [
-        days.length === 0 ? "Nessun allenamento riconosciuto nell’Excel." : "",
-        totalExercises === 0 ? "Nessun esercizio riconosciuto: controlla che il foglio SCHEDA abbia le colonne A-I compilate." : ""
+        uniqueDays.length === 0 ? "Nessun allenamento riconosciuto nell’Excel." : "",
+        totalExercises === 0
+          ? "Nessun esercizio riconosciuto: verifica che siano presenti le intestazioni Esercizio e Settimana 1-4."
+          : "",
+        incompleteProgressions > 0
+          ? `${incompleteProgressions} esercizi hanno una o più settimane senza serie/ripetizioni.`
+          : "",
+        ...warnings
       ].filter(Boolean)
     }
   };
@@ -8631,7 +9067,7 @@ function getBuilderQualityReport() {
 
       if (!summary.exercises) {
         alert(
-          "Excel letto, ma non ho riconosciuto esercizi. Controlla che il foglio SCHEDA abbia le colonne A-I compilate."
+          "Excel letto, ma non ho riconosciuto esercizi. Verifica che siano presenti le intestazioni Esercizio e Settimana 1-4."
         );
         setWorkoutImportSummary(summary);
         return;
@@ -12065,7 +12501,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           Excel consigliato, PDF come fallback
                         </h3>
                         <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                          Per importare correttamente usa l’Excel: ogni riga del foglio SCHEDA diventa un esercizio e vengono lette solo le colonne A-I. Il PDF resta utile come piano stampabile, ma è meno affidabile per il parsing.
+                          L’importazione Excel riconosce automaticamente il foglio della scheda, le intestazioni, i giorni di allenamento e le progressioni Settimana 1-4. Controlla sempre l’anteprima prima della pubblicazione.
                         </p>
                       </div>
 
@@ -12096,7 +12532,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           </div>
 
                           <p className="mt-2 text-[11px] font-bold leading-4 text-slate-500">
-                            Legge foglio SCHEDA, colonne A-I: esercizio, serie/rip, recupero, esecuzione, superset e settimane 1-4.
+                            Riconosce intestazioni anche spostate, più fogli, righe continuate, recuperi, superserie/triset e progressioni Settimana 1-4.
                           </p>
                         </div>
 
@@ -12143,7 +12579,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           <Pill className="bg-slate-100 text-slate-700">
                             {workoutImportSummary.durationWeeks || 4} settimane
                           </Pill>
-                          {workoutImportSummary.parserMode === "excel" && (
+                          {workoutImportSummary.parserMode?.startsWith("excel") && (
                             <Pill className="bg-emerald-100 text-emerald-700">
                               Excel · {workoutImportSummary.sheetName || "SCHEDA"}
                             </Pill>
@@ -16377,6 +16813,10 @@ function WorkoutPlayerModal({
   const open = player?.open;
   const plan = player?.plan;
   const day = player?.day;
+  const selectedWeek = Math.max(
+    1,
+    Math.min(4, Number(player?.selectedWeek || player?.resumeState?.selectedWeek) || 1)
+  );
   const resumeState = player?.resumeState || null;
   const resumeToken = resumeState?.updatedAt || "";
 
@@ -16447,6 +16887,7 @@ function WorkoutPlayerModal({
     return {
       planId: plan.id,
       dayId: day.id,
+      selectedWeek,
       exerciseIndex,
       setIndex,
       resting,
@@ -16479,6 +16920,7 @@ function WorkoutPlayerModal({
     open,
     plan?.id,
     day?.id,
+    selectedWeek,
     exerciseIndex,
     setIndex,
     resting,
@@ -16681,16 +17123,18 @@ function WorkoutPlayerModal({
   }
 
   function currentWeekForPlan() {
-    if (!plan?.start_date) return 1;
+    const maxWeek = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+    const requestedWeek = Number(selectedWeek);
 
-    const start = new Date(plan.start_date);
-    const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const week = Math.floor(diffDays / 7) + 1;
+    if (
+      Number.isFinite(requestedWeek) &&
+      requestedWeek >= 1 &&
+      requestedWeek <= maxWeek
+    ) {
+      return requestedWeek;
+    }
 
-    return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
+    return Math.min(tmfitWorkoutWeekForPlan(plan), maxWeek);
   }
 
   function progressionForModalExercise(item) {
@@ -16706,42 +17150,43 @@ function WorkoutPlayerModal({
   function plannedSetsForExercise(item) {
     const progression = progressionForModalExercise(item);
     const realSets = sortByOrder(item?.workout_exercise_sets || [], "set_number");
+    const desiredCount = Math.max(
+      1,
+      Number(progression?.target_sets) ||
+        realSets.length ||
+        Number(item?.sets) ||
+        Number(item?.series) ||
+        1
+    );
 
-    if (realSets.length > 0) {
-      return realSets.map((set) => ({
-        ...set,
-        target_reps: progression?.target_reps || set.target_reps || item?.reps || "",
-        target_rpe: progression?.target_rpe || set.target_rpe || item?.target_rpe || "",
-        target_rir: progression?.target_rir || set.target_rir || item?.target_rir || "",
+    return Array.from({ length: desiredCount }).map((_, index) => {
+      const existingSet = realSets[index] || null;
+
+      return {
+        ...(existingSet || {}),
+        id: existingSet?.id || null,
+        temp_id:
+          existingSet?.temp_id ||
+          `virtual-${item.id}-w${currentWeekForPlan()}-${index + 1}`,
+        set_number: index + 1,
+        target_reps:
+          progression?.target_reps || existingSet?.target_reps || item?.reps || "",
+        target_rpe:
+          progression?.target_rpe || existingSet?.target_rpe || item?.target_rpe || "",
+        target_rir:
+          progression?.target_rir || existingSet?.target_rir || item?.target_rir || "",
         recovery_seconds:
           progression?.recovery_seconds ||
-          set.recovery_seconds ||
+          existingSet?.recovery_seconds ||
           item?.recovery_seconds ||
-          90
-      }));
-    }
-
-    const count =
-      Number(progression?.target_sets) ||
-      Number(item?.sets) ||
-      Number(item?.series) ||
-      1;
-
-    return Array.from({ length: count }).map((_, index) => ({
-      id: null,
-      temp_id: `virtual-${item.id}-${index + 1}`,
-      set_number: index + 1,
-      target_reps: progression?.target_reps || item?.reps || "",
-      target_rpe: progression?.target_rpe || item?.target_rpe || "",
-      target_rir: progression?.target_rir || item?.target_rir || "",
-      recovery_seconds:
-        progression?.recovery_seconds ||
-        item?.recovery_seconds ||
-        item?.rest_seconds ||
-        90,
-      target_load_text: progression?.target_load_text || "",
-      target_load_kg: progression?.target_load_kg || ""
-    }));
+          item?.rest_seconds ||
+          90,
+        target_load_text:
+          progression?.target_load_text || existingSet?.target_load_text || "",
+        target_load_kg:
+          progression?.target_load_kg || existingSet?.target_load_kg || ""
+      };
+    });
   }
 
   function setKeyFor(item, set) {
@@ -17091,7 +17536,7 @@ function WorkoutPlayerModal({
 
             <div className="min-w-0 flex-1 text-center">
               <p className="text-[10px] font-black uppercase tracking-[0.24em] text-teal-300">
-                Allenati
+                Allenati · Settimana {currentWeekForPlan()}
               </p>
               <h2 className="mt-1 truncate text-base font-black leading-tight">
                 {day.title || "Allenamento"}
@@ -18187,11 +18632,9 @@ function CompactWorkoutDayCard({
               <span className="rounded-full bg-[#07111f] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white">
                 Allenamento {dayIndex + 1}
               </span>
-              {week?.week_number && (
-                <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-teal-800">
-                  Settimana {week.week_number}
-                </span>
-              )}
+              <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-teal-800">
+                Settimana {currentWeek}
+              </span>
             </div>
 
             <h4 className="mt-3 text-2xl font-black leading-tight tracking-tight text-slate-950">
@@ -18316,11 +18759,9 @@ function WorkoutDayPreviewModal({
                 <span className="rounded-full bg-teal-300 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">
                   Allenamento {dayIndex + 1}
                 </span>
-                {week?.week_number && (
-                  <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
-                    Settimana {week.week_number}
-                  </span>
-                )}
+                <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                  Settimana {currentWeek}
+                </span>
               </div>
 
               <h3 className="mt-3 text-3xl font-black leading-tight tracking-tight">
@@ -18900,18 +19341,23 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [drafts, setDrafts] = useState({});
   const [sessionCache, setSessionCache] = useState({});
   const [workoutPlayer, setWorkoutPlayer] = useState({
-  open: false,
-  plan: null,
-  day: null,
-  resumeState: null
-});
+    open: false,
+    plan: null,
+    day: null,
+    selectedWeek: null,
+    resumeState: null
+  });
   const [, setWorkoutRecoveryNotice] = useState("");
   const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
   const [workoutDayPreview, setWorkoutDayPreview] = useState(null);
   const [lastSeenPostsAt, setLastSeenPostsAt] = useState("");
   const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
+  const workoutWeekSelectionKey = `tmfit_client_workout_weeks_${session?.user?.id || "guest"}`;
   const checkinDraftKey = `tmfit_client_checkin_draft_${session?.user?.id || "guest"}`;
   const postsSeenKey = `tmfit_client_posts_seen_${session?.user?.id || "guest"}`;
+  const [selectedWorkoutWeeks, setSelectedWorkoutWeeks] = useState(() =>
+    safeReadLocalJson(workoutWeekSelectionKey, {})
+  );
 
   const [checkinForm, setCheckinForm] = useState({
     checkin_date: today(),
@@ -18970,6 +19416,10 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   useEffect(() => {
     loadClientArea();
   }, []);
+
+  useEffect(() => {
+    setSelectedWorkoutWeeks(safeReadLocalJson(workoutWeekSelectionKey, {}));
+  }, [workoutWeekSelectionKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -19219,6 +19669,8 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       open: true,
       plan: matchingWorkout.plan,
       day: matchingWorkout.day,
+      selectedWeek:
+        Number(advancedState.selectedWeek) || currentWeekNumber(matchingWorkout.plan),
       resumeState: advancedState
     });
     setWorkoutRecoveryNotice(
@@ -19269,20 +19721,53 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       open: true,
       plan: found.plan,
       day: found.day,
+      selectedWeek: Number(saved.selectedWeek) || currentWeekNumber(found.plan),
       resumeState: saved
     });
     setWorkoutRecoveryNotice("Allenamento recuperato automaticamente");
   }, [pendingRestAdvance, workoutLiveDraftKey, plans.length]);
 
-  function currentWeekNumber(plan) {
+  function automaticWeekNumber(plan) {
+    const maxWeek = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
     if (!plan?.start_date) return 1;
 
     const start = new Date(plan.start_date);
     const now = new Date();
-    const diffDays = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.floor(
+      (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    );
     const week = Math.floor(diffDays / 7) + 1;
 
-    return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
+    return Math.max(1, Math.min(maxWeek, week));
+  }
+
+  function availableWeekNumbers(plan) {
+    const count = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+    return Array.from({ length: count }).map((_, index) => index + 1);
+  }
+
+  function currentWeekNumber(plan) {
+    const options = availableWeekNumbers(plan);
+    const stored = Number(selectedWorkoutWeeks?.[String(plan?.id)]);
+
+    if (options.includes(stored)) return stored;
+    return automaticWeekNumber(plan);
+  }
+
+  function selectWorkoutWeek(plan, weekNumber) {
+    if (!plan?.id) return;
+
+    const options = availableWeekNumbers(plan);
+    const safeWeek = options.includes(Number(weekNumber))
+      ? Number(weekNumber)
+      : options[0];
+    const next = {
+      ...(selectedWorkoutWeeks || {}),
+      [String(plan.id)]: safeWeek
+    };
+
+    setSelectedWorkoutWeeks(next);
+    safeWriteLocalJson(workoutWeekSelectionKey, next);
   }
 
   function progressionForExercise(plan, exercise) {
@@ -19416,26 +19901,29 @@ function getExerciseHistory(exercise) {
     }
   }
 
-  async function openWorkoutPlayerWithNotifications(plan, day) {
+  async function openWorkoutPlayerWithNotifications(plan, day, requestedWeek = null) {
     if (!day) return;
 
     const notificationsReady = await requireWorkoutNotifications();
     if (!notificationsReady) return;
 
-    await openWorkoutPlayer(plan, day);
+    await openWorkoutPlayer(plan, day, requestedWeek);
   }
 
-  async function openWorkoutPlayer(plan, day) {
+  async function openWorkoutPlayer(plan, day, requestedWeek = null) {
     if (!day) return;
 
     await loadWorkoutHistoryIfNeeded();
 
+    const selectedWeek = Number(requestedWeek) || currentWeekNumber(plan);
     const saved = safeReadLocalJson(workoutLiveDraftKey, null);
+    const savedWeek = Number(saved?.selectedWeek) || selectedWeek;
     const canResume =
       saved?.planId &&
       saved?.dayId &&
       String(saved.planId) === String(plan.id) &&
       String(saved.dayId) === String(day.id) &&
+      savedWeek === selectedWeek &&
       isRecentWorkoutDraft(saved);
 
     if (canResume) {
@@ -19449,6 +19937,7 @@ function getExerciseHistory(exercise) {
       open: true,
       plan,
       day,
+      selectedWeek,
       resumeState: canResume ? saved : null
     });
   }
@@ -19474,6 +19963,8 @@ function getExerciseHistory(exercise) {
           ...saved,
           planId: workoutPlayer.plan?.id || saved.planId,
           dayId: workoutPlayer.day?.id || saved.dayId,
+          selectedWeek:
+            Number(workoutPlayer.selectedWeek) || Number(saved.selectedWeek) || 1,
           drafts: nextDrafts,
           updatedAt: new Date().toISOString()
         });
@@ -19991,6 +20482,11 @@ function getExerciseHistory(exercise) {
   currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
 
   const activePlanWeekNumber = activePlan ? currentWeekNumber(activePlan) : 1;
+  const automaticActivePlanWeekNumber = activePlan
+    ? automaticWeekNumber(activePlan)
+    : 1;
+  const selectedWeekMatchesCalendar =
+    activePlanWeekNumber === automaticActivePlanWeekNumber;
   const activePlanWeek = activePlan?.workout_weeks?.find(
     (week) => Number(week.week_number) === Number(activePlanWeekNumber)
   ) || activePlan?.workout_weeks?.[0] || null;
@@ -20004,11 +20500,15 @@ function getExerciseHistory(exercise) {
       .filter((item) => Boolean(item.completed_at))
       .map((item) => String(item.day_id || item.id))
   );
-  const pendingWorkoutDay = activeWeekDays.find(
-    (day) => !completedWeekDayIds.has(String(day.id))
-  ) || null;
+  const pendingWorkoutDay = selectedWeekMatchesCalendar
+    ? activeWeekDays.find(
+        (day) => !completedWeekDayIds.has(String(day.id))
+      ) || null
+    : activeWeekDays[0] || null;
   const weekTrainingComplete =
-    activeWeekDays.length > 0 && !pendingWorkoutDay;
+    selectedWeekMatchesCalendar &&
+    activeWeekDays.length > 0 &&
+    !pendingWorkoutDay;
   const nextWorkoutDay =
     pendingWorkoutDay ||
     activeWeekDays[0] ||
@@ -20024,9 +20524,13 @@ function getExerciseHistory(exercise) {
     latestCheckin &&
       clientDate(latestCheckin.checkin_date || latestCheckin.created_at) >= currentWeekStart
   );
+  const adherenceValue = latestCheckin?.diet_adherence;
   const adherencePercent =
-    checkinCompletedThisWeek && hasValue(latestCheckin?.diet_adherence)
-      ? Math.max(0, Math.min(100, Number(latestCheckin.diet_adherence) * 10))
+    checkinCompletedThisWeek &&
+    adherenceValue !== null &&
+    adherenceValue !== undefined &&
+    String(adherenceValue).trim() !== ""
+      ? Math.max(0, Math.min(100, Number(adherenceValue) * 10))
       : null;
   const nextWorkoutMinutes = nextWorkoutDay?.estimated_minutes || 60;
 
@@ -20210,8 +20714,19 @@ function getExerciseHistory(exercise) {
               actionLabel: weekTrainingComplete ? "Apri la scheda" : "Inizia allenamento",
               onStart: () =>
                 activePlan && nextWorkoutDay && !weekTrainingComplete
-                  ? openWorkoutPlayerWithNotifications(activePlan, nextWorkoutDay)
+                  ? openWorkoutPlayerWithNotifications(
+                      activePlan,
+                      nextWorkoutDay,
+                      activePlanWeekNumber
+                    )
                   : setActiveTab("training")
+            }}
+            weekSelection={{
+              value: activePlanWeekNumber,
+              options: activePlan ? availableWeekNumbers(activePlan) : [],
+              onChange: activePlan
+                ? (weekNumber) => selectWorkoutWeek(activePlan, weekNumber)
+                : null
             }}
             checkinStatus={{
               completed: checkinCompletedThisWeek,
@@ -20292,6 +20807,34 @@ function getExerciseHistory(exercise) {
                           </p>
                         </div>
 
+                        <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">
+                              Progressione settimanale
+                            </p>
+                            <span className="text-xs font-black text-teal-300">
+                              Settimana {currentWeek}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-4 gap-2">
+                            {availableWeekNumbers(plan).map((weekNumber) => (
+                              <button
+                                key={weekNumber}
+                                type="button"
+                                onClick={() => selectWorkoutWeek(plan, weekNumber)}
+                                className={`min-h-10 rounded-xl text-sm font-black transition active:scale-[.97] ${
+                                  currentWeek === weekNumber
+                                    ? "bg-teal-300 text-slate-950"
+                                    : "bg-white/10 text-white"
+                                }`}
+                                aria-pressed={currentWeek === weekNumber}
+                              >
+                                {weekNumber}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-3 gap-2">
                           <div className="rounded-2xl bg-white/10 p-3">
                             <p className="text-2xl font-black">
@@ -20324,7 +20867,9 @@ function getExerciseHistory(exercise) {
                         <Button
                           type="button"
                           disabled={!nextDay}
-                          onClick={() => openWorkoutPlayerWithNotifications(plan, nextDay)}
+                          onClick={() =>
+                            openWorkoutPlayerWithNotifications(plan, nextDay, currentWeek)
+                          }
                           className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
                         >
                           <Dumbbell size={17} className="mr-2" />
@@ -20372,7 +20917,7 @@ function getExerciseHistory(exercise) {
                               })
                             }
                             onStart={() =>
-                              openWorkoutPlayerWithNotifications(plan, day)
+                              openWorkoutPlayerWithNotifications(plan, day, currentWeek)
                             }
                           />
                         ))}
@@ -21120,7 +21665,11 @@ function getExerciseHistory(exercise) {
     const selectedPlan = workoutDayPreview.plan;
     const selectedDay = workoutDayPreview.day;
     setWorkoutDayPreview(null);
-    openWorkoutPlayerWithNotifications(selectedPlan, selectedDay);
+    openWorkoutPlayerWithNotifications(
+      selectedPlan,
+      selectedDay,
+      workoutDayPreview.currentWeek
+    );
   }}
   getExerciseHistory={getExerciseHistory}
 />
@@ -21132,6 +21681,7 @@ function getExerciseHistory(exercise) {
       open: false,
       plan: null,
       day: null,
+      selectedWeek: null,
       resumeState: null
     })
   }
