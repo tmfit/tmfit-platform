@@ -42,6 +42,7 @@ function StatusRow({ icon: Icon, title, value, detail, onClick, accent = false }
 export default function ClientHomePanel({
   firstName,
   nextWorkout,
+  weekSelection,
   checkinStatus,
   dietStatus,
   latestMessage,
@@ -83,6 +84,36 @@ export default function ClientHomePanel({
               )}
             </div>
           </div>
+
+          {weekSelection?.options?.length > 1 && (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">
+                  Scegli la settimana
+                </p>
+                <p className="text-xs font-black text-teal-300">
+                  Progressione {weekSelection.value}
+                </p>
+              </div>
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                {weekSelection.options.map((weekNumber) => (
+                  <button
+                    key={weekNumber}
+                    type="button"
+                    onClick={() => weekSelection.onChange?.(weekNumber)}
+                    className={`min-h-10 rounded-xl text-sm font-black transition active:scale-[.97] ${
+                      Number(weekSelection.value) === Number(weekNumber)
+                        ? "bg-teal-300 text-slate-950"
+                        : "bg-white/10 text-white"
+                    }`}
+                    aria-pressed={Number(weekSelection.value) === Number(weekNumber)}
+                  >
+                    {weekNumber}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
