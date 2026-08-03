@@ -20789,80 +20789,114 @@ function getExerciseHistory(exercise) {
 
               return (
                 <div key={plan.id} className="space-y-4">
-                  <Card className="overflow-hidden border-none bg-[#07111f] text-white shadow-xl">
+                  <Card className="overflow-hidden border-none !bg-[#07111f] text-white shadow-xl">
                     <div className="p-5">
-                      <p className="text-[11px] font-black uppercase tracking-[0.35em] text-teal-300">
-                        Prossimo allenamento
-                      </p>
-
-                      <div className="mt-4 flex flex-col gap-4">
-                        <div>
-                          <h2 className="text-3xl font-black leading-tight tracking-tight">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-black uppercase tracking-[0.32em] text-teal-300">
+                            Prossimo allenamento
+                          </p>
+                          <h2 className="mt-2 break-words text-3xl font-black leading-tight tracking-tight text-white">
                             {nextDay?.title || "Scheda non disponibile"}
                           </h2>
-
-                          <p className="mt-2 text-sm font-bold text-slate-300">
+                          <p className="mt-2 break-words text-sm font-bold leading-5 text-slate-300">
                             {plan.title}
                             {plan.goal ? ` · ${plan.goal}` : ""}
                           </p>
                         </div>
 
-                        <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950 shadow-lg shadow-teal-950/20">
+                          <Dumbbell size={22} />
+                        </span>
+                      </div>
+
+                      {availableWeekNumbers(plan).length > 1 && (
+                        <div className="mt-5">
                           <div className="flex items-center justify-between gap-3">
-                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">
-                              Progressione settimanale
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-300">
+                              Settimana di allenamento
                             </p>
-                            <span className="text-xs font-black text-teal-300">
+                            <span className="rounded-full bg-teal-300 px-3 py-1 text-xs font-black text-slate-950">
                               Settimana {currentWeek}
                             </span>
                           </div>
-                          <div className="mt-2 grid grid-cols-4 gap-2">
-                            {availableWeekNumbers(plan).map((weekNumber) => (
-                              <button
-                                key={weekNumber}
-                                type="button"
-                                onClick={() => selectWorkoutWeek(plan, weekNumber)}
-                                className={`min-h-10 rounded-xl text-sm font-black transition active:scale-[.97] ${
-                                  currentWeek === weekNumber
-                                    ? "bg-teal-300 text-slate-950"
-                                    : "bg-white/10 text-white"
-                                }`}
-                                aria-pressed={currentWeek === weekNumber}
-                              >
-                                {weekNumber}
-                              </button>
-                            ))}
+
+                          <div className="mt-3 grid grid-cols-4 gap-2">
+                            {availableWeekNumbers(plan).map((weekNumber) => {
+                              const isActiveWeek = Number(currentWeek) === Number(weekNumber);
+
+                              return (
+                                <button
+                                  key={weekNumber}
+                                  type="button"
+                                  onClick={() => selectWorkoutWeek(plan, weekNumber)}
+                                  className={`min-h-11 rounded-2xl border text-base font-black transition active:scale-[.97] ${
+                                    isActiveWeek
+                                      ? "border-teal-300 bg-teal-300 text-slate-950 shadow-md shadow-teal-950/20"
+                                      : "border-white/20 bg-slate-900 text-white hover:bg-slate-800"
+                                  }`}
+                                  aria-pressed={isActiveWeek}
+                                  aria-label={`Visualizza settimana ${weekNumber}`}
+                                >
+                                  {weekNumber}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
+                      )}
 
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="rounded-2xl bg-white/10 p-3">
-                            <p className="text-2xl font-black">
-                              {nextExerciseCount}
-                            </p>
-                            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
-                              Esercizi
-                            </p>
-                          </div>
-
-                          <div className="rounded-2xl bg-white/10 p-3">
-                            <p className="text-2xl font-black">
-                              {nextMinutes}
-                            </p>
-                            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
-                              Min
-                            </p>
-                          </div>
-
-                          <div className="rounded-2xl bg-white/10 p-3">
-                            <p className="text-2xl font-black">
-                              {currentWeek}
-                            </p>
-                            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
-                              Settimana
-                            </p>
-                          </div>
+                      <div className="mt-5 grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-white p-3 text-center text-slate-950">
+                          <p className="text-2xl font-black leading-none">
+                            {nextExerciseCount || "—"}
+                          </p>
+                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                            Esercizi
+                          </p>
                         </div>
+
+                        <div className="rounded-2xl bg-white p-3 text-center text-slate-950">
+                          <p className="text-2xl font-black leading-none">
+                            {nextMinutes || "—"}
+                          </p>
+                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                            Minuti
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl bg-white p-3 text-center text-slate-950">
+                          <p className="text-2xl font-black leading-none">
+                            {currentWeek || "—"}
+                          </p>
+                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                            Settimana
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          disabled={!nextDay}
+                          onClick={() =>
+                            nextTraining &&
+                            setWorkoutDayPreview({
+                              plan,
+                              week: nextTraining.week,
+                              day: nextDay,
+                              dayIndex: Math.max(
+                                0,
+                                visibleTrainingDays.findIndex(({ day }) => day?.id === nextDay?.id)
+                              ),
+                              currentWeek
+                            })
+                          }
+                          className="min-h-12 w-full border border-white/20 bg-white text-slate-950 hover:bg-slate-100"
+                        >
+                          <FileText size={17} className="mr-2" />
+                          Visualizza scheda
+                        </Button>
 
                         <Button
                           type="button"
@@ -20870,10 +20904,10 @@ function getExerciseHistory(exercise) {
                           onClick={() =>
                             openWorkoutPlayerWithNotifications(plan, nextDay, currentWeek)
                           }
-                          className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+                          className="min-h-12 w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
                         >
                           <Dumbbell size={17} className="mr-2" />
-                          Inizia allenamento
+                          Inizia
                         </Button>
                       </div>
                     </div>
