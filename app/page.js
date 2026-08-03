@@ -18,6 +18,7 @@ import {
   EyeOff,
   FileText,
   HomeIcon,
+  History,
   Link as LinkIcon,
   LifeBuoy,
   LogOut,
@@ -18740,6 +18741,12 @@ function WorkoutDayPreviewModal({
   onStart,
   getExerciseHistory
 }) {
+  const [openHistoryId, setOpenHistoryId] = useState(null);
+
+  useEffect(() => {
+    setOpenHistoryId(null);
+  }, [preview?.day?.id, preview?.currentWeek]);
+
   if (!preview?.day) return null;
 
   const { plan, week, day, dayIndex = 0, currentWeek } = preview;
@@ -18848,21 +18855,19 @@ function WorkoutDayPreviewModal({
                         : targetRpe
                         ? `RPE ${targetRpe}`
                         : "";
-                      const progressionLoad = String(
-                        progression?.target_load_text ||
-                          progression?.target_load_kg ||
-                          ""
-                      ).trim();
                       const groupLabel = workoutGroupLabel(exercise);
                       const execution = String(
                         exercise.execution_mode ||
                           cleanWorkoutNotes(exercise.notes || "")
                       ).trim();
                       const exerciseHistory = getExerciseHistory?.(exercise) || [];
+                      const exerciseHistoryId =
+                        exercise.id || `exercise-${blockIndex}-${exerciseIndex}`;
+                      const historyIsOpen = openHistoryId === exerciseHistoryId;
 
                       return (
                         <article
-                          key={exercise.id || `exercise-${blockIndex}-${exerciseIndex}`}
+                          key={exerciseHistoryId}
                           className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
                         >
                           <div className="p-4">
@@ -18910,16 +18915,6 @@ function WorkoutDayPreviewModal({
                                   </div>
                                 </div>
 
-                                {progressionLoad && (
-                                  <div className="mt-3 rounded-2xl bg-teal-50 px-3 py-2.5 text-sm font-black text-teal-900">
-                                    Carico: {progressionLoad}
-                                    {progression?.target_load_kg &&
-                                    !progression?.target_load_text
-                                      ? " kg"
-                                      : ""}
-                                  </div>
-                                )}
-
                                 {execution && (
                                   <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
                                     <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
@@ -18931,34 +18926,58 @@ function WorkoutDayPreviewModal({
                                   </div>
                                 )}
 
-                                {(exercise.video_url || exercise.image_url) && (
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    {exercise.video_url && (
-                                      <a
-                                        href={exercise.video_url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
-                                      >
-                                        Video
-                                      </a>
-                                    )}
-                                    {exercise.image_url && (
-                                      <a
-                                        href={exercise.image_url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                                      >
-                                        Immagine
-                                      </a>
-                                    )}
-                                  </div>
-                                )}
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  {exercise.video_url && (
+                                    <a
+                                      href={exercise.video_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex min-h-9 items-center justify-center rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white"
+                                    >
+                                      Video
+                                    </a>
+                                  )}
+                                  {exercise.image_url && (
+                                    <a
+                                      href={exercise.image_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                                    >
+                                      Immagine
+                                    </a>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenHistoryId((current) =>
+                                        current === exerciseHistoryId
+                                          ? null
+                                          : exerciseHistoryId
+                                      )
+                                    }
+                                    aria-label={
+                                      historyIsOpen
+                                        ? "Chiudi storico carichi"
+                                        : "Apri storico carichi"
+                                    }
+                                    aria-expanded={historyIsOpen}
+                                    title="Storico carichi"
+                                    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border transition active:scale-[.96] ${
+                                      historyIsOpen
+                                        ? "border-[#07111f] bg-[#07111f] text-white"
+                                        : "border-slate-200 bg-white text-slate-700"
+                                    }`}
+                                  >
+                                    <History size={16} aria-hidden="true" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
 
-                            <ExerciseHistoryBox history={exerciseHistory} />
+                            {historyIsOpen && (
+                              <ExerciseHistoryBox history={exerciseHistory} />
+                            )}
                           </div>
                         </article>
                       );
