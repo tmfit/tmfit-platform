@@ -16892,6 +16892,7 @@ function WorkoutPlayerModal({
       setIndex,
       resting,
       finished,
+      resumeOnLaunch: true,
       completedSetKeys,
       feedback,
       sessionStartedAt,
@@ -17446,19 +17447,23 @@ function WorkoutPlayerModal({
 
     if (completedCount === 0 || typeof window === "undefined") {
       await stopActiveRestTimer();
-      persistWorkoutStateNow({ resting: false });
       setResting(false);
+      if (onClearPersistedWorkout) onClearPersistedWorkout();
       onClose();
       return;
     }
 
     const confirmed = window.confirm(
-      "Vuoi uscire da Allenati? Le serie già salvate restano registrate."
+      "Vuoi uscire da Allenati? Le serie già salvate restano registrate e potrai riprendere manualmente dalla scheda."
     );
 
     if (confirmed) {
       await stopActiveRestTimer();
-      persistWorkoutStateNow({ resting: false });
+      persistWorkoutStateNow({
+        resting: false,
+        resumeOnLaunch: false,
+        closedAt: new Date().toISOString()
+      });
       setResting(false);
       onClose();
     }
@@ -19325,7 +19330,7 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
 }
 
 function ClientDashboard({ session, userProfile, onLogout }) {
-  const [activeTab, setActiveTab] = usePersistedState("tmfit_client_tab", "home");
+  const [activeTab, setActiveTab] = useState("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [client, setClient] = useState(null);
   const [plans, setPlans] = useState([]);
@@ -19711,7 +19716,15 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     }
 
     const saved = safeReadLocalJson(workoutLiveDraftKey, null);
-    if (!saved?.planId || !saved?.dayId || !isRecentWorkoutDraft(saved)) return;
+    if (
+      !saved?.planId ||
+      !saved?.dayId ||
+      !isRecentWorkoutDraft(saved) ||
+      saved.resumeOnLaunch === false ||
+      saved.finished
+    ) {
+      return;
+    }
 
     const found = findWorkoutPlanDay(plans, saved.planId, saved.dayId);
     if (!found) return;
@@ -20789,39 +20802,33 @@ function getExerciseHistory(exercise) {
 
               return (
                 <div key={plan.id} className="space-y-4">
-                  <Card className="overflow-hidden border-none !bg-[#07111f] text-white shadow-xl">
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-4">
+                  <Card className="overflow-hidden border-none !bg-[#07111f] text-white shadow-lg">
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-black uppercase tracking-[0.32em] text-teal-300">
+                          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
                             Prossimo allenamento
                           </p>
-                          <h2 className="mt-2 break-words text-3xl font-black leading-tight tracking-tight text-white">
+                          <h2 className="mt-1.5 truncate text-2xl font-black leading-tight tracking-tight text-white">
                             {nextDay?.title || "Scheda non disponibile"}
                           </h2>
-                          <p className="mt-2 break-words text-sm font-bold leading-5 text-slate-300">
+                          <p className="mt-1 truncate text-xs font-bold text-slate-300">
                             {plan.title}
                             {plan.goal ? ` · ${plan.goal}` : ""}
                           </p>
                         </div>
 
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950 shadow-lg shadow-teal-950/20">
-                          <Dumbbell size={22} />
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-300 text-slate-950">
+                          <Dumbbell size={19} />
                         </span>
                       </div>
 
                       {availableWeekNumbers(plan).length > 1 && (
-                        <div className="mt-5">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-300">
-                              Settimana di allenamento
-                            </p>
-                            <span className="rounded-full bg-teal-300 px-3 py-1 text-xs font-black text-slate-950">
-                              Settimana {currentWeek}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 grid grid-cols-4 gap-2">
+                        <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-2">
+                          <span className="shrink-0 pl-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
+                            Settimana
+                          </span>
+                          <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
                             {availableWeekNumbers(plan).map((weekNumber) => {
                               const isActiveWeek = Number(currentWeek) === Number(weekNumber);
 
@@ -20830,10 +20837,10 @@ function getExerciseHistory(exercise) {
                                   key={weekNumber}
                                   type="button"
                                   onClick={() => selectWorkoutWeek(plan, weekNumber)}
-                                  className={`min-h-11 rounded-2xl border text-base font-black transition active:scale-[.97] ${
+                                  className={`min-h-9 rounded-xl border text-sm font-black transition active:scale-[.97] ${
                                     isActiveWeek
-                                      ? "border-teal-300 bg-teal-300 text-slate-950 shadow-md shadow-teal-950/20"
-                                      : "border-white/20 bg-slate-900 text-white hover:bg-slate-800"
+                                      ? "border-teal-300 bg-teal-300 text-slate-950"
+                                      : "border-white/10 bg-white/[0.06] text-white"
                                   }`}
                                   aria-pressed={isActiveWeek}
                                   aria-label={`Visualizza settimana ${weekNumber}`}
@@ -20846,36 +20853,18 @@ function getExerciseHistory(exercise) {
                         </div>
                       )}
 
-                      <div className="mt-5 grid grid-cols-3 gap-2">
-                        <div className="rounded-2xl bg-white p-3 text-center text-slate-950">
-                          <p className="text-2xl font-black leading-none">
-                            {nextExerciseCount || "—"}
-                          </p>
-                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
-                            Esercizi
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl bg-white p-3 text-center text-slate-950">
-                          <p className="text-2xl font-black leading-none">
-                            {nextMinutes || "—"}
-                          </p>
-                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
-                            Minuti
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl bg-white p-3 text-center text-slate-950">
-                          <p className="text-2xl font-black leading-none">
-                            {currentWeek || "—"}
-                          </p>
-                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
-                            Settimana
-                          </p>
-                        </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
+                        <span className="font-black text-white">{nextExerciseCount || "—"}</span>
+                        <span>esercizi</span>
+                        <span className="text-slate-600">•</span>
+                        <span className="font-black text-white">{nextMinutes || "—"}</span>
+                        <span>min</span>
+                        <span className="text-slate-600">•</span>
+                        <span>settimana</span>
+                        <span className="font-black text-teal-300">{currentWeek || "—"}</span>
                       </div>
 
-                      <div className="mt-5 grid grid-cols-2 gap-2">
+                      <div className="mt-3 grid grid-cols-2 gap-2">
                         <Button
                           type="button"
                           disabled={!nextDay}
@@ -20892,10 +20881,10 @@ function getExerciseHistory(exercise) {
                               currentWeek
                             })
                           }
-                          className="min-h-12 w-full border border-white/20 bg-white text-slate-950 hover:bg-slate-100"
+                          className="min-h-11 w-full border border-white/15 bg-white px-3 py-2 text-slate-950 hover:bg-slate-100"
                         >
-                          <FileText size={17} className="mr-2" />
-                          Visualizza scheda
+                          <FileText size={16} className="mr-1.5" />
+                          Visualizza
                         </Button>
 
                         <Button
@@ -20904,9 +20893,9 @@ function getExerciseHistory(exercise) {
                           onClick={() =>
                             openWorkoutPlayerWithNotifications(plan, nextDay, currentWeek)
                           }
-                          className="min-h-12 w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+                          className="min-h-11 w-full bg-teal-300 px-3 py-2 text-slate-950 hover:bg-teal-200"
                         >
-                          <Dumbbell size={17} className="mr-2" />
+                          <Dumbbell size={16} className="mr-1.5" />
                           Inizia
                         </Button>
                       </div>
