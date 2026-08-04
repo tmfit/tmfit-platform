@@ -18848,13 +18848,6 @@ function WorkoutDayPreviewModal({
                         progression?.recovery_seconds ??
                         exercise.recovery_seconds ??
                         "";
-                      const targetRir = progression?.target_rir || exercise.target_rir;
-                      const targetRpe = progression?.target_rpe || exercise.target_rpe;
-                      const intensity = targetRir
-                        ? `RIR ${targetRir}`
-                        : targetRpe
-                        ? `RPE ${targetRpe}`
-                        : "";
                       const groupLabel = workoutGroupLabel(exercise);
                       const execution = String(
                         exercise.execution_mode ||
@@ -18905,14 +18898,37 @@ function WorkoutDayPreviewModal({
                                       Recupero
                                     </p>
                                   </div>
-                                  <div className="rounded-2xl bg-slate-50 px-2 py-2.5 text-center">
-                                    <p className="text-sm font-black text-slate-950">
-                                      {intensity || "—"}
-                                    </p>
-                                    <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                      Intensità
-                                    </p>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenHistoryId((current) =>
+                                        current === exerciseHistoryId
+                                          ? null
+                                          : exerciseHistoryId
+                                      )
+                                    }
+                                    aria-label={
+                                      historyIsOpen
+                                        ? "Chiudi storico carichi"
+                                        : "Apri storico carichi"
+                                    }
+                                    aria-expanded={historyIsOpen}
+                                    title="Storico carichi"
+                                    className={`flex min-h-[62px] flex-col items-center justify-center rounded-2xl border px-2 py-2.5 text-center transition active:scale-[.97] ${
+                                      historyIsOpen
+                                        ? "border-[#07111f] bg-[#07111f] text-white"
+                                        : "border-transparent bg-slate-50 text-slate-950"
+                                    }`}
+                                  >
+                                    <History size={19} aria-hidden="true" />
+                                    <span
+                                      className={`mt-1 text-[9px] font-black uppercase tracking-wider ${
+                                        historyIsOpen ? "text-slate-200" : "text-slate-400"
+                                      }`}
+                                    >
+                                      Storico
+                                    </span>
+                                  </button>
                                 </div>
 
                                 {execution && (
@@ -18947,30 +18963,6 @@ function WorkoutDayPreviewModal({
                                       Immagine
                                     </a>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setOpenHistoryId((current) =>
-                                        current === exerciseHistoryId
-                                          ? null
-                                          : exerciseHistoryId
-                                      )
-                                    }
-                                    aria-label={
-                                      historyIsOpen
-                                        ? "Chiudi storico carichi"
-                                        : "Apri storico carichi"
-                                    }
-                                    aria-expanded={historyIsOpen}
-                                    title="Storico carichi"
-                                    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border transition active:scale-[.96] ${
-                                      historyIsOpen
-                                        ? "border-[#07111f] bg-[#07111f] text-white"
-                                        : "border-slate-200 bg-white text-slate-700"
-                                    }`}
-                                  >
-                                    <History size={16} aria-hidden="true" />
-                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -19820,19 +19812,50 @@ function normalizeExerciseTitle(value) {
 }
 
 function getExerciseHistory(exercise) {
-  const currentId = String(exercise.id || "");
-  const currentName = normalizeExerciseTitle(exercise.exercise_name);
+  const currentId = String(exercise?.id || "");
+  const currentName = normalizeExerciseTitle(exercise?.exercise_name);
+  const combinedLogs = [...(loadHistory || []), ...(workoutCalendarLogs || [])];
+  const uniqueLogs = Array.from(
+    new Map(
+      combinedLogs.map((log, index) => [
+        String(log?.id || `${log?.workout_session_id || "session"}-${log?.workout_exercise_id || "exercise"}-${log?.set_number || index}-${log?.created_at || index}`),
+        log
+      ])
+    ).values()
+  );
 
-  return loadHistory
+  return uniqueLogs
     .filter((log) => {
-      const logExerciseId = String(log.workout_exercise_id || "");
+      const logExerciseId = String(log?.workout_exercise_id || "");
       const logExerciseName = normalizeExerciseTitle(
-        log.workout_exercises?.exercise_name
+        log?.workout_exercises?.exercise_name
       );
+      const sameId = currentId && logExerciseId === currentId;
+      const sameName = currentName && logExerciseName === currentName;
 
-      return logExerciseId === currentId || logExerciseName === currentName;
+      return sameId || sameName;
     })
-    .filter((log) => log.load_kg || log.reps_done)
+    .filter((log) => {
+      const hasLoad =
+        log?.load_kg !== null &&
+        log?.load_kg !== undefined &&
+        String(log.load_kg) !== "";
+      const hasReps =
+        log?.reps_done !== null &&
+        log?.reps_done !== undefined &&
+        String(log.reps_done) !== "";
+
+      return hasLoad || hasReps;
+    })
+    .sort((a, b) => {
+      const dateA = new Date(
+        a?.workout_sessions?.session_date || a?.created_at || 0
+      ).getTime();
+      const dateB = new Date(
+        b?.workout_sessions?.session_date || b?.created_at || 0
+      ).getTime();
+      return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
+    })
     .slice(0, 12);
 }
 
@@ -19856,6 +19879,19 @@ function getExerciseHistory(exercise) {
     setLoadHistory(historyData || []);
     setLoadHistoryLoaded(true);
     return true;
+  }
+
+  async function openWorkoutDayPreview(plan, week, day, dayIndex, currentWeek) {
+    if (!day) return;
+
+    await loadWorkoutHistoryIfNeeded();
+    setWorkoutDayPreview({
+      plan,
+      week,
+      day,
+      dayIndex,
+      currentWeek
+    });
   }
 
   async function requireWorkoutNotifications() {
@@ -20889,16 +20925,16 @@ function getExerciseHistory(exercise) {
                           disabled={!nextDay}
                           onClick={() =>
                             nextTraining &&
-                            setWorkoutDayPreview({
+                            openWorkoutDayPreview(
                               plan,
-                              week: nextTraining.week,
-                              day: nextDay,
-                              dayIndex: Math.max(
+                              nextTraining.week,
+                              nextDay,
+                              Math.max(
                                 0,
                                 visibleTrainingDays.findIndex(({ day }) => day?.id === nextDay?.id)
                               ),
                               currentWeek
-                            })
+                            )
                           }
                           className="min-h-11 w-full border border-white/15 bg-white px-3 py-2 text-slate-950 hover:bg-slate-100"
                         >
@@ -20950,13 +20986,13 @@ function getExerciseHistory(exercise) {
                             dayIndex={dayIndex}
                             currentWeek={currentWeek}
                             onOpen={() =>
-                              setWorkoutDayPreview({
+                              openWorkoutDayPreview(
                                 plan,
                                 week,
                                 day,
                                 dayIndex,
                                 currentWeek
-                              })
+                              )
                             }
                             onStart={() =>
                               openWorkoutPlayerWithNotifications(plan, day, currentWeek)
