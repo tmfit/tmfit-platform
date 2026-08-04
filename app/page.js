@@ -19003,24 +19003,71 @@ function WorkoutDayPreviewModal({
     setOpenHistoryId(null);
   }, [preview?.day?.id, preview?.currentWeek]);
 
-  if (!preview?.day) return null;
+  useEffect(() => {
+    if (!preview?.day || typeof window === "undefined" || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const html = document.documentElement;
+    const previousBodyStyles = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow
+    };
+    const previousHtmlStyles = {
+      overflow: html.style.overflow,
+      overscrollBehavior: html.style.overscrollBehavior
+    };
+
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+
+    return () => {
+      body.style.position = previousBodyStyles.position;
+      body.style.top = previousBodyStyles.top;
+      body.style.left = previousBodyStyles.left;
+      body.style.right = previousBodyStyles.right;
+      body.style.width = previousBodyStyles.width;
+      body.style.overflow = previousBodyStyles.overflow;
+      html.style.overflow = previousHtmlStyles.overflow;
+      html.style.overscrollBehavior = previousHtmlStyles.overscrollBehavior;
+
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+      });
+    };
+  }, [preview?.day?.id]);
+
+  if (!preview?.day || typeof document === "undefined") return null;
 
   const { plan, week, day, dayIndex = 0, currentWeek } = preview;
   const blocks = day.workout_blocks || [];
   const exercises = blocks.flatMap((block) => block.workout_exercises || []);
   const estimatedMinutes = day.estimated_minutes || 60;
 
-  return (
-    <div className="fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/70 px-3 pb-3 pt-10 backdrop-blur-sm md:items-center md:p-6">
-      <button
-        type="button"
-        aria-label="Chiudi scheda allenamento"
-        onClick={onClose}
-        className="absolute inset-0"
-      />
+  return createPortal(
+    (
+      <div className="fixed inset-0 z-[9998] flex h-[100dvh] w-screen items-stretch justify-center overflow-hidden bg-[#f5f7fb] md:items-center md:bg-slate-950/70 md:p-6 md:backdrop-blur-sm">
+        <button
+          type="button"
+          aria-label="Chiudi scheda allenamento"
+          onClick={onClose}
+          className="absolute inset-0 hidden md:block"
+        />
 
-      <section className="relative z-[126] flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] bg-[#f5f7fb] shadow-2xl md:rounded-[2rem]">
-        <header className="shrink-0 bg-[#07111f] px-5 pb-5 pt-4 text-white">
+        <section className="relative z-[9999] flex h-[100dvh] max-h-[100dvh] w-full max-w-2xl flex-col overflow-hidden bg-[#f5f7fb] shadow-2xl md:h-auto md:max-h-[92dvh] md:rounded-[2rem]">
+          <header className="shrink-0 bg-[#07111f] px-5 pb-5 pt-[calc(1rem+env(safe-area-inset-top))] text-white md:pt-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -19267,8 +19314,10 @@ function WorkoutDayPreviewModal({
             Inizia allenamento
           </button>
         </footer>
-      </section>
-    </div>
+        </section>
+      </div>
+    ),
+    document.body
   );
 }
 
