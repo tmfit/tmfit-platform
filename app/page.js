@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
@@ -16882,6 +16883,52 @@ function WorkoutPlayerModal({
     setHistoryModalOpen(false);
   }, [exerciseIndex, open]);
 
+  useEffect(() => {
+    if (!open || typeof window === "undefined" || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const html = document.documentElement;
+    const previousBodyStyles = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow
+    };
+    const previousHtmlStyles = {
+      overflow: html.style.overflow,
+      overscrollBehavior: html.style.overscrollBehavior
+    };
+
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+
+    return () => {
+      body.style.position = previousBodyStyles.position;
+      body.style.top = previousBodyStyles.top;
+      body.style.left = previousBodyStyles.left;
+      body.style.right = previousBodyStyles.right;
+      body.style.width = previousBodyStyles.width;
+      body.style.overflow = previousBodyStyles.overflow;
+      html.style.overflow = previousHtmlStyles.overflow;
+      html.style.overscrollBehavior = previousHtmlStyles.overscrollBehavior;
+
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+      });
+    };
+  }, [open]);
+
   function buildWorkoutSnapshot(overrides = {}) {
     if (!plan || !day) return null;
 
@@ -16960,7 +17007,7 @@ function WorkoutPlayerModal({
     };
   }, [open, plan?.id, day?.id, onWorkoutStateChange]);
 
-  if (!open || !plan || !day) return null;
+  if (!open || !plan || !day || typeof document === "undefined") return null;
 
   const exercises = (day.workout_blocks || [])
     .flatMap((block) => block.workout_exercises || [])
@@ -17098,12 +17145,6 @@ function WorkoutPlayerModal({
     90;
 
   const targetReps = currentSet?.target_reps || exercise?.reps || "libere";
-  const targetLoad =
-    currentSet?.target_load_kg ||
-    currentSet?.target_load_text ||
-    exercise?.target_load ||
-    "—";
-
   const showRpe = hasValue(currentSet?.target_rpe) || hasValue(exercise?.target_rpe);
   const showRir = hasValue(currentSet?.target_rir) || hasValue(exercise?.target_rir);
   const videoUrl = exercise?.video_url || exercise?.image_url || "";
@@ -17526,8 +17567,9 @@ function WorkoutPlayerModal({
     return "bg-white text-slate-500 border-slate-200";
   }
 
-  return (
-    <div className="fixed inset-0 z-[130] bg-[#07111f]">
+  return createPortal(
+    (
+      <div className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden bg-[#07111f]">
       <div className="mx-auto flex h-[100dvh] w-full max-w-[480px] flex-col overflow-hidden bg-slate-50 shadow-2xl">
         <div className="shrink-0 bg-[#07111f] px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] text-white">
           <div className="flex items-center justify-between gap-3">
@@ -17643,12 +17685,6 @@ function WorkoutPlayerModal({
                     </div>
                   </div>
 
-                  {hasValue(targetLoad) && targetLoad !== "—" && (
-                    <div className="mt-3 rounded-2xl bg-teal-50 px-4 py-3 text-sm font-black text-teal-900">
-                      Target carico: {targetLoad}
-                    </div>
-                  )}
-
                   {(exerciseCoachNotes || exercise.execution_mode || videoUrl) && (
                     <div className="mt-4 grid gap-2">
                       {exerciseCoachNotes && (
@@ -17702,8 +17738,8 @@ function WorkoutPlayerModal({
                     <h4 className="mt-1 text-xl font-black text-slate-950">
                       Serie {setIndex + 1} di {plannedSets.length}
                     </h4>
-                    <p className="mt-1 text-xs font-bold text-slate-500">
-                      {targetSummaryForSet(currentSet)}
+                    <p className="mt-1 text-sm font-black text-slate-500">
+                      {plannedSets.length} × {targetReps}
                     </p>
                   </div>
                   <Pill
@@ -17993,8 +18029,10 @@ function WorkoutPlayerModal({
             Il riepilogo viene salvato insieme alla sessione.
           </div>
         )}
+        </div>
       </div>
-    </div>
+    ),
+    document.body
   );
 }
 
