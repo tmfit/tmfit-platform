@@ -102,6 +102,16 @@ export async function POST(request) {
     const timerKey = body.timer_key
       ? String(body.timer_key).slice(0, 240)
       : null;
+    const exerciseName = String(body.exercise_name || "").trim().slice(0, 120);
+    const workoutName = String(body.workout_name || "").trim().slice(0, 120);
+    const currentSeries = Math.max(
+      0,
+      Math.min(200, Math.trunc(Number(body.current_series) || 0))
+    );
+    const totalSeries = Math.max(
+      0,
+      Math.min(200, Math.trunc(Number(body.total_series) || 0))
+    );
 
     if (timerKey) {
       const { error: previousJobsError } = await admin
@@ -146,7 +156,14 @@ export async function POST(request) {
     try {
       const published = await qstash.publishJSON({
         url: destination,
-        body: { job_id: job.id, attempt: 0 },
+        body: {
+          job_id: job.id,
+          attempt: 0,
+          exercise_name: exerciseName,
+          workout_name: workoutName,
+          current_series: currentSeries || null,
+          total_series: totalSeries || null
+        },
         delay: `${seconds}s`,
         retries: 2
       });
@@ -162,7 +179,9 @@ export async function POST(request) {
       return NextResponse.json({
         success: true,
         job_id: job.id,
-        expires_at: expiresAt
+        stop_token: job.stop_token,
+        expires_at: expiresAt,
+        notification_tag: `tmfit-rest-${job.id}`
       });
     } catch (error) {
       await admin
