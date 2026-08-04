@@ -184,12 +184,15 @@ export default function ClientCheckinWizard({
           <div className="space-y-4">
             <label className="block">
               <span className="text-sm font-black text-slate-800">Data</span>
-              <input
-                type="date"
-                value={form.checkin_date || ""}
-                onChange={(event) => update("checkin_date", event.target.value)}
-                className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-bold text-slate-900"
-              />
+              <span className="mt-2 flex w-full min-w-0 items-center rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <input
+                  type="date"
+                  value={form.checkin_date || ""}
+                  onChange={(event) => update("checkin_date", event.target.value)}
+                  className="block w-full min-w-0 border-0 bg-transparent p-0 text-center text-base font-bold text-slate-900 outline-none"
+                  style={{ textAlign: "center" }}
+                />
+              </span>
             </label>
 
             <label className="block">
