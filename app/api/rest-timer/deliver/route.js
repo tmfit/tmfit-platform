@@ -14,8 +14,8 @@ const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:info@tmfit.it";
 
-const ALERT_REPEAT_SECONDS = 4;
-const MAX_ALERT_ATTEMPTS = 30;
+const ALERT_REPEAT_SECONDS = 12;
+const MAX_ALERT_ATTEMPTS = 3;
 
 function adminClient() {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
@@ -38,7 +38,20 @@ async function deliverRestTimer(request) {
 
     const body = await request.json().catch(() => ({}));
     const jobId = String(body.job_id || "").trim();
-    const attempt = Math.max(0, Math.min(MAX_ALERT_ATTEMPTS - 1, Number(body.attempt) || 0));
+    const attempt = Math.max(
+      0,
+      Math.min(MAX_ALERT_ATTEMPTS - 1, Number(body.attempt) || 0)
+    );
+    const exerciseName = String(body.exercise_name || "").trim().slice(0, 120);
+    const workoutName = String(body.workout_name || "").trim().slice(0, 120);
+    const currentSeries = Math.max(
+      0,
+      Math.min(200, Math.trunc(Number(body.current_series) || 0))
+    );
+    const totalSeries = Math.max(
+      0,
+      Math.min(200, Math.trunc(Number(body.total_series) || 0))
+    );
 
     if (!jobId) {
       return NextResponse.json({ error: "Job timer mancante." }, { status: 400 });
@@ -125,15 +138,29 @@ async function deliverRestTimer(request) {
 
     webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
+    const seriesText =
+      currentSeries > 0 && totalSeries > 0
+        ? `Serie ${currentSeries} di ${totalSeries}`
+        : "";
+    const notificationBody = [
+      exerciseName || workoutName || "Prossima serie",
+      seriesText,
+      "Tocca per continuare"
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     const notificationPayload = JSON.stringify({
       title: "TMFIT · Recupero terminato",
-      body: "Tocca la notifica per interrompere il richiamo e aprire la prossima serie.",
+      body: notificationBody,
+      phase: "finished",
       url: `/?tmfit=training&tmfit_rest_action=next&tmfit_rest_job=${encodeURIComponent(jobId)}`,
       stopUrl: "/api/rest-timer/stop",
       tag: `tmfit-rest-${jobId}`,
       jobId,
       stopToken: claimedJob.stop_token,
-      attempt
+      attempt,
+      appBadge: 1
     });
 
     const results = await Promise.allSettled(
@@ -214,7 +241,14 @@ async function deliverRestTimer(request) {
         const destination = `${request.nextUrl.origin}/api/rest-timer/deliver`;
         const published = await qstash.publishJSON({
           url: destination,
-          body: { job_id: jobId, attempt: nextAttempt },
+          body: {
+            job_id: jobId,
+            attempt: nextAttempt,
+            exercise_name: exerciseName,
+            workout_name: workoutName,
+            current_series: currentSeries || null,
+            total_series: totalSeries || null
+          },
           delay: `${ALERT_REPEAT_SECONDS}s`,
           retries: 1
         });
