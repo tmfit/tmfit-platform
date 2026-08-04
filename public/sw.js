@@ -6,11 +6,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cacheName) => caches.delete(cacheName))
-        );
-      })
+      .then((cacheNames) =>
+        Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)))
+      )
       .then(() => self.clients.claim())
   );
 });
@@ -18,6 +16,43 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", () => {
   return;
 });
+
+function restTimerTag(data = {}) {
+  if (data.tag) return String(data.tag);
+  if (data.jobId) return `tmfit-rest-${data.jobId}`;
+  return "tmfit-rest-timer";
+}
+
+async function setTmfitBadge(value = 1) {
+  try {
+    if ("setAppBadge" in self.navigator) {
+      await self.navigator.setAppBadge(Math.max(1, Number(value) || 1));
+    }
+  } catch {
+    // Il badge è opzionale e può essere disattivato dall'utente.
+  }
+}
+
+async function clearTmfitBadge() {
+  try {
+    if ("clearAppBadge" in self.navigator) {
+      await self.navigator.clearAppBadge();
+    }
+  } catch {
+    // API opzionale.
+  }
+}
+
+async function closeRestTimerNotifications(data = {}) {
+  try {
+    const notifications = await self.registration.getNotifications({
+      tag: restTimerTag(data)
+    });
+    notifications.forEach((notification) => notification.close());
+  } catch {
+    // Nessuna notifica da chiudere o API non disponibile.
+  }
+}
 
 function notifyOpenClients(jobId) {
   return self.clients
@@ -41,7 +76,11 @@ async function stopRestTimer(data = {}) {
   const stopUrl = data.stopUrl || "/api/rest-timer/stop";
 
   if (!jobId || !stopToken) {
-    await notifyOpenClients(jobId);
+    await Promise.all([
+      notifyOpenClients(jobId),
+      closeRestTimerNotifications(data),
+      clearTmfitBadge()
+    ]);
     return false;
   }
 
@@ -57,10 +96,18 @@ async function stopRestTimer(data = {}) {
       })
     });
 
-    await notifyOpenClients(jobId);
+    await Promise.all([
+      notifyOpenClients(jobId),
+      closeRestTimerNotifications(data),
+      clearTmfitBadge()
+    ]);
     return response.ok;
   } catch {
-    await notifyOpenClients(jobId);
+    await Promise.all([
+      notifyOpenClients(jobId),
+      closeRestTimerNotifications(data),
+      clearTmfitBadge()
+    ]);
     return false;
   }
 }
@@ -73,21 +120,33 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = {
       title: "TMFIT · Recupero terminato",
-      body: event.data ? event.data.text() : "È il momento di iniziare la prossima serie."
+      body: event.data
+        ? event.data.text()
+        : "È il momento di iniziare la prossima serie."
     };
   }
 
-  const title = payload.title || "TMFIT · Recupero terminato";
+  const phase = payload.phase === "active" ? "active" : "finished";
+  const silent = phase === "active" || payload.silent === true;
+  const title =
+    payload.title ||
+    (phase === "active"
+      ? "TMFIT · Recupero attivo"
+      : "TMFIT · Recupero terminato");
+  const tag = payload.tag || restTimerTag(payload);
   const options = {
-    body: payload.body || "È il momento di iniziare la prossima serie.",
+    body:
+      payload.body ||
+      (phase === "active"
+        ? "Recupero in corso."
+        : "È il momento di iniziare la prossima serie."),
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
-    tag: payload.tag || "tmfit-rest-timer",
-    renotify: true,
+    tag,
+    renotify: phase === "finished",
     requireInteraction: true,
-    silent: false,
-    timestamp: Date.now(),
-    vibrate: [220, 90, 220],
+    silent,
+    timestamp: Number(payload.timestamp) || Date.now(),
     actions: [
       {
         action: "stop",
@@ -95,64 +154,84 @@ self.addEventListener("push", (event) => {
       },
       {
         action: "open",
-        title: "Prossima serie"
+        title: phase === "active" ? "Apri allenamento" : "Prossima serie"
       }
     ],
     data: {
+      phase,
       url:
         payload.url ||
-        "/?tmfit=training&tmfit_rest_action=next",
+        (phase === "active"
+          ? "/?tmfit=training&tmfit_rest_action=current"
+          : "/?tmfit=training&tmfit_rest_action=next"),
       stopUrl: payload.stopUrl || "/api/rest-timer/stop",
       jobId: payload.jobId || null,
       stopToken: payload.stopToken || null,
-      attempt: Number(payload.attempt || 0)
+      attempt: Number(payload.attempt || 0),
+      tag
     }
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  if (!silent) {
+    options.vibrate = [220, 90, 220];
+  }
+
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      setTmfitBadge(payload.appBadge || 1)
+    ])
+  );
 });
+
+async function openTmfitWindow(destination) {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true
+  });
+  const existing = clients.find((client) =>
+    client.url.startsWith(self.location.origin)
+  );
+
+  if (existing) {
+    if ("navigate" in existing) {
+      await existing.navigate(destination);
+    }
+    return existing.focus();
+  }
+
+  return self.clients.openWindow(destination);
+}
 
 self.addEventListener("notificationclick", (event) => {
   const action = event.action || "open";
   const notificationData = event.notification.data || {};
-  event.notification.close();
+  const phase = notificationData.phase === "active" ? "active" : "finished";
+  const destination = new URL(
+    notificationData.url ||
+      (phase === "active"
+        ? "/?tmfit=training&tmfit_rest_action=current"
+        : "/?tmfit=training&tmfit_rest_action=next"),
+    self.location.origin
+  ).href;
 
   if (action === "stop") {
+    event.notification.close();
     event.waitUntil(stopRestTimer(notificationData));
     return;
   }
 
-  const destination = new URL(
-    notificationData.url ||
-      "/?tmfit=training&tmfit_rest_action=next",
-    self.location.origin
-  ).href;
+  if (phase === "active") {
+    event.notification.close();
+    event.waitUntil(openTmfitWindow(destination));
+    return;
+  }
 
+  event.notification.close();
   event.waitUntil(
     Promise.all([
       stopRestTimer(notificationData),
-      self.clients
-        .matchAll({
-          type: "window",
-          includeUncontrolled: true
-        })
-        .then((clients) => {
-          const existing = clients.find((client) =>
-            client.url.startsWith(self.location.origin)
-          );
-
-          if (existing) {
-            if ("navigate" in existing) {
-              return existing
-                .navigate(destination)
-                .then(() => existing.focus());
-            }
-
-            return existing.focus();
-          }
-
-          return self.clients.openWindow(destination);
-        })
+      openTmfitWindow(destination)
     ])
   );
 });
