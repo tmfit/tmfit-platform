@@ -1453,6 +1453,134 @@ async function currentTmfitPushSubscription() {
   return registration.pushManager.getSubscription();
 }
 
+
+function tmfitRestNotificationTag(jobId) {
+  const safeJobId = String(jobId || "").trim();
+  return safeJobId ? `tmfit-rest-${safeJobId}` : "tmfit-rest-timer";
+}
+
+function tmfitFormatNotificationClock(timestamp) {
+  const value = Number(timestamp) || Date.parse(timestamp || "");
+  if (!Number.isFinite(value)) return "";
+
+  try {
+    return new Intl.DateTimeFormat("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return new Date(value).toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+}
+
+async function closeTmfitRestNotification(jobId) {
+  if (!jobId || typeof navigator === "undefined" || !navigator.serviceWorker) {
+    return false;
+  }
+
+  try {
+    const registration = await registerTmfitServiceWorker();
+    if (!registration?.getNotifications) return false;
+
+    const notifications = await registration.getNotifications({
+      tag: tmfitRestNotificationTag(jobId)
+    });
+    notifications.forEach((notification) => notification.close());
+    return true;
+  } catch (error) {
+    console.warn(
+      "TMFIT chiusura notifica timer non riuscita",
+      error?.message || error
+    );
+    return false;
+  }
+}
+
+async function showTmfitActiveRestNotification({
+  jobId,
+  stopToken,
+  alarmAt,
+  exerciseName = "",
+  currentSeries = null,
+  totalSeries = null,
+  workoutName = ""
+}) {
+  if (
+    !jobId ||
+    !stopToken ||
+    !tmfitPushIsSupported() ||
+    Notification.permission !== "granted"
+  ) {
+    return false;
+  }
+
+  try {
+    const registration = await registerTmfitServiceWorker();
+    if (!registration?.showNotification) return false;
+
+    const seriesNumber = Number(currentSeries);
+    const seriesTotal = Number(totalSeries);
+    const seriesText =
+      Number.isInteger(seriesNumber) &&
+      seriesNumber > 0 &&
+      Number.isInteger(seriesTotal) &&
+      seriesTotal > 0
+        ? `Serie ${seriesNumber} di ${seriesTotal}`
+        : "";
+    const finishTime = tmfitFormatNotificationClock(alarmAt);
+    const body = [
+      String(exerciseName || workoutName || "Allenamento").trim(),
+      seriesText,
+      finishTime ? `Termina alle ${finishTime}` : "Recupero in corso"
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const tag = tmfitRestNotificationTag(jobId);
+
+    await registration.showNotification("TMFIT · Recupero attivo", {
+      body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag,
+      renotify: false,
+      requireInteraction: true,
+      silent: true,
+      timestamp: Date.now(),
+      actions: [
+        { action: "stop", title: "Interrompi" },
+        { action: "open", title: "Apri allenamento" }
+      ],
+      data: {
+        phase: "active",
+        url: `/?tmfit=training&tmfit_rest_action=current&tmfit_rest_job=${encodeURIComponent(
+          jobId
+        )}`,
+        stopUrl: "/api/rest-timer/stop",
+        jobId,
+        stopToken,
+        tag
+      }
+    });
+
+    try {
+      await navigator.setAppBadge?.(1);
+    } catch {
+      // Il badge è opzionale e dipende dalle impostazioni del dispositivo.
+    }
+
+    return true;
+  } catch (error) {
+    console.warn(
+      "TMFIT notifica recupero attivo non riuscita",
+      error?.message || error
+    );
+    return false;
+  }
+}
+
 async function enableTmfitPushNotifications(userId, clientId) {
   if (!tmfitPushIsSupported()) {
     return { ok: false, status: "unsupported" };
@@ -1644,7 +1772,11 @@ function RestTimer({
   userId = "",
   clientId = null,
   timerKey = "",
-  controllerRef = null
+  controllerRef = null,
+  exerciseName = "",
+  currentSeries = null,
+  totalSeries = null,
+  workoutName = ""
 }) {
   const initialSeconds = Math.max(1, Math.min(3599, Number(seconds) || 90));
   const storageKey = useMemo(
@@ -1667,6 +1799,7 @@ function RestTimer({
   const [pickerSeconds, setPickerSeconds] = useState(initialSeconds % 60);
   const alarmAtRef = useRef(null);
   const pushJobIdRef = useRef("");
+  const pushStopTokenRef = useRef("");
   const mountedRef = useRef(true);
   const scheduleGenerationRef = useRef(0);
   const stopTimerRef = useRef(null);
@@ -1713,6 +1846,8 @@ function RestTimer({
       durationSeconds: configuredSeconds,
       alarmAt: alarmAtRef.current,
       pushJobId: pushJobIdRef.current || previous.pushJobId || "",
+      pushStopToken:
+        pushStopTokenRef.current || previous.pushStopToken || "",
       updatedAt: new Date().toISOString(),
       ...patch
     });
@@ -1742,6 +1877,10 @@ function RestTimer({
         }),
         keepalive
       });
+
+      if (response.ok && jobId) {
+        await closeTmfitRestNotification(jobId);
+      }
 
       return response.ok;
     } catch (error) {
@@ -1785,7 +1924,11 @@ function RestTimer({
         body: JSON.stringify({
           seconds: Math.max(1, Math.ceil(delaySeconds)),
           client_id: clientId ? Number(clientId) : null,
-          timer_key: timerKey || null
+          timer_key: timerKey || null,
+          exercise_name: String(exerciseName || "").slice(0, 120),
+          current_series: Number(currentSeries) || null,
+          total_series: Number(totalSeries) || null,
+          workout_name: String(workoutName || "").slice(0, 120)
         })
       });
 
@@ -1802,7 +1945,25 @@ function RestTimer({
       }
 
       pushJobIdRef.current = result.job_id;
-      writeSnapshot({ pushJobId: result.job_id });
+      pushStopTokenRef.current = String(result.stop_token || "");
+      writeSnapshot({
+        pushJobId: result.job_id,
+        pushStopToken: pushStopTokenRef.current
+      });
+
+      await showTmfitActiveRestNotification({
+        jobId: result.job_id,
+        stopToken: pushStopTokenRef.current,
+        alarmAt:
+          Date.parse(result.expires_at || "") ||
+          alarmAtRef.current ||
+          Date.now() + Math.max(1, Math.ceil(delaySeconds)) * 1000,
+        exerciseName,
+        currentSeries,
+        totalSeries,
+        workoutName
+      });
+
       if (mountedRef.current) setPushStatus("scheduled");
       return result.job_id;
     } catch (error) {
@@ -1819,6 +1980,7 @@ function RestTimer({
     scheduleGenerationRef.current += 1;
     const currentJobId = pushJobIdRef.current;
     pushJobIdRef.current = "";
+    pushStopTokenRef.current = "";
 
     setAlertActive(false);
     setPushStatus("idle");
@@ -1826,6 +1988,7 @@ function RestTimer({
     safeRemoveLocal(storageKey);
 
     await cancelScheduledPush(currentJobId);
+    await closeTmfitRestNotification(currentJobId);
 
     try {
       navigator.vibrate?.(0);
@@ -1839,6 +2002,7 @@ function RestTimer({
     scheduleGenerationRef.current += 1;
     const currentJobId = pushJobIdRef.current;
     pushJobIdRef.current = "";
+    pushStopTokenRef.current = "";
 
     const nextValue = resetToCoach ? initialSeconds : configuredSeconds;
     alarmAtRef.current = null;
@@ -1856,6 +2020,7 @@ function RestTimer({
     }
 
     await cancelScheduledPush(currentJobId, { keepalive: true });
+    await closeTmfitRestNotification(currentJobId);
 
     try {
       navigator.vibrate?.(0);
@@ -1980,6 +2145,7 @@ function RestTimer({
 
     if (savedMatches) {
       pushJobIdRef.current = saved?.pushJobId || "";
+      pushStopTokenRef.current = saved?.pushStopToken || "";
       alarmAtRef.current = savedAlarmAt;
       setAlarmAt(savedAlarmAt);
 
@@ -2002,6 +2168,7 @@ function RestTimer({
     setAlarmAt(null);
     alarmAtRef.current = null;
     pushJobIdRef.current = "";
+    pushStopTokenRef.current = "";
 
     if (autoStart) {
       const timeout = window.setTimeout(() => {
@@ -2054,6 +2221,7 @@ function RestTimer({
 
       scheduleGenerationRef.current += 1;
       pushJobIdRef.current = "";
+      pushStopTokenRef.current = "";
       setAlertActive(false);
       setRunning(false);
       setPushStatus("idle");
@@ -2093,7 +2261,28 @@ function RestTimer({
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") refreshAfterBackground();
+      if (document.visibilityState === "visible") {
+        refreshAfterBackground();
+        return;
+      }
+
+      if (
+        document.visibilityState === "hidden" &&
+        running &&
+        alarmAtRef.current &&
+        pushJobIdRef.current &&
+        pushStopTokenRef.current
+      ) {
+        void showTmfitActiveRestNotification({
+          jobId: pushJobIdRef.current,
+          stopToken: pushStopTokenRef.current,
+          alarmAt: alarmAtRef.current,
+          exerciseName,
+          currentSeries,
+          totalSeries,
+          workoutName
+        });
+      }
     };
 
     window.addEventListener("focus", refreshAfterBackground);
@@ -2105,7 +2294,14 @@ function RestTimer({
       window.removeEventListener("pageshow", refreshAfterBackground);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [alertActive]);
+  }, [
+    alertActive,
+    running,
+    exerciseName,
+    currentSeries,
+    totalSeries,
+    workoutName
+  ]);
 
   async function handlePushEnabled() {
     if (running && remaining > 0) {
@@ -17725,6 +17921,28 @@ function WorkoutPlayerModal({
                       draftKey || `${exerciseIndex}-${setIndex}`
                     }`}
                     controllerRef={restTimerControllerRef}
+                    exerciseName={
+                      nextExecutionStep
+                        ? exercises[nextExecutionStep.exerciseIndex]?.exercise_name ||
+                          exercise?.exercise_name ||
+                          ""
+                        : exercise?.exercise_name || ""
+                    }
+                    currentSeries={
+                      nextExecutionStep
+                        ? nextExecutionStep.setIndex + 1
+                        : Math.min(setIndex + 2, plannedSets.length)
+                    }
+                    totalSeries={
+                      nextExecutionStep
+                        ? plannedSetsForExercise(
+                            exercises[nextExecutionStep.exerciseIndex]
+                          ).length
+                        : plannedSets.length
+                    }
+                    workoutName={
+                      day?.day_name || day?.name || plan?.name || "Allenamento"
+                    }
                   />
                 </div>
               )}
