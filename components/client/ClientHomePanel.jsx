@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardCheck,
   Dumbbell,
@@ -67,7 +68,6 @@ export default function ClientHomePanel({
       ? [nextWorkout]
       : [];
 
-  const carouselRef = useRef(null);
   const [activeWorkoutIndex, setActiveWorkoutIndex] = useState(0);
   const workoutSignature = workoutSlides
     .map((workout, index) => String(workout?.id || workout?.title || index))
@@ -77,41 +77,16 @@ export default function ClientHomePanel({
     const requestedIndex = workoutSlides.findIndex(
       (workout) => String(workout?.id) === String(initialWorkoutId)
     );
-    const nextIndex = requestedIndex >= 0 ? requestedIndex : 0;
-
-    setActiveWorkoutIndex(nextIndex);
-
-    const frame = window.requestAnimationFrame(() => {
-      const carousel = carouselRef.current;
-      if (!carousel) return;
-      carousel.scrollTo({ left: carousel.clientWidth * nextIndex, behavior: "auto" });
-    });
-
-    return () => window.cancelAnimationFrame(frame);
+    setActiveWorkoutIndex(requestedIndex >= 0 ? requestedIndex : 0);
   }, [workoutSignature, initialWorkoutId, weekSelection?.value]);
 
-  function scrollToWorkout(index) {
-    const safeIndex = Math.max(0, Math.min(index, workoutSlides.length - 1));
-    setActiveWorkoutIndex(safeIndex);
-
-    const carousel = carouselRef.current;
-    if (!carousel) return;
-    carousel.scrollTo({ left: carousel.clientWidth * safeIndex, behavior: "smooth" });
-  }
-
-  function handleCarouselScroll(event) {
-    const carousel = event.currentTarget;
-    if (!carousel.clientWidth) return;
-
-    const nextIndex = Math.max(
-      0,
-      Math.min(
-        workoutSlides.length - 1,
-        Math.round(carousel.scrollLeft / carousel.clientWidth)
+  function moveToWorkout(direction) {
+    setActiveWorkoutIndex((currentIndex) =>
+      Math.max(
+        0,
+        Math.min(currentIndex + direction, workoutSlides.length - 1)
       )
     );
-
-    if (nextIndex !== activeWorkoutIndex) setActiveWorkoutIndex(nextIndex);
   }
 
   const activeWorkout = workoutSlides[activeWorkoutIndex] || nextWorkout || null;
@@ -134,66 +109,76 @@ export default function ClientHomePanel({
             )}
           </div>
 
-          <div
-            ref={carouselRef}
-            onScroll={handleCarouselScroll}
-            className="-mx-1 mt-2 flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {(workoutSlides.length ? workoutSlides : [null]).map((workout, index) => (
-              <div
-                key={workout?.id || `${workout?.title || "workout"}-${index}`}
-                className="w-full shrink-0 snap-center px-1"
+          <div className="mt-2 flex items-stretch gap-2" aria-live="polite">
+            {workoutSlides.length > 1 && (
+              <button
+                type="button"
+                onClick={() => moveToWorkout(-1)}
+                disabled={activeWorkoutIndex === 0}
+                className="flex w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white transition active:scale-[.96] disabled:cursor-not-allowed disabled:opacity-25"
+                aria-label="Allenamento precedente"
               >
-                <div className="flex min-h-[92px] items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h1 className="truncate text-2xl font-black leading-tight tracking-tight">
-                        {workout?.title || "Nessun allenamento disponibile"}
-                      </h1>
-                      {workout?.completed && (
-                        <span className="rounded-full bg-teal-300/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-teal-200">
-                          Completato
-                        </span>
-                      )}
-                    </div>
+                <ChevronLeft size={22} />
+              </button>
+            )}
 
-                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
-                      {workout?.minutes && <span>{workout.minutes} min</span>}
-                      {workout?.minutes && workout?.week && (
-                        <span className="text-slate-600">•</span>
-                      )}
-                      {workout?.week && <span>Settimana {workout.week}</span>}
-                      {workout?.planTitle && (
-                        <>
-                          <span className="text-slate-600">•</span>
-                          <span className="min-w-0 truncate">{workout.planTitle}</span>
-                        </>
-                      )}
-                    </div>
+            <div className="min-w-0 flex-1 rounded-[1.45rem] border border-white/10 bg-white/[0.04] px-3 py-3">
+              <div className="flex min-h-[82px] items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-2xl font-black leading-tight tracking-tight">
+                      {activeWorkout?.title || "Nessun allenamento disponibile"}
+                    </h1>
+                    {activeWorkout?.completed && (
+                      <span className="rounded-full bg-teal-300/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-teal-200">
+                        Completato
+                      </span>
+                    )}
                   </div>
 
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950">
-                    <Dumbbell size={19} />
-                  </span>
+                  <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
+                    {activeWorkout?.minutes && <span>{activeWorkout.minutes} min</span>}
+                    {activeWorkout?.minutes && activeWorkout?.week && (
+                      <span className="text-slate-600">•</span>
+                    )}
+                    {activeWorkout?.week && <span>Settimana {activeWorkout.week}</span>}
+                    {activeWorkout?.planTitle && (
+                      <>
+                        <span className="text-slate-600">•</span>
+                        <span className="min-w-0 truncate">{activeWorkout.planTitle}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
+
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950">
+                  <Dumbbell size={19} />
+                </span>
               </div>
-            ))}
+            </div>
+
+            {workoutSlides.length > 1 && (
+              <button
+                type="button"
+                onClick={() => moveToWorkout(1)}
+                disabled={activeWorkoutIndex === workoutSlides.length - 1}
+                className="flex w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white transition active:scale-[.96] disabled:cursor-not-allowed disabled:opacity-25"
+                aria-label="Allenamento successivo"
+              >
+                <ChevronRight size={22} />
+              </button>
+            )}
           </div>
 
           {workoutSlides.length > 1 && (
-            <div className="mt-1 flex items-center justify-center gap-2" aria-label="Seleziona allenamento">
+            <div className="mt-2 flex items-center justify-center gap-2" aria-label="Posizione allenamento">
               {workoutSlides.map((workout, index) => (
-                <button
+                <span
                   key={`dot-${workout?.id || index}`}
-                  type="button"
-                  onClick={() => scrollToWorkout(index)}
                   className={`h-2 rounded-full transition-all ${
-                    activeWorkoutIndex === index
-                      ? "w-7 bg-teal-300"
-                      : "w-2 bg-white/25"
+                    activeWorkoutIndex === index ? "w-7 bg-teal-300" : "w-2 bg-white/25"
                   }`}
-                  aria-label={`Mostra ${workout?.title || `allenamento ${index + 1}`}`}
-                  aria-pressed={activeWorkoutIndex === index}
+                  aria-hidden="true"
                 />
               ))}
             </div>
