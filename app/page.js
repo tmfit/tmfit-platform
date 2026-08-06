@@ -20768,6 +20768,26 @@ function getExerciseHistory(exercise) {
       ? Math.max(0, Math.min(100, Number(adherenceValue) * 10))
       : null;
   const nextWorkoutMinutes = nextWorkoutDay?.estimated_minutes || 60;
+  const homeWorkoutOptions = activeWeekDays.map((day, dayIndex) => {
+    const dayId = day?.id || `${activePlan?.id || "plan"}-${activePlanWeekNumber}-${dayIndex}`;
+    const completed =
+      selectedWeekMatchesCalendar && completedWeekDayIds.has(String(day?.id));
+
+    return {
+      id: String(dayId),
+      available: Boolean(activePlan && day),
+      title: day?.title || `Allenamento ${dayIndex + 1}`,
+      minutes: day?.estimated_minutes || 60,
+      week: activePlanWeekNumber,
+      planTitle: activePlan?.title || "",
+      completed,
+      actionLabel: completed ? "Ripeti allenamento" : "Inizia allenamento",
+      onStart: () =>
+        activePlan && day
+          ? openWorkoutPlayerWithNotifications(activePlan, day, activePlanWeekNumber)
+          : setActiveTab("training")
+    };
+  });
 
   const clientTimelineItems = [
     latestCheckin && {
@@ -20956,6 +20976,8 @@ function getExerciseHistory(exercise) {
                     )
                   : setActiveTab("training")
             }}
+            workouts={homeWorkoutOptions}
+            initialWorkoutId={nextWorkoutDay?.id || ""}
             weekSelection={{
               value: activePlanWeekNumber,
               options: activePlan ? availableWeekNumbers(activePlan) : [],
