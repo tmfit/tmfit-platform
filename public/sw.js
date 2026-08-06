@@ -29,7 +29,7 @@ async function setTmfitBadge(value = 1) {
       await self.navigator.setAppBadge(Math.max(1, Number(value) || 1));
     }
   } catch {
-    // Il badge è opzionale e può essere disattivato dall'utente.
+    // Il badge è opzionale e dipende dalle impostazioni iOS.
   }
 }
 
@@ -126,55 +126,38 @@ self.addEventListener("push", (event) => {
     };
   }
 
-  const phase = payload.phase === "active" ? "active" : "finished";
-  const silent = phase === "active" || payload.silent === true;
-  const title =
-    payload.title ||
-    (phase === "active"
-      ? "TMFIT · Recupero attivo"
-      : "TMFIT · Recupero terminato");
+  const title = payload.title || "TMFIT · Recupero terminato";
   const tag = payload.tag || restTimerTag(payload);
   const options = {
     body:
-      payload.body ||
-      (phase === "active"
-        ? "Recupero in corso."
-        : "È il momento di iniziare la prossima serie."),
+      payload.body || "È il momento di iniziare la prossima serie.",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
     tag,
-    renotify: phase === "finished",
+    renotify: false,
     requireInteraction: true,
-    silent,
+    silent: false,
     timestamp: Number(payload.timestamp) || Date.now(),
     actions: [
       {
         action: "stop",
-        title: "Interrompi"
+        title: "Chiudi"
       },
       {
         action: "open",
-        title: phase === "active" ? "Apri allenamento" : "Prossima serie"
+        title: "Apri serie"
       }
     ],
     data: {
-      phase,
       url:
         payload.url ||
-        (phase === "active"
-          ? "/?tmfit=training&tmfit_rest_action=current"
-          : "/?tmfit=training&tmfit_rest_action=next"),
+        "/?tmfit=training&tmfit_rest_action=next",
       stopUrl: payload.stopUrl || "/api/rest-timer/stop",
       jobId: payload.jobId || null,
       stopToken: payload.stopToken || null,
-      attempt: Number(payload.attempt || 0),
       tag
     }
   };
-
-  if (!silent) {
-    options.vibrate = [220, 90, 220];
-  }
 
   event.waitUntil(
     Promise.all([
@@ -206,32 +189,27 @@ async function openTmfitWindow(destination) {
 self.addEventListener("notificationclick", (event) => {
   const action = event.action || "open";
   const notificationData = event.notification.data || {};
-  const phase = notificationData.phase === "active" ? "active" : "finished";
   const destination = new URL(
     notificationData.url ||
-      (phase === "active"
-        ? "/?tmfit=training&tmfit_rest_action=current"
-        : "/?tmfit=training&tmfit_rest_action=next"),
+      "/?tmfit=training&tmfit_rest_action=next",
     self.location.origin
   ).href;
 
+  event.notification.close();
+
   if (action === "stop") {
-    event.notification.close();
     event.waitUntil(stopRestTimer(notificationData));
     return;
   }
 
-  if (phase === "active") {
-    event.notification.close();
-    event.waitUntil(openTmfitWindow(destination));
-    return;
-  }
-
-  event.notification.close();
   event.waitUntil(
     Promise.all([
       stopRestTimer(notificationData),
       openTmfitWindow(destination)
     ])
   );
+});
+
+self.addEventListener("notificationclose", (event) => {
+  event.waitUntil(clearTmfitBadge());
 });
