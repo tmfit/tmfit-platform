@@ -1459,23 +1459,6 @@ function tmfitRestNotificationTag(jobId) {
   return safeJobId ? `tmfit-rest-${safeJobId}` : "tmfit-rest-timer";
 }
 
-function tmfitFormatNotificationClock(timestamp) {
-  const value = Number(timestamp) || Date.parse(timestamp || "");
-  if (!Number.isFinite(value)) return "";
-
-  try {
-    return new Intl.DateTimeFormat("it-IT", {
-      hour: "2-digit",
-      minute: "2-digit"
-    }).format(new Date(value));
-  } catch {
-    return new Date(value).toLocaleTimeString("it-IT", {
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  }
-}
-
 async function closeTmfitRestNotification(jobId) {
   if (!jobId || typeof navigator === "undefined" || !navigator.serviceWorker) {
     return false;
@@ -1493,88 +1476,6 @@ async function closeTmfitRestNotification(jobId) {
   } catch (error) {
     console.warn(
       "TMFIT chiusura notifica timer non riuscita",
-      error?.message || error
-    );
-    return false;
-  }
-}
-
-async function showTmfitActiveRestNotification({
-  jobId,
-  stopToken,
-  alarmAt,
-  exerciseName = "",
-  currentSeries = null,
-  totalSeries = null,
-  workoutName = ""
-}) {
-  if (
-    !jobId ||
-    !stopToken ||
-    !tmfitPushIsSupported() ||
-    Notification.permission !== "granted"
-  ) {
-    return false;
-  }
-
-  try {
-    const registration = await registerTmfitServiceWorker();
-    if (!registration?.showNotification) return false;
-
-    const seriesNumber = Number(currentSeries);
-    const seriesTotal = Number(totalSeries);
-    const seriesText =
-      Number.isInteger(seriesNumber) &&
-      seriesNumber > 0 &&
-      Number.isInteger(seriesTotal) &&
-      seriesTotal > 0
-        ? `Serie ${seriesNumber} di ${seriesTotal}`
-        : "";
-    const finishTime = tmfitFormatNotificationClock(alarmAt);
-    const body = [
-      String(exerciseName || workoutName || "Allenamento").trim(),
-      seriesText,
-      finishTime ? `Termina alle ${finishTime}` : "Recupero in corso"
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const tag = tmfitRestNotificationTag(jobId);
-
-    await registration.showNotification("TMFIT · Recupero attivo", {
-      body,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      tag,
-      renotify: false,
-      requireInteraction: true,
-      silent: true,
-      timestamp: Date.now(),
-      actions: [
-        { action: "stop", title: "Interrompi" },
-        { action: "open", title: "Apri allenamento" }
-      ],
-      data: {
-        phase: "active",
-        url: `/?tmfit=training&tmfit_rest_action=current&tmfit_rest_job=${encodeURIComponent(
-          jobId
-        )}`,
-        stopUrl: "/api/rest-timer/stop",
-        jobId,
-        stopToken,
-        tag
-      }
-    });
-
-    try {
-      await navigator.setAppBadge?.(1);
-    } catch {
-      // Il badge è opzionale e dipende dalle impostazioni del dispositivo.
-    }
-
-    return true;
-  } catch (error) {
-    console.warn(
-      "TMFIT notifica recupero attivo non riuscita",
       error?.message || error
     );
     return false;
@@ -1951,19 +1852,6 @@ function RestTimer({
         pushStopToken: pushStopTokenRef.current
       });
 
-      await showTmfitActiveRestNotification({
-        jobId: result.job_id,
-        stopToken: pushStopTokenRef.current,
-        alarmAt:
-          Date.parse(result.expires_at || "") ||
-          alarmAtRef.current ||
-          Date.now() + Math.max(1, Math.ceil(delaySeconds)) * 1000,
-        exerciseName,
-        currentSeries,
-        totalSeries,
-        workoutName
-      });
-
       if (mountedRef.current) setPushStatus("scheduled");
       return result.job_id;
     } catch (error) {
@@ -2263,25 +2151,6 @@ function RestTimer({
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         refreshAfterBackground();
-        return;
-      }
-
-      if (
-        document.visibilityState === "hidden" &&
-        running &&
-        alarmAtRef.current &&
-        pushJobIdRef.current &&
-        pushStopTokenRef.current
-      ) {
-        void showTmfitActiveRestNotification({
-          jobId: pushJobIdRef.current,
-          stopToken: pushStopTokenRef.current,
-          alarmAt: alarmAtRef.current,
-          exerciseName,
-          currentSeries,
-          totalSeries,
-          workoutName
-        });
       }
     };
 
@@ -2294,14 +2163,7 @@ function RestTimer({
       window.removeEventListener("pageshow", refreshAfterBackground);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [
-    alertActive,
-    running,
-    exerciseName,
-    currentSeries,
-    totalSeries,
-    workoutName
-  ]);
+  }, [alertActive, running]);
 
   async function handlePushEnabled() {
     if (running && remaining > 0) {
