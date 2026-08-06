@@ -12,6 +12,8 @@ import {
   BellRing,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   Copy,
   Dumbbell,
@@ -18853,6 +18855,188 @@ function CompactWorkoutDayCard({
   );
 }
 
+function TrainingPlanNavigatorCard({
+  plan,
+  trainingDays,
+  currentWeek,
+  weekNumbers,
+  onSelectWeek,
+  onOpen,
+  onStart
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const trainingSignature = (trainingDays || [])
+    .map(({ week, day }, index) =>
+      String(day?.id || `${week?.id || week?.week_number || "week"}-${index}`)
+    )
+    .join("|");
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [trainingSignature, currentWeek, plan?.id]);
+
+  const safeIndex = Math.max(
+    0,
+    Math.min(activeIndex, Math.max(0, (trainingDays?.length || 1) - 1))
+  );
+  const selectedTraining = trainingDays?.[safeIndex] || null;
+  const selectedDay = selectedTraining?.day || null;
+  const exerciseCount =
+    selectedDay?.workout_blocks?.reduce(
+      (sum, block) => sum + (block.workout_exercises?.length || 0),
+      0
+    ) || 0;
+  const estimatedMinutes = selectedDay?.estimated_minutes || 60;
+  const hasMultipleDays = (trainingDays?.length || 0) > 1;
+
+  function moveSelection(direction) {
+    setActiveIndex((currentIndex) =>
+      Math.max(
+        0,
+        Math.min(currentIndex + direction, (trainingDays?.length || 1) - 1)
+      )
+    );
+  }
+
+  return (
+    <Card className="overflow-hidden border-none !bg-[#07111f] text-white shadow-lg">
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
+            Seleziona allenamento
+          </p>
+          {hasMultipleDays && (
+            <span className="rounded-full border border-white/10 bg-white/[0.07] px-2.5 py-1 text-[10px] font-black text-slate-200">
+              {safeIndex + 1}/{trainingDays.length}
+            </span>
+          )}
+        </div>
+
+        <div className="mt-2 flex items-stretch gap-2" aria-live="polite">
+          {hasMultipleDays && (
+            <button
+              type="button"
+              onClick={() => moveSelection(-1)}
+              disabled={safeIndex === 0}
+              className="flex w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white transition active:scale-[.96] disabled:cursor-not-allowed disabled:opacity-25"
+              aria-label="Allenamento precedente"
+            >
+              <ChevronLeft size={22} />
+            </button>
+          )}
+
+          <div className="min-w-0 flex-1 rounded-[1.45rem] border border-white/10 bg-white/[0.04] px-3 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-2xl font-black leading-tight tracking-tight text-white">
+                  {selectedDay?.title || "Scheda non disponibile"}
+                </h2>
+                <p className="mt-1 truncate text-xs font-bold text-slate-300">
+                  {plan.title}
+                  {plan.goal ? ` · ${plan.goal}` : ""}
+                </p>
+              </div>
+
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-300 text-slate-950">
+                <Dumbbell size={19} />
+              </span>
+            </div>
+          </div>
+
+          {hasMultipleDays && (
+            <button
+              type="button"
+              onClick={() => moveSelection(1)}
+              disabled={safeIndex === trainingDays.length - 1}
+              className="flex w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white transition active:scale-[.96] disabled:cursor-not-allowed disabled:opacity-25"
+              aria-label="Allenamento successivo"
+            >
+              <ChevronRight size={22} />
+            </button>
+          )}
+        </div>
+
+        {hasMultipleDays && (
+          <div className="mt-2 flex items-center justify-center gap-2" aria-label="Posizione allenamento">
+            {trainingDays.map(({ day }, index) => (
+              <span
+                key={`training-position-${day?.id || index}`}
+                className={`h-2 rounded-full transition-all ${
+                  safeIndex === index ? "w-7 bg-teal-300" : "w-2 bg-white/25"
+                }`}
+                aria-hidden="true"
+              />
+            ))}
+          </div>
+        )}
+
+        {weekNumbers.length > 1 && (
+          <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-2">
+            <span className="shrink-0 pl-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
+              Settimana
+            </span>
+            <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
+              {weekNumbers.map((weekNumber) => {
+                const isActiveWeek = Number(currentWeek) === Number(weekNumber);
+
+                return (
+                  <button
+                    key={weekNumber}
+                    type="button"
+                    onClick={() => onSelectWeek(weekNumber)}
+                    className={`min-h-9 rounded-xl border text-sm font-black transition active:scale-[.97] ${
+                      isActiveWeek
+                        ? "border-teal-300 bg-teal-300 text-slate-950"
+                        : "border-white/10 bg-white/[0.06] text-white"
+                    }`}
+                    aria-pressed={isActiveWeek}
+                    aria-label={`Visualizza settimana ${weekNumber}`}
+                  >
+                    {weekNumber}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
+          <span className="font-black text-white">{exerciseCount || "—"}</span>
+          <span>esercizi</span>
+          <span className="text-slate-600">•</span>
+          <span className="font-black text-white">{estimatedMinutes || "—"}</span>
+          <span>min</span>
+          <span className="text-slate-600">•</span>
+          <span>settimana</span>
+          <span className="font-black text-teal-300">{currentWeek || "—"}</span>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            disabled={!selectedDay}
+            onClick={() => selectedTraining && onOpen(selectedTraining, safeIndex)}
+            className="min-h-11 w-full border border-white/15 bg-white px-3 py-2 text-slate-950 hover:bg-slate-100"
+          >
+            <FileText size={16} className="mr-1.5" />
+            Visualizza
+          </Button>
+
+          <Button
+            type="button"
+            disabled={!selectedDay}
+            onClick={() => selectedTraining && onStart(selectedTraining)}
+            className="min-h-11 w-full bg-teal-300 px-3 py-2 text-slate-950 hover:bg-teal-200"
+          >
+            <Dumbbell size={16} className="mr-1.5" />
+            Inizia
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function WorkoutDayPreviewModal({
   preview,
   onClose,
@@ -21034,117 +21218,27 @@ function getExerciseHistory(exercise) {
               const visibleTrainingDays =
                 currentWeekDays.length > 0 ? currentWeekDays : allTrainingDays;
 
-              const nextTraining = visibleTrainingDays[0] || allTrainingDays[0] || null;
-              const nextDay = nextTraining?.day || null;
-              const nextExerciseCount =
-                nextDay?.workout_blocks?.reduce(
-                  (sum, block) =>
-                    sum + (block.workout_exercises?.length || 0),
-                  0
-                ) || 0;
-              const nextMinutes = nextDay?.estimated_minutes || 60;
-
               return (
                 <div key={plan.id} className="space-y-4">
-                  <Card className="overflow-hidden border-none !bg-[#07111f] text-white shadow-lg">
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
-                            Prossimo allenamento
-                          </p>
-                          <h2 className="mt-1.5 truncate text-2xl font-black leading-tight tracking-tight text-white">
-                            {nextDay?.title || "Scheda non disponibile"}
-                          </h2>
-                          <p className="mt-1 truncate text-xs font-bold text-slate-300">
-                            {plan.title}
-                            {plan.goal ? ` · ${plan.goal}` : ""}
-                          </p>
-                        </div>
-
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-300 text-slate-950">
-                          <Dumbbell size={19} />
-                        </span>
-                      </div>
-
-                      {availableWeekNumbers(plan).length > 1 && (
-                        <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-2">
-                          <span className="shrink-0 pl-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
-                            Settimana
-                          </span>
-                          <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
-                            {availableWeekNumbers(plan).map((weekNumber) => {
-                              const isActiveWeek = Number(currentWeek) === Number(weekNumber);
-
-                              return (
-                                <button
-                                  key={weekNumber}
-                                  type="button"
-                                  onClick={() => selectWorkoutWeek(plan, weekNumber)}
-                                  className={`min-h-9 rounded-xl border text-sm font-black transition active:scale-[.97] ${
-                                    isActiveWeek
-                                      ? "border-teal-300 bg-teal-300 text-slate-950"
-                                      : "border-white/10 bg-white/[0.06] text-white"
-                                  }`}
-                                  aria-pressed={isActiveWeek}
-                                  aria-label={`Visualizza settimana ${weekNumber}`}
-                                >
-                                  {weekNumber}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
-                        <span className="font-black text-white">{nextExerciseCount || "—"}</span>
-                        <span>esercizi</span>
-                        <span className="text-slate-600">•</span>
-                        <span className="font-black text-white">{nextMinutes || "—"}</span>
-                        <span>min</span>
-                        <span className="text-slate-600">•</span>
-                        <span>settimana</span>
-                        <span className="font-black text-teal-300">{currentWeek || "—"}</span>
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <Button
-                          type="button"
-                          disabled={!nextDay}
-                          onClick={() =>
-                            nextTraining &&
-                            openWorkoutDayPreview(
-                              plan,
-                              nextTraining.week,
-                              nextDay,
-                              Math.max(
-                                0,
-                                visibleTrainingDays.findIndex(({ day }) => day?.id === nextDay?.id)
-                              ),
-                              currentWeek
-                            )
-                          }
-                          className="min-h-11 w-full border border-white/15 bg-white px-3 py-2 text-slate-950 hover:bg-slate-100"
-                        >
-                          <FileText size={16} className="mr-1.5" />
-                          Visualizza
-                        </Button>
-
-                        <Button
-                          type="button"
-                          disabled={!nextDay}
-                          onClick={() =>
-                            openWorkoutPlayerWithNotifications(plan, nextDay, currentWeek)
-                          }
-                          className="min-h-11 w-full bg-teal-300 px-3 py-2 text-slate-950 hover:bg-teal-200"
-                        >
-                          <Dumbbell size={16} className="mr-1.5" />
-                          Inizia
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
+                  <TrainingPlanNavigatorCard
+                    plan={plan}
+                    trainingDays={visibleTrainingDays}
+                    currentWeek={currentWeek}
+                    weekNumbers={availableWeekNumbers(plan)}
+                    onSelectWeek={(weekNumber) => selectWorkoutWeek(plan, weekNumber)}
+                    onOpen={({ week, day }, dayIndex) =>
+                      openWorkoutDayPreview(
+                        plan,
+                        week,
+                        day,
+                        dayIndex,
+                        currentWeek
+                      )
+                    }
+                    onStart={({ day }) =>
+                      openWorkoutPlayerWithNotifications(plan, day, currentWeek)
+                    }
+                  />
 
                   <Card className="overflow-hidden border-none bg-transparent p-0 shadow-none">
                     <div className="rounded-[1.8rem] border border-slate-200 bg-white p-4 shadow-sm">
