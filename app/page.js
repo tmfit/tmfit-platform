@@ -1979,9 +1979,36 @@ function RestTimer({
       1,
       Math.min(3599, Number(durationOverride) || initialSeconds)
     );
+
+    // Il countdown visibile deve partire subito: non aspettiamo Supabase/QStash.
+    // Prima invalidiamo logicamente l'eventuale programmazione precedente, poi
+    // avviamo il timer locale e solo dopo sincronizziamo la push in background.
     primeTmfitTimerAudio();
-    await stopAlert();
+    scheduleGenerationRef.current += 1;
+    const generation = scheduleGenerationRef.current;
+    const previousJobId = pushJobIdRef.current;
+
+    pushJobIdRef.current = "";
+    pushStopTokenRef.current = "";
+    setAlertActive(false);
+    setPushStatus("idle");
+    stopTmfitTimerAlarmLoop();
+
+    try {
+      navigator.vibrate?.(0);
+      navigator.clearAppBadge?.();
+    } catch {
+      // API opzionali.
+    }
+
     beginLocalTimer(safeDuration);
+    writeSnapshot({ pushJobId: "", pushStopToken: "" });
+
+    // La pulizia della vecchia push può richiedere rete, ma non deve mai
+    // ritardare l'avvio del countdown mostrato al cliente.
+    await cancelScheduledPush(previousJobId);
+    if (generation !== scheduleGenerationRef.current) return;
+
     await schedulePush(safeDuration);
   }
 
@@ -2107,7 +2134,12 @@ function RestTimer({
 
       const stoppedJobId = String(payload.jobId || "");
       const activeJobId = String(pushJobIdRef.current || "");
-      if (stoppedJobId && activeJobId && stoppedJobId !== activeJobId) return;
+
+      // Una notifica scaduta deve poter chiudere esclusivamente il timer che
+      // l'ha generata. In particolare, se il timer successivo è appena partito
+      // e la sua nuova push è ancora in fase di programmazione, activeJobId può
+      // essere temporaneamente vuoto: non bisogna spegnere quel nuovo countdown.
+      if (stoppedJobId && (!activeJobId || stoppedJobId !== activeJobId)) return;
 
       scheduleGenerationRef.current += 1;
       pushJobIdRef.current = "";
