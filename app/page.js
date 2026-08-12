@@ -3021,6 +3021,397 @@ function safePdfDownloadName(value, fallback = "TMFIT-piano-alimentare.pdf") {
   return clean.toLowerCase().endsWith(".pdf") ? clean : `${clean}.pdf`;
 }
 
+
+function tmfitWorkoutPdfLatin1(value) {
+  return String(value ?? "")
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, "-")
+    .replace(/×/g, "x")
+    .replace(/€/g, "EUR")
+    .replace(/•/g, "-")
+    .normalize("NFC")
+    .split("")
+    .map((char) => (char.charCodeAt(0) <= 255 ? char : "?"))
+    .join("");
+}
+
+function tmfitWorkoutPdfEscape(value) {
+  return tmfitWorkoutPdfLatin1(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function tmfitWorkoutPdfBytes(value) {
+  const clean = tmfitWorkoutPdfLatin1(value);
+  const bytes = new Uint8Array(clean.length);
+
+  for (let index = 0; index < clean.length; index += 1) {
+    bytes[index] = clean.charCodeAt(index) & 0xff;
+  }
+
+  return bytes;
+}
+
+function tmfitWrapWorkoutPdfText(value, size = 10, maxWidth = 500) {
+  const text = tmfitWorkoutPdfLatin1(value).trim();
+  if (!text) return [""];
+
+  const maxChars = Math.max(22, Math.floor(maxWidth / Math.max(4.8, size * 0.52)));
+  const words = text.split(/\s+/);
+  const lines = [];
+  let line = "";
+
+  words.forEach((word) => {
+    const candidate = line ? `${line} ${word}` : word;
+
+    if (candidate.length <= maxChars) {
+      line = candidate;
+      return;
+    }
+
+    if (line) lines.push(line);
+
+    if (word.length <= maxChars) {
+      line = word;
+      return;
+    }
+
+    for (let start = 0; start < word.length; start += maxChars) {
+      const chunk = word.slice(start, start + maxChars);
+      if (chunk.length === maxChars) lines.push(chunk);
+      else line = chunk;
+    }
+  });
+
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
+}
+
+function tmfitWorkoutPdfProgression(exercise, weekNumber) {
+  return (
+    exercise?.workout_exercise_progressions?.find(
+      (item) => Number(item.week_number) === Number(weekNumber)
+    ) || null
+  );
+}
+
+function tmfitWorkoutPdfExerciseSummary(exercise, weekNumber) {
+  const progression = tmfitWorkoutPdfProgression(exercise, weekNumber);
+  const targetSets =
+    progression?.target_sets ||
+    exercise?.workout_exercise_sets?.length ||
+    exercise?.sets ||
+    exercise?.series ||
+    "-";
+  const targetReps = progression?.target_reps || exercise?.reps || "-";
+  const recovery =
+    progression?.recovery_seconds ??
+    exercise?.recovery_seconds ??
+    exercise?.rest_seconds ??
+    "";
+  const rpe = progression?.target_rpe ?? exercise?.target_rpe ?? "";
+  const rir = progression?.target_rir ?? exercise?.target_rir ?? "";
+  const parts = [`${targetSets} x ${targetReps}`];
+
+  if (String(recovery).trim()) parts.push(`rec. ${compactWorkoutRecoveryLabel(recovery)}`);
+  if (String(rpe).trim()) parts.push(`RPE ${rpe}`);
+  if (String(rir).trim()) parts.push(`RIR ${rir}`);
+
+  return parts.join(" | ");
+}
+
+function buildTmfitTrainingPlanPdfBytes({
+  clientName = "",
+  plan = null,
+  trainingDays = [],
+  weekNumber = 1
+}) {
+  const pages = [[]];
+  let y = 795;
+
+  function newPage() {
+    pages.push([]);
+    y = 795;
+  }
+
+  function ensureSpace(height = 40) {
+    if (y - height < 52) newPage();
+  }
+
+  function addText(text, options = {}) {
+    const size = Number(options.size) || 10;
+    const bold = Boolean(options.bold);
+    const x = Number(options.x) || 44;
+    const maxWidth = Number(options.maxWidth) || 507;
+    const leading = Number(options.leading) || Math.max(13, size * 1.35);
+    const after = Number(options.after) || 0;
+    const color = options.color || "0 0 0";
+    const wrapped = tmfitWrapWorkoutPdfText(text, size, maxWidth);
+
+    wrapped.forEach((line) => {
+      ensureSpace(leading);
+      pages[pages.length - 1].push({ text: line, size, bold, x, y, color });
+      y -= leading;
+    });
+
+    y -= after;
+  }
+
+  function addRule() {
+    ensureSpace(18);
+    pages[pages.length - 1].push({ rule: true, x1: 44, x2: 551, y });
+    y -= 16;
+  }
+
+  function addSpacer(value = 8) {
+    y -= value;
+    ensureSpace(0);
+  }
+
+  addText("TMFIT", { size: 21, bold: true, color: "0.02 0.35 0.34", after: 2 });
+  addText("SCHEDA ALLENAMENTO", {
+    size: 10,
+    bold: true,
+    color: "0.35 0.4 0.48",
+    after: 14
+  });
+  addText(plan?.title || "Programma di allenamento", { size: 23, bold: true, after: 5 });
+
+  if (clientName) addText(`Cliente: ${clientName}`, { size: 11, bold: true, after: 2 });
+  addText(`Settimana: ${weekNumber}`, { size: 11, bold: true, after: 2 });
+
+  if (plan?.goal) {
+    addText(`Obiettivo: ${plan.goal}`, { size: 10, color: "0.28 0.33 0.42", after: 2 });
+  }
+  if (plan?.duration_weeks) {
+    addText(`Durata programma: ${plan.duration_weeks} settimane`, {
+      size: 10,
+      color: "0.28 0.33 0.42",
+      after: 2
+    });
+  }
+  if (plan?.notes) {
+    addSpacer(5);
+    addText(`Indicazioni generali: ${plan.notes}`, {
+      size: 10,
+      color: "0.28 0.33 0.42",
+      after: 2
+    });
+  }
+
+  addSpacer(8);
+  addRule();
+  addText(`Allenamenti inclusi: ${trainingDays.length}`, {
+    size: 10,
+    bold: true,
+    color: "0.02 0.35 0.34",
+    after: 8
+  });
+
+  trainingDays.forEach(({ day }, dayIndex) => {
+    if (dayIndex > 0) newPage();
+
+    const blocks = sortByOrder(day?.workout_blocks || []);
+    const exerciseCount = blocks.reduce(
+      (sum, block) => sum + (block?.workout_exercises?.length || 0),
+      0
+    );
+
+    addText(`ALLENAMENTO ${dayIndex + 1}`, {
+      size: 10,
+      bold: true,
+      color: "0.02 0.35 0.34",
+      after: 3
+    });
+    addText(day?.title || `Allenamento ${dayIndex + 1}`, {
+      size: 22,
+      bold: true,
+      after: 4
+    });
+    addText(
+      `${exerciseCount} esercizi | ${day?.estimated_minutes || 60} minuti stimati | Settimana ${weekNumber}`,
+      { size: 10, bold: true, color: "0.35 0.4 0.48", after: 6 }
+    );
+
+    if (day?.notes) {
+      addText(`Note allenamento: ${day.notes}`, {
+        size: 10,
+        color: "0.28 0.33 0.42",
+        after: 7
+      });
+    }
+
+    addRule();
+
+    let globalExerciseIndex = 0;
+    blocks.forEach((block, blockIndex) => {
+      const blockExercises = sortByOrder(block?.workout_exercises || []);
+      if (!blockExercises.length) return;
+
+      if (block?.title || blocks.length > 1) {
+        addText(block?.title || `Blocco ${blockIndex + 1}`, {
+          size: 11,
+          bold: true,
+          color: "0.02 0.35 0.34",
+          after: 5
+        });
+      }
+
+      blockExercises.forEach((exercise) => {
+        globalExerciseIndex += 1;
+        ensureSpace(72);
+
+        const groupLabel = workoutGroupLabel(exercise);
+        const exerciseTitle = exercise?.exercise_name || "Esercizio";
+        const execution = String(
+          exercise?.execution_mode || cleanWorkoutNotes(exercise?.notes || "")
+        ).trim();
+
+        addText(
+          `${globalExerciseIndex}. ${exerciseTitle}${groupLabel ? ` [${groupLabel}]` : ""}`,
+          { size: 12, bold: true, after: 3 }
+        );
+        addText(tmfitWorkoutPdfExerciseSummary(exercise, weekNumber), {
+          size: 10,
+          bold: true,
+          x: 54,
+          maxWidth: 497,
+          color: "0.28 0.33 0.42",
+          after: 2
+        });
+
+        if (execution) {
+          addText(`Esecuzione: ${execution}`, {
+            size: 9.5,
+            x: 54,
+            maxWidth: 497,
+            color: "0.35 0.4 0.48",
+            after: 2
+          });
+        }
+
+        addSpacer(5);
+      });
+
+      addSpacer(4);
+    });
+  });
+
+  const pageCount = pages.length;
+  pages.forEach((page, index) => {
+    page.push({
+      text: `TMFIT - Scheda allenamento - Settimana ${weekNumber} - Pagina ${index + 1}/${pageCount}`,
+      size: 8,
+      bold: false,
+      x: 44,
+      y: 28,
+      color: "0.45 0.49 0.56"
+    });
+  });
+
+  const objects = [];
+  const catalogId = 1;
+  const pagesId = 2;
+  const regularFontId = 3;
+  const boldFontId = 4;
+  let nextObjectId = 5;
+  const pageIds = [];
+
+  objects[regularFontId] =
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  objects[boldFontId] =
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
+
+  pages.forEach((page) => {
+    const pageId = nextObjectId++;
+    const contentId = nextObjectId++;
+    pageIds.push(pageId);
+
+    const content = page
+      .map((line) => {
+        if (line.rule) {
+          return `0.84 0.86 0.9 RG 0.8 w ${line.x1} ${line.y} m ${line.x2} ${line.y} l S`;
+        }
+
+        const fontName = line.bold ? "F2" : "F1";
+        return `BT /${fontName} ${line.size} Tf ${line.color || "0 0 0"} rg 1 0 0 1 ${line.x} ${line.y} Tm (${tmfitWorkoutPdfEscape(line.text)}) Tj ET`;
+      })
+      .join("\n");
+
+    objects[contentId] = `<< /Length ${tmfitWorkoutPdfLatin1(content).length} >>\nstream\n${content}\nendstream`;
+    objects[pageId] =
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] ` +
+      `/Resources << /Font << /F1 ${regularFontId} 0 R /F2 ${boldFontId} 0 R >> >> ` +
+      `/Contents ${contentId} 0 R >>`;
+  });
+
+  objects[pagesId] =
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
+  objects[catalogId] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+
+  let pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const offsets = [0];
+  const maxObjectId = objects.length - 1;
+
+  for (let id = 1; id <= maxObjectId; id += 1) {
+    offsets[id] = tmfitWorkoutPdfLatin1(pdf).length;
+    pdf += `${id} 0 obj\n${objects[id]}\nendobj\n`;
+  }
+
+  const xrefOffset = tmfitWorkoutPdfLatin1(pdf).length;
+  pdf += `xref\n0 ${maxObjectId + 1}\n`;
+  pdf += "0000000000 65535 f \n";
+
+  for (let id = 1; id <= maxObjectId; id += 1) {
+    pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  }
+
+  pdf +=
+    `trailer\n<< /Size ${maxObjectId + 1} /Root ${catalogId} 0 R >>\n` +
+    `startxref\n${xrefOffset}\n%%EOF`;
+
+  return tmfitWorkoutPdfBytes(pdf);
+}
+
+function downloadTmfitTrainingPlanPdf({
+  clientName = "",
+  plan = null,
+  trainingDays = [],
+  weekNumber = 1
+}) {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (!plan || !trainingDays.length) {
+    window.alert("Non ci sono allenamenti disponibili da inserire nel PDF.");
+    return;
+  }
+
+  try {
+    const pdfBytes = buildTmfitTrainingPlanPdfBytes({
+      clientName,
+      plan,
+      trainingDays,
+      weekNumber
+    });
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const rawFileName = `TMFIT-${clientName || "cliente"}-${plan?.title || "scheda"}-settimana-${weekNumber}.pdf`;
+
+    link.href = objectUrl;
+    link.download = safePdfDownloadName(rawFileName, "TMFIT-scheda-allenamento.pdf");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1800);
+  } catch (error) {
+    console.warn("Generazione PDF scheda non riuscita", error?.message || error);
+    window.alert("Non è stato possibile generare il PDF della scheda. Riprova.");
+  }
+}
+
 function storagePathBelongsToClient(path, clientId) {
   if (!path || clientId === null || clientId === undefined) return false;
 
@@ -17240,7 +17631,58 @@ function WorkoutPlayerModal({
   const showRpe = hasValue(currentSet?.target_rpe) || hasValue(exercise?.target_rpe);
   const showRir = hasValue(currentSet?.target_rir) || hasValue(exercise?.target_rir);
   const videoUrl = exercise?.video_url || exercise?.image_url || "";
-  const history = exercise ? getExerciseHistory(exercise) : [];
+  const databaseHistory = exercise ? getExerciseHistory(exercise) : [];
+  const localSavedHistory = exercise
+    ? Object.entries(liveDrafts || {})
+        .filter(
+          ([key, value]) =>
+            key.startsWith(`${exercise.id}-`) &&
+            value &&
+            (value._logId || value._savedAt) &&
+            (hasValue(value.load_kg) || hasValue(value.reps_done))
+        )
+        .map(([key, value]) => ({
+          id: value._logId || `local-${key}`,
+          workout_exercise_id: exercise.id,
+          load_kg: value.load_kg ?? null,
+          reps_done: value.reps_done ?? null,
+          rpe: value.rpe ?? null,
+          rir: value.rir ?? null,
+          created_at: value._savedAt || new Date().toISOString(),
+          workout_exercises: {
+            exercise_name: exercise.exercise_name || "Esercizio"
+          },
+          workout_sessions: {
+            session_date: String(
+              value._savedAt || new Date().toISOString()
+            ).slice(0, 10)
+          }
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.created_at || 0).getTime() -
+            new Date(a.created_at || 0).getTime()
+        )
+    : [];
+  const history = Array.from(
+    new Map(
+      [...databaseHistory, ...localSavedHistory].map((item, index) => [
+        String(item?.id || item?._logId || `history-${index}`),
+        item
+      ])
+    ).values()
+  )
+    .sort((a, b) => {
+      const dateA = new Date(
+        a?.workout_sessions?.session_date || a?.created_at || 0
+      ).getTime();
+      const dateB = new Date(
+        b?.workout_sessions?.session_date || b?.created_at || 0
+      ).getTime();
+      return (Number.isNaN(dateB) ? 0 : dateB) -
+        (Number.isNaN(dateA) ? 0 : dateA);
+    })
+    .slice(0, 12);
   const lastHistory = history[0] || null;
   const canGoPrevious = Boolean(previousExecutionStep);
   const currentSetSaved = Boolean(draftKey && completedSetKeys.includes(draftKey));
@@ -20605,6 +21047,43 @@ function getExerciseHistory(exercise) {
     savedLog = data;
   }
 
+  const immediateHistoryLog = {
+    ...(savedLog || {}),
+    workout_exercise_id: exercise.id,
+    load_kg: payload.load_kg,
+    reps_done: payload.reps_done,
+    rpe: payload.rpe,
+    rir: payload.rir,
+    completed: true,
+    created_at: savedLog?.created_at || new Date().toISOString(),
+    workout_exercises: {
+      ...(savedLog?.workout_exercises || {}),
+      exercise_name: exercise.exercise_name || "Esercizio"
+    },
+    workout_sessions: {
+      ...(savedLog?.workout_sessions || {}),
+      id: sessionId,
+      session_date: today(),
+      plan_id: plan.id,
+      day_id: day.id,
+      client_id: Number(client?.id) || null
+    }
+  };
+
+  setLoadHistory((prev) => [
+    immediateHistoryLog,
+    ...(prev || []).filter(
+      (item) => String(item?.id || "") !== String(immediateHistoryLog?.id || "")
+    )
+  ]);
+  setWorkoutCalendarLogs((prev) => [
+    ...(prev || []).filter(
+      (item) => String(item?.id || "") !== String(immediateHistoryLog?.id || "")
+    ),
+    immediateHistoryLog
+  ]);
+  setLoadHistoryLoaded(true);
+
   const savedDraftValue = {
     ...draft,
     load_kg: draft.load_kg || "",
@@ -21285,6 +21764,24 @@ function getExerciseHistory(exercise) {
                           Apri un allenamento per visualizzare esercizi, target e indicazioni complete.
                         </p>
                       </div>
+
+                      {visibleTrainingDays.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadTmfitTrainingPlanPdf({
+                              clientName: fullName(client),
+                              plan,
+                              trainingDays: visibleTrainingDays,
+                              weekNumber: currentWeek
+                            })
+                          }
+                          className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#07111f] px-4 text-sm font-black text-white transition active:scale-[.98]"
+                        >
+                          <FileText size={17} />
+                          Scarica PDF scheda completa
+                        </button>
+                      )}
 
                       {plan.notes && (
                         <p className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-500">
