@@ -3216,30 +3216,13 @@ function buildTmfitTrainingPlanPdfBytes({
     pushText(text, x + Math.max(0, (w - measured) / 2), y, options);
   }
 
-  function pushWrappedText(text, x, y, options = {}) {
-    const size = Number(options.size) || 10;
-    const maxWidth = Number(options.maxWidth) || 480;
-    const leading = Number(options.leading) || Math.max(12, size * 1.35);
-    const lines = tmfitWrapWorkoutPdfText(text, size, maxWidth);
-
-    lines.forEach((line, index) => {
-      pushText(line, x, y - index * leading, options);
-    });
-
-    return {
-      lines,
-      bottomY: y - lines.length * leading,
-      height: lines.length * leading
-    };
-  }
-
   function pushPill(text, x, y, w, h, options = {}) {
     pushRect(x, y, w, h, {
       fill: options.fill || COLORS.teal,
       stroke: options.stroke || "",
       radius: h / 2
     });
-    const size = Number(options.size) || 9;
+    const size = Number(options.size) || 8;
     const baseline = y + h / 2 - size * 0.34;
     pushCenteredText(text, x, baseline, w, {
       size,
@@ -3290,341 +3273,233 @@ function buildTmfitTrainingPlanPdfBytes({
     };
   }
 
+  function compactOneLine(value, size, maxWidth) {
+    const clean = tmfitWorkoutPdfLatin1(value).replace(/\s+/g, " ").trim();
+    if (!clean) return "";
+    if (textWidth(clean, size, false) <= maxWidth) return clean;
+
+    let text = clean;
+    while (text.length > 8 && textWidth(`${text}...`, size, false) > maxWidth) {
+      text = text.slice(0, -1);
+    }
+    return `${text.trim()}...`;
+  }
+
   function drawFooter(pageIndex, pageCount) {
     const page = pages[pageIndex];
     const savedPage = currentPage;
     currentPage = page;
-    pushLine(34, 38, 561, 38, { stroke: COLORS.border, lineWidth: 0.6 });
-    pushText("TMFIT", 34, 22, { size: 8.5, bold: true, color: COLORS.tealDark });
-    pushText(`Scheda allenamento - settimana ${weekNumber}`, 73, 22, {
-      size: 8,
+    pushLine(34, 34, 561, 34, { stroke: COLORS.border, lineWidth: 0.6 });
+    pushText("TMFIT", 34, 19, { size: 8, bold: true, color: COLORS.tealDark });
+    pushText(`${plan?.title || "Scheda allenamento"} - settimana ${weekNumber}`, 72, 19, {
+      size: 7.5,
       color: COLORS.muted
     });
     const pageText = `${pageIndex + 1}/${pageCount}`;
-    pushText(pageText, 561 - textWidth(pageText, 8, true), 22, {
-      size: 8,
+    pushText(pageText, 561 - textWidth(pageText, 7.5, true), 19, {
+      size: 7.5,
       bold: true,
       color: COLORS.slate
     });
     currentPage = savedPage;
   }
 
-  function drawCoverPage() {
-    createPage(COLORS.paper);
-
-    // Hero TMFIT
-    pushRect(28, 552, 539, 258, {
-      fill: COLORS.navy,
-      radius: 26
-    });
-    pushText("TMFIT", 58, 773, {
-      size: 12,
-      bold: true,
-      color: COLORS.teal
-    });
-    pushText("PROGRAMMA DI ALLENAMENTO", 58, 754, {
-      size: 8.5,
-      bold: true,
-      color: "0.78 0.83 0.90"
-    });
-    pushPill(`SETTIMANA ${weekNumber}`, 425, 760, 112, 31, {
-      fill: COLORS.teal,
-      color: COLORS.ink,
-      size: 8.5
-    });
-
-    const titleBlock = pushWrappedText(plan?.title || "Scheda allenamento", 58, 715, {
-      size: 25,
-      bold: true,
-      color: COLORS.white,
-      maxWidth: 445,
-      leading: 29
-    });
-    let infoY = Math.min(668, titleBlock.bottomY - 9);
-
-    if (clientName) {
-      pushText(clientName, 58, infoY, {
-        size: 11.5,
-        bold: true,
-        color: "0.86 0.90 0.95"
-      });
-      infoY -= 22;
-    }
-
-    if (plan?.goal) {
-      pushWrappedText(plan.goal, 58, infoY, {
-        size: 10.5,
-        color: "0.78 0.83 0.90",
-        maxWidth: 455,
-        leading: 14
-      });
-    }
-
-    // Metric cards
-    pushRect(36, 465, 252, 67, { fill: COLORS.white, stroke: COLORS.border, radius: 18 });
-    pushRect(307, 465, 252, 67, { fill: COLORS.white, stroke: COLORS.border, radius: 18 });
-    pushText(String(trainingDays.length), 55, 495, { size: 21, bold: true, color: COLORS.ink });
-    pushText("ALLENAMENTI", 55, 478, { size: 8.5, bold: true, color: COLORS.muted });
-    pushText(String(plan?.duration_weeks || weekNumber || 1), 326, 495, {
-      size: 21,
-      bold: true,
-      color: COLORS.ink
-    });
-    pushText(plan?.duration_weeks ? "SETTIMANE PROGRAMMA" : "SETTIMANA ATTIVA", 326, 478, {
-      size: 8.5,
-      bold: true,
-      color: COLORS.muted
-    });
-
-    pushText("PANORAMICA ALLENAMENTI", 42, 426, {
-      size: 9,
-      bold: true,
-      color: COLORS.tealDark
-    });
-
-    const visibleDays = trainingDays.slice(0, 8);
-    const cardW = 252;
-    const cardH = 70;
-    const xPositions = [36, 307];
-    let cardTop = 407;
-
-    visibleDays.forEach(({ day }, index) => {
-      const column = index % 2;
-      const row = Math.floor(index / 2);
-      const x = xPositions[column];
-      const y = cardTop - row * 80 - cardH;
-      const letter = workoutLetter(index);
-      const title = day?.title || `Allenamento ${letter}`;
-      const count = workoutExerciseCount(day);
-
-      pushRect(x, y, cardW, cardH, {
-        fill: COLORS.white,
-        stroke: COLORS.border,
-        radius: 17
-      });
-      pushRect(x + 13, y + 19, 32, 32, { fill: COLORS.tealSoft, radius: 12 });
-      pushCenteredText(letter, x + 13, y + 30, 32, {
-        size: 10,
-        bold: true,
-        color: COLORS.tealDark
-      });
-
-      const wrapped = tmfitWrapWorkoutPdfText(title, 10.5, 170).slice(0, 2);
-      wrapped.forEach((line, lineIndex) => {
-        pushText(line, x + 58, y + 44 - lineIndex * 13, {
-          size: 10.5,
-          bold: true,
-          color: COLORS.ink
-        });
-      });
-      pushText(`${count} esercizi  -  ${day?.estimated_minutes || 60} min`, x + 58, y + 13, {
-        size: 8.5,
-        bold: true,
-        color: COLORS.muted
-      });
-    });
-
-    if (trainingDays.length > visibleDays.length) {
-      pushText(`+ ${trainingDays.length - visibleDays.length} allenamenti inclusi nel PDF`, 42, 70, {
-        size: 9,
-        bold: true,
-        color: COLORS.slate
-      });
-    }
-  }
-
   function drawWorkoutHeader(day, dayIndex, continuation = false) {
     createPage(COLORS.paper);
     currentWorkoutMeta = { day, dayIndex };
+
     const letter = workoutLetter(dayIndex);
     const exerciseCount = workoutExerciseCount(day);
+    const title = day?.title || `Allenamento ${letter}`;
+    const titleLines = tmfitWrapWorkoutPdfText(title, continuation ? 15 : 18, 360).slice(0, 2);
+    const hasTwoTitleLines = titleLines.length > 1;
 
     if (continuation) {
-      pushRect(0, 726, PAGE_WIDTH, 116, { fill: COLORS.navy });
-      pushPill(`ALLENAMENTO ${letter}`, 34, 782, 118, 28, {
+      pushRect(0, 774, PAGE_WIDTH, 68, { fill: COLORS.navy });
+      pushText("TMFIT", 34, 815, { size: 9.5, bold: true, color: COLORS.teal });
+      pushPill(`ALLENAMENTO ${letter}`, 34, 788, 112, 24, {
         fill: COLORS.teal,
         color: COLORS.ink,
-        size: 8.3
+        size: 7.5
       });
-      pushText(day?.title || `Allenamento ${letter}`, 34, 752, {
+      const continuationTitle = compactOneLine(title, 15, 300);
+      pushText(continuationTitle, 160, 795, { size: 15, bold: true, color: COLORS.white });
+      pushText("CONTINUA", 503, 795, { size: 7.2, bold: true, color: "0.72 0.78 0.86" });
+      flowY = 758;
+      return;
+    }
+
+    const headerBottom = 708;
+    pushRect(0, headerBottom, PAGE_WIDTH, PAGE_HEIGHT - headerBottom, { fill: COLORS.navy });
+
+    pushText("TMFIT", 34, 814, { size: 10.5, bold: true, color: COLORS.teal });
+    pushText("SCHEDA ALLENAMENTO", 74, 814, { size: 7.2, bold: true, color: "0.75 0.81 0.88" });
+    pushPill(`SETTIMANA ${weekNumber}`, 455, 800, 106, 25, {
+      fill: COLORS.navySoft,
+      color: "0.92 0.95 0.98",
+      size: 7.4
+    });
+
+    pushPill(`ALLENAMENTO ${letter}`, 34, 770, 114, 26, {
+      fill: COLORS.teal,
+      color: COLORS.ink,
+      size: 7.7
+    });
+
+    titleLines.forEach((line, index) => {
+      pushText(line, 166, 777 - index * 21, {
         size: 18,
         bold: true,
         color: COLORS.white
       });
-      pushText("CONTINUA", 493, 791, {
+    });
+
+    const metaY = 738;
+    const planLine = [plan?.title, plan?.goal].filter(Boolean).join(" - ");
+    if (planLine) {
+      pushText(compactOneLine(planLine, 8.5, 500), 34, metaY, {
         size: 8.5,
         bold: true,
-        color: "0.72 0.78 0.86"
+        color: "0.77 0.82 0.89"
       });
-      flowY = 692;
-      return;
-    }
-
-    pushRect(0, 620, PAGE_WIDTH, 222, { fill: COLORS.navy });
-    pushPill(`ALLENAMENTO ${letter}`, 34, 786, 118, 29, {
-      fill: COLORS.teal,
-      color: COLORS.ink,
-      size: 8.5
-    });
-    pushPill(`SETTIMANA ${weekNumber}`, 163, 786, 108, 29, {
-      fill: COLORS.navySoft,
-      color: "0.90 0.93 0.97",
-      size: 8.2
-    });
-
-    const title = day?.title || `Allenamento ${letter}`;
-    pushWrappedText(title, 34, 744, {
-      size: 23,
-      bold: true,
-      color: COLORS.white,
-      maxWidth: 500,
-      leading: 27
-    });
-
-    const subtitleParts = [];
-    if (plan?.title) subtitleParts.push(plan.title);
-    if (plan?.goal) subtitleParts.push(plan.goal);
-    if (subtitleParts.length) {
-      pushWrappedText(subtitleParts.join(" - "), 34, 690, {
-        size: 9.5,
+    } else if (clientName) {
+      pushText(compactOneLine(clientName, 8.5, 500), 34, metaY, {
+        size: 8.5,
         bold: true,
-        color: "0.76 0.81 0.88",
-        maxWidth: 515,
-        leading: 13
+        color: "0.77 0.82 0.89"
       });
     }
 
-    pushRect(34, 637, 247, 54, { fill: COLORS.navySoft, radius: 15 });
-    pushRect(294, 637, 267, 54, { fill: COLORS.navySoft, radius: 15 });
-    pushText(String(exerciseCount), 51, 663, { size: 18, bold: true, color: COLORS.white });
-    pushText("ESERCIZI", 51, 647, { size: 8, bold: true, color: "0.72 0.78 0.86" });
-    pushText(String(day?.estimated_minutes || 60), 311, 663, {
-      size: 18,
-      bold: true,
-      color: COLORS.white
+    const metricsY = 713;
+    pushPill(`${exerciseCount} ESERCIZI`, 34, metricsY, 94, 24, {
+      fill: COLORS.navySoft,
+      color: COLORS.white,
+      size: 7.4
     });
-    pushText("MINUTI STIMATI", 311, 647, {
-      size: 8,
-      bold: true,
-      color: "0.72 0.78 0.86"
+    pushPill(`${day?.estimated_minutes || 60} MIN`, 136, metricsY, 82, 24, {
+      fill: COLORS.navySoft,
+      color: COLORS.white,
+      size: 7.4
     });
+    if (clientName) {
+      pushText(compactOneLine(clientName, 8, 310), 240, metricsY + 7, {
+        size: 8,
+        bold: true,
+        color: "0.82 0.87 0.93"
+      });
+    }
 
-    pushText("ESERCIZI", 42, 606, {
-      size: 10,
-      bold: true,
-      color: COLORS.tealDark
-    });
-    flowY = 580;
+    flowY = 690;
   }
 
   function ensureWorkoutSpace(height) {
-    if (flowY - height >= 55) return;
+    if (flowY - height >= 48) return;
     drawWorkoutHeader(currentWorkoutMeta.day, currentWorkoutMeta.dayIndex, true);
+  }
+
+  function drawBlockLabel(label) {
+    ensureWorkoutSpace(24);
+    const clean = compactOneLine(String(label || "Blocco").toUpperCase(), 7.6, 430);
+    pushText(clean, 42, flowY - 2, { size: 7.6, bold: true, color: COLORS.tealDark });
+    const lineStart = 42 + Math.min(220, textWidth(clean, 7.6, true) + 12);
+    pushLine(lineStart, flowY + 1, 553, flowY + 1, { stroke: COLORS.border, lineWidth: 0.7 });
+    flowY -= 19;
   }
 
   function drawExerciseCard(exercise, exerciseIndex) {
     const metrics = workoutMetricValues(exercise);
     const groupLabel = workoutGroupLabel(exercise);
-    const exerciseTitle = exercise?.exercise_name || "Esercizio";
+    const exerciseTitle = String(exercise?.exercise_name || "Esercizio").trim();
     const execution = String(
       exercise?.execution_mode || cleanWorkoutNotes(exercise?.notes || "")
-    ).trim();
+    ).replace(/\s+/g, " ").trim();
 
-    const titleLines = tmfitWrapWorkoutPdfText(exerciseTitle, 12, groupLabel ? 338 : 390).slice(0, 3);
+    const titleMaxWidth = groupLabel ? 300 : 405;
+    const titleLines = tmfitWrapWorkoutPdfText(exerciseTitle, 9.6, titleMaxWidth);
     const executionLines = execution
-      ? tmfitWrapWorkoutPdfText(execution, 9.5, 414).slice(0, 5)
+      ? tmfitWrapWorkoutPdfText(execution, 7.1, 398)
       : [];
-
-    const titleHeight = Math.max(27, titleLines.length * 14);
-    const executionHeight = executionLines.length ? 24 + executionLines.length * 11 : 0;
-    const cardHeight = 20 + titleHeight + 55 + executionHeight + 14;
-
-    ensureWorkoutSpace(cardHeight + 14);
+    const titleExtra = Math.max(0, titleLines.length - 1) * 10;
+    const executionExtra = Math.max(0, executionLines.length - 1) * 8;
+    const cardHeight = 49 + titleExtra + executionExtra;
+    ensureWorkoutSpace(cardHeight + 4);
 
     const cardTop = flowY;
     const cardBottom = cardTop - cardHeight;
+
     pushRect(34, cardBottom, 527, cardHeight, {
       fill: COLORS.white,
       stroke: COLORS.border,
-      lineWidth: 0.9,
-      radius: 22
+      lineWidth: 0.7,
+      radius: 12
     });
 
-    // Exercise number
-    pushRect(51, cardTop - 47, 34, 34, { fill: COLORS.surface, radius: 12 });
-    pushCenteredText(String(exerciseIndex + 1), 51, cardTop - 36, 34, {
-      size: 10.5,
+    pushRect(45, cardTop - 34, 24, 24, { fill: COLORS.surface, radius: 8 });
+    pushCenteredText(String(exerciseIndex + 1), 45, cardTop - 26, 24, {
+      size: 7.6,
       bold: true,
       color: COLORS.slate
     });
 
     titleLines.forEach((line, lineIndex) => {
-      pushText(line, 101, cardTop - 30 - lineIndex * 15, {
-        size: 12,
+      pushText(line, 82, cardTop - 17 - lineIndex * 10, {
+        size: 9.6,
         bold: true,
         color: COLORS.ink
       });
     });
 
     if (groupLabel) {
-      pushPill(groupLabel.toUpperCase(), 443, cardTop - 44, 98, 23, {
+      pushPill(groupLabel.toUpperCase(), 452, cardTop - 30, 94, 18, {
         fill: COLORS.tealSoft,
         color: COLORS.tealDark,
-        size: 7.5
+        size: 6.1
       });
     }
 
-    const metricTop = cardTop - 20 - titleHeight - 8;
-    const metricY = metricTop - 48;
-    const metricX = [99, 247, 395];
-    const metricW = 134;
-    const metricLabels = ["SERIE / REPS", "RECUPERO", "INTENSITA"];
-    const metricValues = [metrics.seriesReps, metrics.recovery, metrics.intensity];
-
-    metricX.forEach((x, index) => {
-      pushRect(x, metricY, metricW, 48, {
+    const metricY = cardTop - 36 - titleExtra;
+    const metricSpecs = [
+      { label: "SERIE/REPS", value: metrics.seriesReps, width: 102, split: 46 },
+      { label: "REC", value: metrics.recovery, width: 76, split: 27 },
+      { label: "INT.", value: metrics.intensity, width: 88, split: 28 }
+    ];
+    let metricX = 82;
+    metricSpecs.forEach((metric) => {
+      pushRect(metricX, metricY, metric.width, 15, {
         fill: COLORS.surface,
-        radius: 14
+        radius: 6
       });
-      pushCenteredText(metricValues[index], x, metricY + 27, metricW, {
-        size: 12.2,
-        bold: true,
-        color: COLORS.ink
-      });
-      pushCenteredText(metricLabels[index], x, metricY + 9, metricW, {
-        size: 7.4,
+      pushText(metric.label, metricX + 6, metricY + 5, {
+        size: 5.1,
         bold: true,
         color: COLORS.muted
       });
+      const valueText = compactOneLine(metric.value, 7.6, metric.width - metric.split - 8);
+      pushText(valueText, metricX + metric.split, metricY + 4.4, {
+        size: 7.6,
+        bold: true,
+        color: COLORS.ink
+      });
+      metricX += metric.width + 6;
     });
 
     if (executionLines.length) {
-      const noteH = 20 + executionLines.length * 11;
-      const noteY = metricY - 8 - noteH;
-      pushRect(99, noteY, 430, noteH, {
-        fill: COLORS.paper,
-        stroke: COLORS.border,
-        lineWidth: 0.7,
-        radius: 13
-      });
-      pushText("ESECUZIONE", 114, noteY + noteH - 13, {
-        size: 7.5,
+      const noteTopY = cardBottom + 6.2 + executionExtra;
+      pushText("ESECUZIONE", 82, noteTopY + 0.3, {
+        size: 5.6,
         bold: true,
         color: COLORS.tealDark
       });
-      executionLines.forEach((line, index) => {
-        pushText(line, 114, noteY + noteH - 25 - index * 11, {
-          size: 9.3,
-          bold: index === 0,
+      executionLines.forEach((line, lineIndex) => {
+        pushText(line, 138, noteTopY - lineIndex * 8, {
+          size: 7.1,
           color: COLORS.slate
         });
       });
     }
 
-    flowY = cardBottom - 10;
+    flowY = cardBottom - 4;
   }
-
-  drawCoverPage();
 
   trainingDays.forEach(({ day }, dayIndex) => {
     drawWorkoutHeader(day, dayIndex, false);
@@ -3636,14 +3511,7 @@ function buildTmfitTrainingPlanPdfBytes({
       if (!exercises.length) return;
 
       if (block?.title || blocks.length > 1) {
-        const label = block?.title || `Blocco ${blockIndex + 1}`;
-        ensureWorkoutSpace(28);
-        pushText(label.toUpperCase(), 42, flowY - 3, {
-          size: 8.5,
-          bold: true,
-          color: COLORS.tealDark
-        });
-        flowY -= 24;
+        drawBlockLabel(block?.title || `Blocco ${blockIndex + 1}`);
       }
 
       exercises.forEach((exercise) => {
@@ -3769,7 +3637,6 @@ function buildTmfitTrainingPlanPdfBytes({
 
   return tmfitWorkoutPdfBytes(pdf);
 }
-
 function downloadTmfitTrainingPlanPdf({
   clientName = "",
   plan = null,
