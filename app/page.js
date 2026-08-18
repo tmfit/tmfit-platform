@@ -17547,6 +17547,8 @@ function WorkoutPlayerModal({
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [nextExercisePreviewOpen, setNextExercisePreviewOpen] = useState(false);
+  const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const [completingWorkout, setCompletingWorkout] = useState(false);
   const latestWorkoutSnapshotRef = useRef(null);
   const restTimerControllerRef = useRef(null);
@@ -17609,6 +17611,8 @@ function WorkoutPlayerModal({
         shouldResume ? Math.max(0, Number(resumeState.elapsedSeconds) || 0) : 0
       );
       setHistoryModalOpen(false);
+      setNextExercisePreviewOpen(false);
+      setFinishConfirmOpen(false);
     }
   }, [open, plan?.id, day?.id, resumeToken]);
 
@@ -17626,6 +17630,7 @@ function WorkoutPlayerModal({
 
   useEffect(() => {
     setHistoryModalOpen(false);
+    setNextExercisePreviewOpen(false);
   }, [exerciseIndex, open]);
 
   useEffect(() => {
@@ -17833,6 +17838,30 @@ function WorkoutPlayerModal({
   const currentGroupExercises = currentExecutionBlock?.exerciseIndexes?.map(
     (itemIndex) => exercises[itemIndex]
   ) || [];
+  const nextExerciseStep =
+    nextExecutionStep && nextExecutionStep.exerciseIndex !== exerciseIndex
+      ? nextExecutionStep
+      : null;
+  const nextExercise = nextExerciseStep
+    ? exercises[nextExerciseStep.exerciseIndex] || null
+    : null;
+  const nextExercisePlannedSets = nextExercise
+    ? plannedSetsForExercise(nextExercise)
+    : [];
+  const nextExerciseSet = nextExerciseStep
+    ? nextExercisePlannedSets[nextExerciseStep.setIndex] || null
+    : null;
+  const nextExerciseTargetReps =
+    nextExerciseSet?.target_reps || nextExercise?.reps || "libere";
+  const nextExerciseRecoverySeconds =
+    nextExerciseSet?.recovery_seconds ||
+    nextExercise?.recovery_seconds ||
+    nextExercise?.rest_seconds ||
+    90;
+  const nextExerciseCoachNotes = cleanWorkoutNotes(nextExercise?.notes || "");
+  const nextExerciseGroupText = nextExercise
+    ? workoutGroupLabel(workoutGroupMetaForExercise(nextExercise))
+    : "";
 
   const setToken =
     currentSet?.id || currentSet?.temp_id || `virtual-${currentSet?.set_number}`;
@@ -18125,34 +18154,13 @@ function WorkoutPlayerModal({
 
   function nextActionLabel() {
     if (!nextExecutionStep) return "Riepilogo";
-
-    if (
-      currentExecutionStep?.grouped &&
-      nextExecutionStep.blockKey === currentExecutionStep.blockKey
-    ) {
-      if (nextExecutionStep.roundIndex > currentExecutionStep.roundIndex) {
-        return "Giro successivo";
-      }
-
-      return "Prossimo esercizio";
-    }
-
     if (nextExecutionStep.exerciseIndex === exerciseIndex) return "Prossima serie";
     return "Prossimo esercizio";
   }
 
   function primaryWorkoutActionLabel() {
     if (saving) return "Salvataggio...";
-    if (currentSetSaved) return nextActionLabel();
-
-    if (currentExecutionStep?.grouped && !shouldStartRecoveryAfterCurrentSet()) {
-      const nextExerciseName = exercises[nextExecutionStep?.exerciseIndex]?.exercise_name;
-      return nextExerciseName
-        ? `Salva e passa a ${nextExerciseName}`
-        : "Salva e passa al prossimo esercizio";
-    }
-
-    return "Salva e avvia timer";
+    return nextActionLabel();
   }
 
   async function handlePrimaryWorkoutAction() {
@@ -18307,17 +18315,13 @@ function WorkoutPlayerModal({
     }
   }
 
-  async function requestFinishWorkout() {
+  function requestFinishWorkout() {
     persistWorkoutStateNow();
+    setFinishConfirmOpen(true);
+  }
 
-    if (completedCount < totalPlannedSets && typeof window !== "undefined") {
-      const confirmed = window.confirm(
-        `Hai salvato ${completedCount}/${totalPlannedSets} serie. Vuoi terminare comunque?`
-      );
-
-      if (!confirmed) return;
-    }
-
+  async function confirmFinishWorkout() {
+    setFinishConfirmOpen(false);
     await stopActiveRestTimer();
     persistWorkoutStateNow({ finished: true, resting: false });
     setResting(false);
@@ -18480,6 +18484,28 @@ function WorkoutPlayerModal({
                       <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
                     </div>
                   </div>
+
+                  {nextExercise && (
+                    <button
+                      type="button"
+                      onClick={() => setNextExercisePreviewOpen(true)}
+                      className="mt-4 w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left active:scale-[.99]"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
+                            Vedi prossimo esercizio
+                          </p>
+                          <p className="mt-1 truncate text-sm font-black text-slate-950">
+                            {nextExercise.exercise_name || "Esercizio successivo"}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-100">
+                          Anteprima
+                        </span>
+                      </div>
+                    </button>
+                  )}
 
                   {(exerciseCoachNotes || exercise.execution_mode || videoUrl) && (
                     <div className="mt-4 grid gap-2">
@@ -18745,8 +18771,12 @@ function WorkoutPlayerModal({
                     ? "Serie salvata. Peso e reps restano bloccati."
                     : setHasRequiredExecutionData
                     ? currentExecutionStep?.grouped && !shouldStartRecoveryAfterCurrentSet()
-                      ? "Salvando passerai subito all’esercizio successivo, senza reinserire questa serie."
-                      : "Salvando partirà subito il timer di recupero."
+                      ? "Premi Prossimo esercizio: la serie viene salvata e passi subito al movimento successivo."
+                      : nextExecutionStep?.exerciseIndex === exerciseIndex
+                      ? "Premi Prossima serie: salvi i valori e parte il recupero."
+                      : nextExecutionStep
+                      ? "Premi Prossimo esercizio: salvi i valori e parte il recupero prima del cambio esercizio."
+                      : "Premi Riepilogo per salvare l’ultima serie."
                     : "Compila peso kg e ripetizioni: senza questi dati non puoi proseguire."}
                 </div>
               </Card>
@@ -18807,36 +18837,163 @@ function WorkoutPlayerModal({
           </div>
         )}
 
+        {nextExercisePreviewOpen && nextExercise && (
+          <div className="fixed inset-0 z-[170] flex items-end justify-center bg-slate-950/65 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-8 backdrop-blur-sm">
+            <div className="max-h-[82dvh] w-full max-w-[440px] overflow-y-auto rounded-[1.8rem] bg-white p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">
+                    Prossimo esercizio
+                  </p>
+                  <h3 className="mt-1 text-2xl font-black leading-tight text-slate-950">
+                    {nextExercise.exercise_name || "Esercizio"}
+                  </h3>
+                  {nextExerciseGroupText && (
+                    <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-100">
+                      {nextExerciseGroupText}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNextExercisePreviewOpen(false)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 active:scale-[.96]"
+                  aria-label="Chiudi anteprima prossimo esercizio"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                  <p className="text-xl font-black text-slate-950">{nextExercisePlannedSets.length}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Serie</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                  <p className="truncate text-xl font-black text-slate-950">{nextExerciseTargetReps}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Reps</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                  <p className="text-xl font-black text-slate-950">{nextExerciseRecoverySeconds}"</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Rec.</p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
+                  Quando ci arrivi
+                </p>
+                <p className="mt-1 text-sm font-bold leading-5 text-emerald-950">
+                  Partirai dalla serie {nextExerciseStep.setIndex + 1} di {nextExercisePlannedSets.length}.
+                </p>
+              </div>
+
+              {(nextExerciseCoachNotes || nextExercise.execution_mode) && (
+                <div className="mt-4 space-y-2">
+                  {nextExerciseCoachNotes && (
+                    <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+                      <span className="font-black">Note coach: </span>
+                      {nextExerciseCoachNotes}
+                    </div>
+                  )}
+                  {nextExercise.execution_mode && (
+                    <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-700">
+                      <span className="font-black">Esecuzione: </span>
+                      {nextExercise.execution_mode}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(nextExercise.video_url || nextExercise.image_url) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = nextExercise.video_url || nextExercise.image_url;
+                    if (url && typeof window !== "undefined") {
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }
+                  }}
+                  className="mt-4 w-full rounded-2xl bg-[#07111f] px-4 py-3 text-sm font-black text-white active:scale-[.98]"
+                >
+                  Vedi esecuzione
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setNextExercisePreviewOpen(false)}
+                className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
+              >
+                Chiudi anteprima
+              </button>
+            </div>
+          </div>
+        )}
+
+        {finishConfirmOpen && (
+          <div className="fixed inset-0 z-[180] flex items-center justify-center bg-slate-950/70 px-5 backdrop-blur-sm">
+            <div className="w-full max-w-[400px] rounded-[1.8rem] bg-white p-5 text-center shadow-2xl">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-xl font-black text-red-600">
+                !
+              </div>
+              <p className="mt-4 text-[11px] font-black uppercase tracking-[0.2em] text-red-600">
+                Termina allenamento
+              </p>
+              <h3 className="mt-2 text-xl font-black text-slate-950">
+                Sei sicuro di voler terminare?
+              </h3>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                {completedCount < totalPlannedSets
+                  ? `Hai salvato ${completedCount}/${totalPlannedSets} serie. Le serie mancanti resteranno non completate.`
+                  : "Hai completato tutte le serie. Passerai al riepilogo finale dell’allenamento."}
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFinishConfirmOpen(false)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
+                >
+                  Continua
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmFinishWorkout}
+                  className="rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white active:scale-[.98]"
+                >
+                  Sì, termina
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!finished && exercise && (
           <div className="shrink-0 bg-slate-50/95 px-4 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-2">
-            <div className="grid grid-cols-[0.82fr_1.5fr_0.78fr] gap-2 rounded-[1.35rem] border border-slate-200 bg-white/95 p-2 shadow-[0_-10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl">
+            <div className="grid grid-cols-[0.82fr_0.72fr_1.46fr] gap-2 rounded-[1.35rem] border border-slate-200 bg-white/95 p-2 shadow-[0_-10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl">
               <button
                 type="button"
                 onClick={goPrevious}
                 disabled={!canGoPrevious || saving}
-                className="rounded-2xl border border-slate-200 bg-white px-2 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-2 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
               >
                 Indietro
               </button>
               <button
                 type="button"
-                onClick={handlePrimaryWorkoutAction}
-                disabled={saving || !currentSet || (!currentSetSaved && !setHasRequiredExecutionData)}
-                className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm active:scale-[.98] disabled:opacity-50 ${
-                  currentSetSaved
-                    ? "bg-[#07111f] text-white"
-                    : "bg-teal-300 text-slate-950"
-                }`}
+                onClick={requestFinishWorkout}
+                disabled={saving}
+                className="min-h-[48px] rounded-2xl bg-red-500 px-2 py-3 text-xs font-black text-white shadow-sm active:scale-[.98] disabled:opacity-40"
               >
-                {primaryWorkoutActionLabel()}
+                Fine
               </button>
               <button
                 type="button"
-                onClick={requestFinishWorkout}
-                disabled={saving}
-                className="rounded-2xl bg-slate-100 px-2 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                onClick={handlePrimaryWorkoutAction}
+                disabled={saving || !currentSet || (!currentSetSaved && !setHasRequiredExecutionData)}
+                className="min-h-[48px] rounded-2xl bg-emerald-500 px-3 py-3 text-xs font-black leading-tight text-white shadow-sm active:scale-[.98] disabled:opacity-50"
               >
-                Fine
+                {primaryWorkoutActionLabel()}
               </button>
             </div>
           </div>
