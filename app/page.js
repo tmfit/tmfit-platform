@@ -47,8 +47,8 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.0";
-const APP_VERSION_LABEL = "TMFIT Pro v5.0";
+const APP_VERSION = "v5.1";
+const APP_VERSION_LABEL = "TMFIT Pro v5.1";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -934,6 +934,159 @@ function Pill({ children, className = "" }) {
     >
       {children}
     </span>
+  );
+}
+
+function supplementStatusClass(status) {
+  const value = String(status || "TARGET").toUpperCase();
+  if (value === "CORE") return "bg-teal-100 text-teal-800";
+  if (value === "SPORT") return "bg-sky-100 text-sky-800";
+  if (value === "CLINICO") return "bg-red-100 text-red-800";
+  if (value === "EVIDENZA LIMITATA") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-700";
+}
+
+function preferredSupplementProduct(supplement) {
+  const products = Array.isArray(supplement?.supplement_products)
+    ? supplement.supplement_products
+    : [];
+
+  return (
+    products.find((product) => product?.is_recommended !== false) ||
+    products[0] ||
+    null
+  );
+}
+
+function buildSupplementClientInstruction(units, timing) {
+  const cleanUnits = String(units || "").trim();
+  const cleanTiming = String(timing || "").trim();
+  const first = cleanUnits ? `Assumi ${cleanUnits.replace(/[.]$/, "")}.` : "";
+  return [first, cleanTiming].filter(Boolean).join(" ").trim();
+}
+
+function ClientSupplementProtocol({ supplements = [] }) {
+  const activeSupplements = supplements.filter(
+    (item) => String(item?.status || "active").toLowerCase() === "active"
+  );
+
+  if (activeSupplements.length === 0) {
+    return (
+      <Card className="p-5">
+        <Empty
+          title="Nessun integratore assegnato"
+          text="Il professionista non ha ancora inserito un protocollo di integrazione."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="overflow-hidden">
+        <div className="bg-[#07111f] p-5 text-white">
+          <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-300">
+            Integrazione
+          </p>
+          <h3 className="mt-1 text-2xl font-black">Il tuo protocollo</h3>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+            Visualizzi solo gli integratori attualmente assegnati dal professionista.
+          </p>
+        </div>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {activeSupplements.map((item) => (
+          <Card key={item.id} className="overflow-hidden">
+            <div className="border-b border-slate-200 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+                    Protocollo attivo
+                  </p>
+                  <h4 className="mt-1 text-xl font-black text-slate-950">
+                    {item.supplement_name || "Integratore"}
+                  </h4>
+                  {item.client_benefit && (
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                      {item.client_benefit}
+                    </p>
+                  )}
+                </div>
+                {item.dose && (
+                  <Pill className="bg-teal-100 text-teal-800">{item.dose}</Pill>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4 p-5">
+              {item.client_instruction && (
+                <div className="rounded-[1.25rem] border border-teal-100 bg-teal-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                    Come assumerlo
+                  </p>
+                  <p className="mt-2 text-sm font-black leading-6 text-slate-950">
+                    {item.client_instruction}
+                  </p>
+                </div>
+              )}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                {item.frequency && (
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Frequenza</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{item.frequency}</p>
+                  </div>
+                )}
+                {item.timing && (
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Timing</p>
+                    <p className="mt-1 text-sm font-black leading-5 text-slate-900">{item.timing}</p>
+                  </div>
+                )}
+                {item.meal_relation && (
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Pasti</p>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">{item.meal_relation}</p>
+                  </div>
+                )}
+                {item.workout_relation && (
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Allenamento</p>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">{item.workout_relation}</p>
+                  </div>
+                )}
+                {item.duration && (
+                  <div className="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Durata</p>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">{item.duration}</p>
+                  </div>
+                )}
+              </div>
+
+              {item.product_name && (
+                <div className="rounded-[1.25rem] border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Prodotto consigliato
+                  </p>
+                  <p className="mt-1 text-sm font-black text-slate-950">{item.product_name}</p>
+                  {item.amazon_url && (
+                    <a
+                      href={item.amazon_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-flex rounded-xl bg-[#07111f] px-4 py-2 text-xs font-black text-white"
+                    >
+                      Vedi prodotto
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 function BrandLogo({
@@ -9023,6 +9176,29 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
   const [editingDietCardsDraft, setEditingDietCardsDraft] = useState(null);
   const [savingDietCards, setSavingDietCards] = useState(false);
 
+  const [supplementLibrary, setSupplementLibrary] = useState([]);
+  const [clientSupplements, setClientSupplements] = useState([]);
+  const [supplementLibraryOpen, setSupplementLibraryOpen] = useState(false);
+  const [supplementSearch, setSupplementSearch] = useState("");
+  const [supplementAssignmentOpen, setSupplementAssignmentOpen] = useState(false);
+  const [supplementEditingId, setSupplementEditingId] = useState("");
+  const [supplementAssignmentSource, setSupplementAssignmentSource] = useState(null);
+  const [savingSupplementAssignment, setSavingSupplementAssignment] = useState(false);
+  const [supplementAssignmentForm, setSupplementAssignmentForm] = useState({
+    dose: "",
+    units: "",
+    frequency: "",
+    timing: "",
+    meal_relation: "",
+    workout_relation: "",
+    duration: "",
+    client_benefit: "",
+    client_instruction: "",
+    professional_note: "",
+    start_date: today(),
+    end_date: ""
+  });
+
   const [measurementForm, setMeasurementForm] = useState({
     measurement_date: today(),
     weight_kg: "",
@@ -9077,6 +9253,30 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
     });
   }, [clients, query]);
 
+  const filteredSupplementLibrary = useMemo(() => {
+    const search = String(supplementSearch || "").trim().toLowerCase();
+    if (!search) return supplementLibrary;
+
+    return supplementLibrary.filter((item) => {
+      const product = preferredSupplementProduct(item);
+      const haystack = [item.name, item.category, item.status, product?.name]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [supplementLibrary, supplementSearch]);
+
+  const activeSupplementLibraryItem = supplementAssignmentSource?.supplement?.id
+    ? supplementLibrary.find(
+        (item) => String(item.id) === String(supplementAssignmentSource.supplement.id)
+      ) || supplementAssignmentSource.supplement
+    : null;
+  const activeSupplementProduct =
+    preferredSupplementProduct(activeSupplementLibraryItem) ||
+    supplementAssignmentSource?.product ||
+    null;
+
   const mediaById = useMemo(() => {
     const map = new Map();
     exerciseMedia.forEach((item) => map.set(item.id, item));
@@ -9098,6 +9298,7 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   loadPosts();
   loadExerciseMedia();
   loadTemplates();
+  loadSupplementLibrary();
 }, []);
 
   useEffect(() => {
@@ -9297,6 +9498,21 @@ async function loadCoachControlCenter(rows = clients) {
     setCoachControlLoading(false);
   }
 }
+  async function loadSupplementLibrary() {
+    const { data, error } = await supabase
+      .from("supplement_library")
+      .select("*, supplement_products(*)")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.warn("TMFIT libreria integratori:", error.message);
+      return;
+    }
+
+    setSupplementLibrary(data || []);
+  }
+
   async function loadExerciseMedia() {
     const { data, error } = await supabase
       .from("exercise_media_library")
@@ -9429,6 +9645,180 @@ if (historyError) {
       .order("created_at", { ascending: false });
 
     setPrivateNotes(noteData || []);
+
+    const { data: supplementData, error: supplementError } = await supabase
+      .from("client_supplement_assignments")
+      .select("*")
+      .eq("client_id", numericClientId)
+      .order("created_at", { ascending: false });
+
+    if (supplementError) {
+      console.warn("TMFIT integrazione cliente:", supplementError.message);
+      setClientSupplements([]);
+    } else {
+      setClientSupplements(supplementData || []);
+    }
+  }
+
+  function openSupplementAssignment(supplement) {
+    if (!selectedClient?.id || !supplement?.id) return;
+
+    if (String(supplement.status || "").toUpperCase() === "CLINICO") {
+      const confirmed = window.confirm(
+        "INTEGRATORE CLINICO — NON ASSEGNARE COME DEFAULT. Verifica indicazione, esami e possibili interazioni prima di procedere. Vuoi continuare?"
+      );
+      if (!confirmed) return;
+    }
+
+    const product = preferredSupplementProduct(supplement);
+    const units = supplement.default_units || "";
+    const timing = supplement.default_timing || "";
+
+    setSupplementEditingId("");
+    setSupplementAssignmentSource({ supplement, product });
+    setSupplementAssignmentForm({
+      dose: supplement.default_dose || "",
+      units,
+      frequency: supplement.default_frequency || "Secondo protocollo",
+      timing,
+      meal_relation: supplement.meal_relation || "",
+      workout_relation: supplement.workout_relation || "",
+      duration: supplement.duration || "",
+      client_benefit: supplement.client_benefit || "",
+      client_instruction: buildSupplementClientInstruction(units, timing),
+      professional_note: "",
+      start_date: today(),
+      end_date: ""
+    });
+    setSupplementLibraryOpen(false);
+    setSupplementAssignmentOpen(true);
+  }
+
+  function editSupplementAssignment(assignment) {
+    if (!assignment?.id) return;
+
+    setSupplementEditingId(String(assignment.id));
+    setSupplementAssignmentSource({
+      supplement: {
+        id: assignment.supplement_id,
+        name: assignment.supplement_name,
+        status: assignment.library_status || "TARGET"
+      },
+      product: assignment.product_id
+        ? {
+            id: assignment.product_id,
+            name: assignment.product_name,
+            amazon_url: assignment.amazon_url
+          }
+        : null
+    });
+    setSupplementAssignmentForm({
+      dose: assignment.dose || "",
+      units: assignment.units || "",
+      frequency: assignment.frequency || "",
+      timing: assignment.timing || "",
+      meal_relation: assignment.meal_relation || "",
+      workout_relation: assignment.workout_relation || "",
+      duration: assignment.duration || "",
+      client_benefit: assignment.client_benefit || "",
+      client_instruction: assignment.client_instruction || "",
+      professional_note: assignment.professional_note || "",
+      start_date: assignment.start_date || today(),
+      end_date: assignment.end_date || ""
+    });
+    setSupplementAssignmentOpen(true);
+  }
+
+  async function saveSupplementAssignment() {
+    if (!selectedClient?.id || !supplementAssignmentSource?.supplement?.id) return;
+
+    const supplement = supplementAssignmentSource.supplement;
+    const product = supplementAssignmentSource.product;
+    const fullLibraryItem = supplementLibrary.find(
+      (item) => String(item.id) === String(supplement.id)
+    );
+
+    const payload = {
+      client_id: Number(selectedClient.id),
+      professional_id: session.user.id,
+      supplement_id: supplement.id,
+      product_id: product?.id || null,
+      supplement_name: supplement.name || fullLibraryItem?.name || "Integratore",
+      library_status: fullLibraryItem?.status || supplement.status || "TARGET",
+      product_name: product?.name || null,
+      amazon_url: product?.amazon_url || null,
+      form: fullLibraryItem?.active_ingredient || product?.form || null,
+      dose: supplementAssignmentForm.dose || null,
+      units: supplementAssignmentForm.units || null,
+      frequency: supplementAssignmentForm.frequency || null,
+      timing: supplementAssignmentForm.timing || null,
+      meal_relation: supplementAssignmentForm.meal_relation || null,
+      workout_relation: supplementAssignmentForm.workout_relation || null,
+      duration: supplementAssignmentForm.duration || null,
+      client_benefit: supplementAssignmentForm.client_benefit || null,
+      client_instruction:
+        supplementAssignmentForm.client_instruction ||
+        buildSupplementClientInstruction(
+          supplementAssignmentForm.units,
+          supplementAssignmentForm.timing
+        ),
+      professional_note: supplementAssignmentForm.professional_note || null,
+      start_date: supplementAssignmentForm.start_date || null,
+      end_date: supplementAssignmentForm.end_date || null,
+      status: supplementEditingId
+        ? clientSupplements.find((item) => String(item.id) === String(supplementEditingId))?.status || "active"
+        : "active",
+      updated_at: new Date().toISOString()
+    };
+
+    setSavingSupplementAssignment(true);
+
+    try {
+      const request = supplementEditingId
+        ? supabase
+            .from("client_supplement_assignments")
+            .update(payload)
+            .eq("id", supplementEditingId)
+            .eq("client_id", Number(selectedClient.id))
+        : supabase.from("client_supplement_assignments").insert(payload);
+
+      const { error } = await request;
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      setSupplementAssignmentOpen(false);
+      setSupplementEditingId("");
+      setSupplementAssignmentSource(null);
+      await loadClientBundle(selectedClient.id);
+    } finally {
+      setSavingSupplementAssignment(false);
+    }
+  }
+
+  async function setClientSupplementStatus(assignment, nextStatus) {
+    if (!assignment?.id || !selectedClient?.id) return;
+
+    if (nextStatus === "removed") {
+      const confirmed = window.confirm(
+        `Vuoi rimuovere ${assignment.supplement_name || "questo integratore"} dal protocollo del cliente? Rimarrà nello storico professionista.`
+      );
+      if (!confirmed) return;
+    }
+
+    const { error } = await supabase
+      .from("client_supplement_assignments")
+      .update({ status: nextStatus, updated_at: new Date().toISOString() })
+      .eq("id", assignment.id)
+      .eq("client_id", Number(selectedClient.id));
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadClientBundle(selectedClient.id);
   }
 
   async function refreshSelectedClientMonitor(clientId) {
@@ -12517,9 +12907,10 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 p-3">
+                <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4">
                   {[
                     { id: "overview", label: "Panoramica", helper: "Stato e azioni" },
+                    { id: "integration", label: "Integrazione", helper: "Protocollo cliente" },
                     { id: "new", label: "Nuovo", helper: "Crea accesso" },
                     { id: "notes", label: "Note", helper: "Solo coach" }
                   ].map((item) => (
@@ -12581,6 +12972,377 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                   onAddNote={() => setClientPanel("notes")}
                   onDeleteClient={deleteSelectedClient}
                 />
+              )}
+
+              {clientPanel === "integration" && (
+                <div className="space-y-5">
+                  <Card className="overflow-hidden">
+                    <div className="bg-[#07111f] p-5 text-white md:p-6">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-300">
+                            Integrazione
+                          </p>
+                          <h2 className="mt-1 text-2xl font-black">
+                            {selectedClient ? fullName(selectedClient) : "Seleziona un cliente"}
+                          </h2>
+                          <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+                            Assegna e personalizza gli integratori che il cliente vedrà nella propria app.
+                          </p>
+                        </div>
+
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            if (!selectedClient?.id) return;
+                            setSupplementSearch("");
+                            setSupplementLibraryOpen(true);
+                          }}
+                          disabled={!selectedClient?.id}
+                          className="bg-teal-300 text-slate-950"
+                        >
+                          <Plus size={17} className="mr-2" />
+                          Assegna integratore
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card className="overflow-hidden">
+                    <div className="border-b border-slate-200 bg-white p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-teal-700">
+                            Protocollo
+                          </p>
+                          <h3 className="mt-1 text-xl font-black text-slate-950">Integratori assegnati</h3>
+                        </div>
+                        <Pill className="bg-slate-100 text-slate-700">
+                          {clientSupplements.filter((item) => item.status !== "removed").length} assegnati
+                        </Pill>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 p-5">
+                      {clientSupplements
+                        .filter((item) => item.status !== "removed")
+                        .map((item) => (
+                          <div key={item.id} className="rounded-[1.35rem] border border-slate-200 bg-white p-4">
+                            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="text-base font-black text-slate-950">{item.supplement_name}</h4>
+                                  <Pill className={supplementStatusClass(item.library_status)}>
+                                    {item.library_status || "TARGET"}
+                                  </Pill>
+                                  <Pill className={item.status === "active" ? "bg-teal-100 text-teal-800" : "bg-amber-100 text-amber-800"}>
+                                    {item.status === "active" ? "Attivo" : "Sospeso"}
+                                  </Pill>
+                                </div>
+                                <p className="mt-2 text-sm font-black text-slate-800">
+                                  {[item.dose, item.units].filter(Boolean).join(" · ")}
+                                </p>
+                                <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                                  {item.client_instruction || item.timing || "Istruzioni non inserite"}
+                                </p>
+                                {item.product_name && (
+                                  <p className="mt-2 text-xs font-bold text-slate-400">{item.product_name}</p>
+                                )}
+                              </div>
+
+                              <div className="grid shrink-0 grid-cols-3 gap-2 xl:min-w-[330px]">
+                                <Button
+                                  onClick={() => editSupplementAssignment(item)}
+                                  className="border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800"
+                                >
+                                  Modifica
+                                </Button>
+                                <Button
+                                  onClick={() => setClientSupplementStatus(item, item.status === "active" ? "paused" : "active")}
+                                  className="bg-amber-100 px-3 py-2 text-xs text-amber-900"
+                                >
+                                  {item.status === "active" ? "Sospendi" : "Riattiva"}
+                                </Button>
+                                <Button
+                                  onClick={() => setClientSupplementStatus(item, "removed")}
+                                  className="bg-slate-100 px-3 py-2 text-xs text-slate-700"
+                                >
+                                  Rimuovi
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                      {clientSupplements.filter((item) => item.status !== "removed").length === 0 && (
+                        <Empty
+                          title="Nessun integratore assegnato"
+                          text="Apri la libreria TMFIT e assegna il primo integratore al cliente selezionato."
+                        />
+                      )}
+                    </div>
+                  </Card>
+
+                  {clientSupplements.some((item) => item.status === "removed") && (
+                    <Card className="overflow-hidden">
+                      <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+                        <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Storico integrazione</p>
+                        <h3 className="mt-1 text-lg font-black text-slate-950">Rimossi dal protocollo</h3>
+                      </div>
+                      <div className="space-y-2 p-5">
+                        {clientSupplements
+                          .filter((item) => item.status === "removed")
+                          .map((item) => (
+                            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+                              <div>
+                                <p className="text-sm font-black text-slate-800">{item.supplement_name}</p>
+                                <p className="mt-0.5 text-xs font-bold text-slate-400">{item.dose || "Dose non indicata"}</p>
+                              </div>
+                              <Button
+                                onClick={() => setClientSupplementStatus(item, "active")}
+                                className="bg-white px-3 py-2 text-xs text-slate-800"
+                              >
+                                Ripristina
+                              </Button>
+                            </div>
+                          ))}
+                      </div>
+                    </Card>
+                  )}
+
+                  {supplementLibraryOpen && (
+                    <div className="fixed inset-0 z-[150] flex items-end justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+                      <div className="flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[1.8rem] bg-white shadow-2xl">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-[#07111f] p-5 text-white">
+                          <div>
+                            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-teal-300">Libreria TMFIT</p>
+                            <h3 className="mt-1 text-2xl font-black">Assegna integratore</h3>
+                            <p className="mt-1 text-xs font-semibold text-slate-300">Lista unica · nessun filtro</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSupplementLibraryOpen(false)}
+                            className="rounded-2xl bg-white/10 p-3"
+                            aria-label="Chiudi libreria integratori"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+
+                        <div className="border-b border-slate-200 p-4">
+                          <div className="relative">
+                            <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <Input
+                              value={supplementSearch}
+                              onChange={(event) => setSupplementSearch(event.target.value)}
+                              placeholder="Cerca integratore..."
+                              className="pl-11"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex-1 space-y-2 overflow-y-auto p-4">
+                          {filteredSupplementLibrary.map((item) => {
+                            const product = preferredSupplementProduct(item);
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => openSupplementAssignment(item)}
+                                className="w-full rounded-[1.25rem] border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-black text-slate-950">{item.name}</p>
+                                      <Pill className={supplementStatusClass(item.status)}>{item.status}</Pill>
+                                    </div>
+                                    <p className="mt-1 text-xs font-bold text-slate-400">{item.category}</p>
+                                    <p className="mt-2 text-sm font-semibold text-slate-600">{item.default_dose || "Dose da personalizzare"}</p>
+                                    {product?.name && (
+                                      <p className="mt-1 truncate text-xs font-bold text-slate-500">{product.name}</p>
+                                    )}
+                                  </div>
+                                  <span className="rounded-xl bg-[#07111f] px-3 py-2 text-xs font-black text-white">Apri</span>
+                                </div>
+                              </button>
+                            );
+                          })}
+
+                          {filteredSupplementLibrary.length === 0 && (
+                            <Empty title="Nessun risultato" text="Prova a cercare un altro integratore." />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {supplementAssignmentOpen && supplementAssignmentSource && (
+                    <div className="fixed inset-0 z-[160] flex items-end justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+                      <div className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[1.8rem] bg-white shadow-2xl">
+                        <div className="flex items-start justify-between gap-4 bg-[#07111f] p-5 text-white">
+                          <div>
+                            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-teal-300">
+                              {supplementEditingId ? "Modifica assegnazione" : "Nuova assegnazione"}
+                            </p>
+                            <h3 className="mt-1 text-2xl font-black">{supplementAssignmentSource.supplement?.name}</h3>
+                            {supplementAssignmentSource.product?.name && (
+                              <p className="mt-1 text-xs font-semibold text-slate-300">{supplementAssignmentSource.product.name}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSupplementAssignmentOpen(false)}
+                            className="rounded-2xl bg-white/10 p-3"
+                            aria-label="Chiudi assegnazione"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+
+                        <div className="border-b border-slate-200 bg-slate-50 p-5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Pill className={supplementStatusClass(activeSupplementLibraryItem?.status)}>
+                              {activeSupplementLibraryItem?.status || "TARGET"}
+                            </Pill>
+                            {activeSupplementLibraryItem?.evidence_level && (
+                              <Pill className="bg-white text-slate-700 ring-1 ring-slate-200">
+                                Evidenza: {activeSupplementLibraryItem.evidence_level}
+                              </Pill>
+                            )}
+                          </div>
+
+                          {activeSupplementLibraryItem?.professional_indications && (
+                            <div className="mt-4 rounded-2xl bg-white p-4">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Indicazioni professionista</p>
+                              <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
+                                {activeSupplementLibraryItem.professional_indications}
+                              </p>
+                            </div>
+                          )}
+
+                          {(activeSupplementLibraryItem?.precautions || activeSupplementLibraryItem?.interactions) && (
+                            <div className={`mt-3 rounded-2xl border p-4 ${
+                              String(activeSupplementLibraryItem?.status || "").toUpperCase() === "CLINICO"
+                                ? "border-red-200 bg-red-50"
+                                : "border-amber-200 bg-amber-50"
+                            }`}>
+                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Precauzioni / interazioni</p>
+                              {activeSupplementLibraryItem?.precautions && (
+                                <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">{activeSupplementLibraryItem.precautions}</p>
+                              )}
+                              {activeSupplementLibraryItem?.interactions && (
+                                <p className="mt-2 text-xs font-bold leading-5 text-slate-600">{activeSupplementLibraryItem.interactions}</p>
+                              )}
+                            </div>
+                          )}
+
+                          {activeSupplementProduct && (
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Prodotto TMFIT</p>
+                              <p className="mt-1 text-sm font-black text-slate-950">{activeSupplementProduct.name}</p>
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold text-slate-500">
+                                {activeSupplementProduct.price_eur !== null && activeSupplementProduct.price_eur !== undefined && (
+                                  <span>€ {Number(activeSupplementProduct.price_eur).toFixed(2)}</span>
+                                )}
+                                {activeSupplementProduct.servings !== null && activeSupplementProduct.servings !== undefined && (
+                                  <span>· {activeSupplementProduct.servings} dosi</span>
+                                )}
+                                {activeSupplementProduct.cost_per_serving !== null && activeSupplementProduct.cost_per_serving !== undefined && (
+                                  <span>· € {Number(activeSupplementProduct.cost_per_serving).toFixed(2)}/dose</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid gap-4 p-5 md:grid-cols-2">
+                          {[
+                            ["Dose", "dose"],
+                            ["Unità da assumere", "units"],
+                            ["Frequenza", "frequency"],
+                            ["Timing preciso", "timing"],
+                            ["Relazione con pasti", "meal_relation"],
+                            ["Relazione con allenamento", "workout_relation"],
+                            ["Durata / ciclicità", "duration"]
+                          ].map(([label, field]) => {
+                            const longField = ["timing", "meal_relation", "workout_relation", "duration"].includes(field);
+                            return (
+                              <Label key={field} title={label} className={longField ? "md:col-span-2" : ""}>
+                                {longField ? (
+                                  <Textarea
+                                    value={supplementAssignmentForm[field] || ""}
+                                    onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, [field]: event.target.value }))}
+                                  />
+                                ) : (
+                                  <Input
+                                    value={supplementAssignmentForm[field] || ""}
+                                    onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, [field]: event.target.value }))}
+                                  />
+                                )}
+                              </Label>
+                            );
+                          })}
+
+                          <Label title="Beneficio breve cliente" className="md:col-span-2">
+                            <Textarea
+                              value={supplementAssignmentForm.client_benefit || ""}
+                              onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, client_benefit: event.target.value }))}
+                            />
+                          </Label>
+
+                          <Label title="Istruzione mostrata al cliente" className="md:col-span-2">
+                            <Textarea
+                              value={supplementAssignmentForm.client_instruction || ""}
+                              onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, client_instruction: event.target.value }))}
+                            />
+                          </Label>
+
+                          <Label title="Nota privata professionista" className="md:col-span-2">
+                            <Textarea
+                              value={supplementAssignmentForm.professional_note || ""}
+                              onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, professional_note: event.target.value }))}
+                            />
+                          </Label>
+
+                          <Label title="Data inizio">
+                            <Input
+                              type="date"
+                              value={supplementAssignmentForm.start_date || ""}
+                              onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, start_date: event.target.value }))}
+                            />
+                          </Label>
+
+                          <Label title="Data fine (opzionale)">
+                            <Input
+                              type="date"
+                              value={supplementAssignmentForm.end_date || ""}
+                              onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, end_date: event.target.value }))}
+                            />
+                          </Label>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 p-5">
+                          <Button
+                            type="button"
+                            onClick={() => setSupplementAssignmentOpen(false)}
+                            className="border border-slate-200 bg-white text-slate-800"
+                          >
+                            Annulla
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={saveSupplementAssignment}
+                            disabled={savingSupplementAssignment}
+                            className="bg-teal-300 text-slate-950"
+                          >
+                            {savingSupplementAssignment ? "Salvataggio..." : supplementEditingId ? "Salva modifiche" : "Assegna al cliente"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {clientPanel === "new" && (
@@ -20590,6 +21352,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [client, setClient] = useState(null);
   const [plans, setPlans] = useState([]);
   const [diets, setDiets] = useState([]);
+  const [supplements, setSupplements] = useState([]);
   const [posts, setPosts] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [photos, setPhotos] = useState([]);
@@ -20657,6 +21420,10 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     error: ""
   });
   const [dietFullscreenOpen, setDietFullscreenOpen] = useState(false);
+
+  useEffect(() => {
+    if (dietView === "history") setDietView("integration");
+  }, [dietView]);
 
   const clientTabs = [
     { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
@@ -20789,6 +21556,20 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       .order("created_at", { ascending: false });
 
     setDiets(dietData || []);
+
+    const { data: supplementData, error: supplementError } = await supabase
+      .from("client_supplement_assignments")
+      .select("*")
+      .eq("client_id", numericClientId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false });
+
+    if (supplementError) {
+      console.warn("TMFIT integrazione cliente:", supplementError.message);
+      setSupplements([]);
+    } else {
+      setSupplements(supplementData || []);
+    }
 
     const { data: postData } = await supabase
       .from("coach_posts")
@@ -22555,7 +23336,7 @@ function getExerciseHistory(exercise) {
                     { id: "summary", label: "Riepilogo" },
                     dietExtractedInfo(latestDiet) ? { id: "meals", label: "Pasti" } : null,
                     { id: "pdf", label: "PDF" },
-                    { id: "history", label: "Storico" }
+                    { id: "integration", label: "Integrazione" }
                   ]
                     .filter(Boolean)
                     .map((item) => (
@@ -22773,78 +23554,17 @@ function getExerciseHistory(exercise) {
                   </Card>
                 )}
 
-                {dietView === "history" && (
-                  <Card className="overflow-hidden">
-                    <div className="border-b border-slate-200 bg-white px-5 py-4">
-                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Storico diete
-                      </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
-                        Piani disponibili
-                      </h3>
-                    </div>
-
-                    <div className="space-y-3 p-5">
-                      {clientPublishedDiets.map((diet, index) => (
-                        <div
-                          key={diet.id}
-                          className={`rounded-3xl border p-4 ${
-                            index === 0
-                              ? "border-[#07111f] bg-slate-50"
-                              : "border-slate-200 bg-white"
-                          }`}
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-black text-slate-950">
-                                  {dietDisplayTitle(diet)}
-                                </p>
-                                {index === 0 && (
-                                  <Pill className="bg-[#07111f] text-white">Attiva</Pill>
-                                )}
-                              </div>
-                              <p className="mt-1 truncate text-sm font-semibold text-slate-500">
-                                {diet.file_name || "PDF dieta"}
-                              </p>
-                              <p className="mt-1 text-xs font-bold text-slate-400">
-
-                                {dietTypeLabel(diet.diet_type)} · {dietStructuredInfo(diet).calorieTarget || dietPeriodLabel(diet)}
-
-                              </p>
-                            </div>
-
-                            <div className="flex shrink-0 gap-2">
-                              <Button
-                                onClick={() => {
-                                  setDietView("pdf");
-                                  previewDietInApp(diet);
-                                }}
-                                className="bg-teal-300 px-3 py-2 text-xs text-slate-950"
-                              >
-    PDF
-                              </Button>
-                              <Button
-                                onClick={() =>
-                                  downloadClientDietPdf(diet)
-                                }
-                                className="bg-[#07111f] px-3 py-2 text-xs text-white"
-                              >
-                                Scarica
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
+                {dietView === "integration" && (
+                  <ClientSupplementProtocol supplements={supplements} />
                 )}
               </>
+            ) : supplements.length > 0 ? (
+              <ClientSupplementProtocol supplements={supplements} />
             ) : (
               <Card className="p-5">
                 <Empty
-                  title="Nessuna dieta"
-                  text="Il coach non ha ancora caricato un piano alimentare."
+                  title="Nessuna dieta o integrazione"
+                  text="Il professionista non ha ancora pubblicato un piano alimentare o un protocollo di integrazione."
                 />
               </Card>
             )}
