@@ -965,6 +965,32 @@ function buildSupplementClientInstruction(units, timing) {
   return [first, cleanTiming].filter(Boolean).join(" ").trim();
 }
 
+function tmfitLocalDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return today();
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function defaultSupplementReminderEnabled(supplement = {}) {
+  const frequency = String(supplement?.default_frequency || supplement?.frequency || "")
+    .trim()
+    .toLowerCase();
+
+  if (!frequency) return true;
+
+  return ![
+    "al bisogno",
+    "secondo necessit",
+    "sessioni target",
+    "competizione",
+    "uso occasionale"
+  ].some((term) => frequency.includes(term));
+}
+
 function ClientSupplementProtocol({ supplements = [] }) {
   const activeSupplements = supplements.filter(
     (item) => String(item?.status || "active").toLowerCase() === "active"
@@ -982,113 +1008,121 @@ function ClientSupplementProtocol({ supplements = [] }) {
   }
 
   return (
-    <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <div className="bg-[#07111f] p-5 text-white">
-          <p className="text-[11px] font-black uppercase tracking-[0.28em] text-teal-300">
-            Integrazione
-          </p>
-          <h3 className="mt-1 text-2xl font-black">Il tuo protocollo</h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
-            Visualizzi solo gli integratori attualmente assegnati dal professionista.
-          </p>
-        </div>
-      </Card>
+    <div className="space-y-3">
+      <div className="px-1">
+        <h3 className="text-xl font-black tracking-tight text-slate-950">Integrazione</h3>
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          Le indicazioni da seguire per gli integratori assegnati.
+        </p>
+      </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {activeSupplements.map((item) => (
-          <Card key={item.id} className="overflow-hidden">
-            <div className="border-b border-slate-200 bg-white p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
-                    Protocollo attivo
-                  </p>
-                  <h4 className="mt-1 text-xl font-black text-slate-950">
-                    {item.supplement_name || "Integratore"}
-                  </h4>
-                  {item.client_benefit && (
-                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                      {item.client_benefit}
-                    </p>
-                  )}
-                </div>
-                {item.dose && (
-                  <Pill className="bg-teal-100 text-teal-800">{item.dose}</Pill>
-                )}
-              </div>
-            </div>
+      <div className="space-y-3">
+        {activeSupplements.map((item) => {
+          const instruction = String(item.client_instruction || "").trim();
 
-            <div className="space-y-4 p-5">
-              {item.client_instruction && (
-                <div className="rounded-[1.25rem] border border-teal-100 bg-teal-50 p-4">
+          return (
+            <Card key={item.id} className="overflow-hidden">
+              <div className="p-5">
+                <h4 className="text-lg font-black text-slate-950">
+                  {item.supplement_name || "Integratore"}
+                </h4>
+
+                <div className="mt-3 rounded-[1.2rem] bg-slate-50 p-4">
                   <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
-                    Come assumerlo
+                    Modalità di assunzione
                   </p>
-                  <p className="mt-2 text-sm font-black leading-6 text-slate-950">
-                    {item.client_instruction}
+                  <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-slate-800">
+                    {instruction || "Segui le indicazioni inserite dal professionista."}
                   </p>
                 </div>
-              )}
-
-              <div className="grid gap-2 sm:grid-cols-2">
-                {item.frequency && (
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Frequenza</p>
-                    <p className="mt-1 text-sm font-black text-slate-900">{item.frequency}</p>
-                  </div>
-                )}
-                {item.timing && (
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Timing</p>
-                    <p className="mt-1 text-sm font-black leading-5 text-slate-900">{item.timing}</p>
-                  </div>
-                )}
-                {item.meal_relation && (
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Pasti</p>
-                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">{item.meal_relation}</p>
-                  </div>
-                )}
-                {item.workout_relation && (
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Allenamento</p>
-                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">{item.workout_relation}</p>
-                  </div>
-                )}
-                {item.duration && (
-                  <div className="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Durata</p>
-                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-700">{item.duration}</p>
-                  </div>
-                )}
               </div>
-
-              {item.product_name && (
-                <div className="rounded-[1.25rem] border border-slate-200 bg-white p-4">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Prodotto consigliato
-                  </p>
-                  <p className="mt-1 text-sm font-black text-slate-950">{item.product_name}</p>
-                  {item.amazon_url && (
-                    <a
-                      href={item.amazon_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-3 inline-flex rounded-xl bg-[#07111f] px-4 py-2 text-xs font-black text-white"
-                    >
-                      Vedi prodotto
-                    </a>
-                  )}
-                </div>
-              )}
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
 }
+
+function ClientSupplementReminder({ supplements = [], logs = [], busyId = "", onToggle }) {
+  const reminderSupplements = supplements.filter(
+    (item) =>
+      String(item?.status || "active").toLowerCase() === "active" &&
+      item?.reminder_enabled !== false
+  );
+
+  if (reminderSupplements.length === 0) return null;
+
+  const completedIds = new Set(
+    logs
+      .filter((log) => log?.completed !== false)
+      .map((log) => String(log.assignment_id))
+  );
+  const completedCount = reminderSupplements.filter((item) =>
+    completedIds.has(String(item.id))
+  ).length;
+  const allCompleted = completedCount === reminderSupplements.length;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+            Promemoria integrazione
+          </p>
+          <h3 className="mt-1 text-lg font-black text-slate-950">
+            {allCompleted ? "Completato per oggi" : "Da assumere oggi"}
+          </h3>
+        </div>
+        <Pill className={allCompleted ? "bg-teal-100 text-teal-800" : "bg-slate-100 text-slate-700"}>
+          {completedCount}/{reminderSupplements.length}
+        </Pill>
+      </div>
+
+      <div className="space-y-2 p-3">
+        {reminderSupplements.map((item) => {
+          const checked = completedIds.has(String(item.id));
+          const busy = String(busyId) === String(item.id);
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onToggle?.(item, !checked)}
+              disabled={busy}
+              className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition active:scale-[.99] disabled:opacity-60 ${
+                checked
+                  ? "border-teal-200 bg-teal-50"
+                  : "border-slate-200 bg-white hover:bg-slate-50"
+              }`}
+            >
+              <div className="min-w-0">
+                <p className={`truncate text-sm font-black ${checked ? "text-teal-900" : "text-slate-950"}`}>
+                  {item.supplement_name || "Integratore"}
+                </p>
+                <p className={`mt-0.5 text-xs font-bold ${checked ? "text-teal-700" : "text-slate-500"}`}>
+                  {checked ? "Assunto oggi" : "Hai assunto questo integratore?"}
+                </p>
+              </div>
+
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition ${
+                  checked
+                    ? "border-teal-500 bg-teal-500 text-white"
+                    : "border-slate-300 bg-white text-transparent"
+                }`}
+                aria-hidden="true"
+              >
+                <Check size={17} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function BrandLogo({
   className = "",
   white = true,
@@ -9195,6 +9229,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     client_benefit: "",
     client_instruction: "",
     professional_note: "",
+    reminder_enabled: true,
     start_date: today(),
     end_date: ""
   });
@@ -9687,6 +9722,7 @@ if (historyError) {
       client_benefit: supplement.client_benefit || "",
       client_instruction: buildSupplementClientInstruction(units, timing),
       professional_note: "",
+      reminder_enabled: defaultSupplementReminderEnabled(supplement),
       start_date: today(),
       end_date: ""
     });
@@ -9723,6 +9759,7 @@ if (historyError) {
       client_benefit: assignment.client_benefit || "",
       client_instruction: assignment.client_instruction || "",
       professional_note: assignment.professional_note || "",
+      reminder_enabled: assignment.reminder_enabled !== false,
       start_date: assignment.start_date || today(),
       end_date: assignment.end_date || ""
     });
@@ -9763,6 +9800,7 @@ if (historyError) {
           supplementAssignmentForm.timing
         ),
       professional_note: supplementAssignmentForm.professional_note || null,
+      reminder_enabled: supplementAssignmentForm.reminder_enabled !== false,
       start_date: supplementAssignmentForm.start_date || null,
       end_date: supplementAssignmentForm.end_date || null,
       status: supplementEditingId
@@ -13291,12 +13329,37 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                             />
                           </Label>
 
-                          <Label title="Istruzione mostrata al cliente" className="md:col-span-2">
+                          <Label title="Modalità di assunzione mostrata al cliente" className="md:col-span-2">
                             <Textarea
                               value={supplementAssignmentForm.client_instruction || ""}
                               onChange={(event) => setSupplementAssignmentForm((current) => ({ ...current, client_instruction: event.target.value }))}
                             />
+                            <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                              Questo è l’unico testo operativo mostrato nella scheda Integrazione del cliente. Se cambia tra giorno di allenamento e riposo, scrivilo direttamente qui.
+                            </p>
                           </Label>
+
+                          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <label className="flex cursor-pointer items-start justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-black text-slate-950">Promemoria giornaliero in Home</p>
+                                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                                  Mostra al cliente una spunta giornaliera per confermare l’assunzione. Disattivalo per prodotti al bisogno o legati solo a sessioni specifiche.
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={supplementAssignmentForm.reminder_enabled !== false}
+                                onChange={(event) =>
+                                  setSupplementAssignmentForm((current) => ({
+                                    ...current,
+                                    reminder_enabled: event.target.checked
+                                  }))
+                                }
+                                className="mt-1 h-5 w-5 shrink-0 accent-[#14b8a6]"
+                              />
+                            </label>
+                          </div>
 
                           <Label title="Nota privata professionista" className="md:col-span-2">
                             <Textarea
@@ -21353,6 +21416,8 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [plans, setPlans] = useState([]);
   const [diets, setDiets] = useState([]);
   const [supplements, setSupplements] = useState([]);
+  const [supplementIntakeLogs, setSupplementIntakeLogs] = useState([]);
+  const [supplementReminderBusyId, setSupplementReminderBusyId] = useState("");
   const [posts, setPosts] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [photos, setPhotos] = useState([]);
@@ -21569,6 +21634,19 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       setSupplements([]);
     } else {
       setSupplements(supplementData || []);
+    }
+
+    const { data: supplementLogData, error: supplementLogError } = await supabase
+      .from("client_supplement_intake_logs")
+      .select("*")
+      .eq("client_id", numericClientId)
+      .eq("intake_date", tmfitLocalDateKey());
+
+    if (supplementLogError) {
+      console.warn("TMFIT reminder integrazione:", supplementLogError.message);
+      setSupplementIntakeLogs([]);
+    } else {
+      setSupplementIntakeLogs(supplementLogData || []);
     }
 
     const { data: postData } = await supabase
@@ -22578,6 +22656,58 @@ function getExerciseHistory(exercise) {
     });
   }
 
+  async function toggleSupplementIntakeReminder(assignment, nextCompleted) {
+    if (!client?.id || !assignment?.id || supplementReminderBusyId) return;
+
+    const assignmentId = String(assignment.id);
+    const existing = supplementIntakeLogs.find(
+      (log) => String(log.assignment_id) === assignmentId
+    );
+
+    setSupplementReminderBusyId(assignmentId);
+
+    try {
+      if (existing?.id) {
+        const { data, error } = await supabase
+          .from("client_supplement_intake_logs")
+          .update({
+            completed: Boolean(nextCompleted),
+            completed_at: nextCompleted ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", existing.id)
+          .eq("client_id", Number(client.id))
+          .select()
+          .single();
+
+        if (error) throw error;
+        setSupplementIntakeLogs((current) =>
+          current.map((log) => (String(log.id) === String(data.id) ? data : log))
+        );
+      } else {
+        const { data, error } = await supabase
+          .from("client_supplement_intake_logs")
+          .insert({
+            assignment_id: assignment.id,
+            client_id: Number(client.id),
+            intake_date: tmfitLocalDateKey(),
+            completed: Boolean(nextCompleted),
+            completed_at: nextCompleted ? new Date().toISOString() : null
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        setSupplementIntakeLogs((current) => [...current, data]);
+      }
+    } catch (error) {
+      console.warn("TMFIT reminder integrazione:", error?.message || error);
+      alert("Non è stato possibile aggiornare il promemoria. Riprova.");
+    } finally {
+      setSupplementReminderBusyId("");
+    }
+  }
+
   const activePlan = plans[0] || null;
   const clientPublishedDiets = diets.filter(isDietPublished);
   const latestDiet = clientPublishedDiets[0] || null;
@@ -22846,7 +22976,8 @@ function getExerciseHistory(exercise) {
 />
       <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(7.25rem+env(safe-area-inset-bottom))] md:p-5">
         {activeTab === "home" && (
-          <ClientHomePanel
+          <div className="space-y-4">
+            <ClientHomePanel
             firstName={client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
             nextWorkout={{
               available: Boolean(activePlan && nextWorkoutDay),
@@ -22907,6 +23038,14 @@ function getExerciseHistory(exercise) {
               adherencePercent
             }}
           />
+
+            <ClientSupplementReminder
+              supplements={supplements}
+              logs={supplementIntakeLogs}
+              busyId={supplementReminderBusyId}
+              onToggle={toggleSupplementIntakeReminder}
+            />
+          </div>
         )}
 
         {activeTab === "training" && (
@@ -23344,7 +23483,7 @@ function getExerciseHistory(exercise) {
                         key={item.id}
                         type="button"
                         onClick={() => setDietView(item.id)}
-                        className={`rounded-[1rem] px-2 py-3 text-[11px] font-black transition sm:text-xs ${
+                        className={`min-w-0 rounded-[1rem] px-1.5 py-3 text-center text-[10px] font-black leading-none tracking-tight transition sm:px-2 sm:text-[11px] ${
                           dietView === item.id
                             ? "bg-[#07111f] text-white"
                             : "text-slate-500 hover:bg-slate-50"
