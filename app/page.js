@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
 import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
+import TmfitPdfComposer from "../components/professional/TmfitPdfComposer";
 import {
   Activity,
   Bell,
@@ -44,11 +45,22 @@ import {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+async function tmfitNoStoreFetch(input, init = {}) {
+  return globalThis.fetch(input, {
+    ...init,
+    cache: "no-store"
+  });
+}
+
 const supabase =
-  supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+  supabaseUrl && supabaseKey
+    ? createClient(supabaseUrl, supabaseKey, {
+        global: { fetch: tmfitNoStoreFetch }
+      })
+    : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.1";
-const APP_VERSION_LABEL = "TMFIT Pro v5.1";
+const APP_VERSION = "v5.3.1";
+const APP_VERSION_LABEL = "TMFIT Pro v5.3.1";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -396,6 +408,44 @@ function fullName(client) {
   return `${client?.first_name || ""} ${client?.last_name || ""}`.trim() || "Cliente";
 }
 
+function normalizeClientServiceType(valueOrClient) {
+  const raw = typeof valueOrClient === "object"
+    ? valueOrClient?.service_type
+    : valueOrClient;
+  const value = String(raw || "NA").trim().toUpperCase().replace("N+A", "NA");
+  if (value === "N" || value === "A" || value === "NA") return value;
+  return "NA";
+}
+
+function clientServiceShortLabel(valueOrClient) {
+  const value = normalizeClientServiceType(valueOrClient);
+  return value === "NA" ? "N+A" : value;
+}
+
+function clientServiceLongLabel(valueOrClient) {
+  const value = normalizeClientServiceType(valueOrClient);
+  if (value === "N") return "Solo nutrizione";
+  if (value === "A") return "Solo allenamento";
+  return "Nutrizione + allenamento";
+}
+
+function clientNeedsNutrition(valueOrClient) {
+  const value = normalizeClientServiceType(valueOrClient);
+  return value === "N" || value === "NA";
+}
+
+function clientNeedsTraining(valueOrClient) {
+  const value = normalizeClientServiceType(valueOrClient);
+  return value === "A" || value === "NA";
+}
+
+function clientServicePillClass(valueOrClient) {
+  const value = normalizeClientServiceType(valueOrClient);
+  if (value === "N") return "bg-emerald-100 text-emerald-800";
+  if (value === "A") return "bg-sky-100 text-sky-800";
+  return "bg-teal-300 text-slate-950";
+}
+
 function numberOrNull(value) {
   if (value === "" || value === null || value === undefined) return null;
   const normalized = typeof value === "string" ? value.replace(",", ".").trim() : value;
@@ -623,6 +673,19 @@ function programStatusPillClass(program) {
   if (isProgramPublished(program)) return "bg-teal-300 text-slate-950";
   if (isProgramDraft(program)) return "bg-amber-300 text-slate-950";
   return "bg-slate-200 text-slate-700";
+}
+
+function formatAdminUploadDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+
+  return `${day}-${month}-${year}`;
 }
 
 function sortByOrder(items = [], field = "sort_order") {
@@ -7308,8 +7371,8 @@ function DietInfoGrid({ diet, compact = false }) {
       label: "Periodo",
       value: dietPeriodLabel(diet),
       helper: diet?.created_at
-        ? `Caricata ${new Date(diet.created_at).toLocaleDateString("it-IT")}`
-        : "Dieta attiva"
+        ? `Caricata il ${formatAdminUploadDate(diet.created_at)}`
+        : "Data caricamento non disponibile"
     },
     {
       label: "File",
@@ -9114,6 +9177,10 @@ function ProfessionalDashboard({ session, userProfile, onLogout }) {
 
   const [clients, setClients] = useState([]);
   const [query, setQuery] = useState("");
+  const [serviceFilter, setServiceFilter] = usePersistedState(
+    "tmfit_client_service_filter",
+    "ALL"
+  );
   const [loading, setLoading] = useState(false);
 const [coachControlLoading, setCoachControlLoading] = useState(false);
 const [coachControlData, setCoachControlData] = useState({
@@ -9123,6 +9190,9 @@ const [coachControlData, setCoachControlData] = useState({
   photos: [],
   sessions: []
 });
+  const [liveWorkoutNotice, setLiveWorkoutNotice] = useState(null);
+  const [pendingWorkoutSummarySessionId, setPendingWorkoutSummarySessionId] = useState("");
+  const lastWorkoutNoticeIdRef = useRef("");
   const [plans, setPlans] = useState([]);
   const [logs, setLogs] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -9167,6 +9237,7 @@ const [editingProgramTitle, setEditingProgramTitle] = useState("");
     birth_date: "",
     height_cm: "",
     goal: "",
+    service_type: "NA",
     notes: ""
   });
 
@@ -9261,6 +9332,10 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   const selectedClient =
     clients.find((client) => String(client.id) === String(selectedClientId)) ||
     null;
+  const coachRealtimeClientKey = clients
+    .map((client) => String(client.id))
+    .sort()
+    .join("|");
 
   const programBuilderDraftKey = professionalProgramDraftKey(
     session?.user?.id,
@@ -9283,10 +9358,14 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
       const text = `${fullName(client)} ${client.email || ""} ${
         client.goal || ""
       }`.toLowerCase();
+      const matchesQuery = text.includes(query.toLowerCase());
+      const matchesService =
+        serviceFilter === "ALL" ||
+        normalizeClientServiceType(client) === serviceFilter;
 
-      return text.includes(query.toLowerCase());
+      return matchesQuery && matchesService;
     });
-  }, [clients, query]);
+  }, [clients, query, serviceFilter]);
 
   const filteredSupplementLibrary = useMemo(() => {
     const search = String(supplementSearch || "").trim().toLowerCase();
@@ -9319,12 +9398,11 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   }, [exerciseMedia]);
 
   const professionalTabs = [
-    { id: "dashboard", label: "Oggi", icon: <Activity size={17} /> },
+    { id: "dashboard", label: "Centro operativo", icon: <Activity size={17} /> },
     { id: "clients", label: "Clienti", icon: <Users size={17} /> },
     { id: "programs", label: "Programmi", icon: <Dumbbell size={17} /> },
-    { id: "monitor", label: "Monitor", icon: <ClipboardCheck size={17} /> },
-    { id: "measurements", label: "Misure", icon: <Scale size={17} /> },
-    { id: "diets", label: "Diete", icon: <FileText size={17} /> },
+    { id: "update", label: "Update", icon: <ClipboardCheck size={17} /> },
+    { id: "diets", label: "Nutrizione", icon: <FileText size={17} /> },
     { id: "posts", label: "Bacheca", icon: <Megaphone size={17} /> }
   ];
 
@@ -9366,7 +9444,7 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
   }, [selectedClient?.id]);
 
   useEffect(() => {
-    if (activeTab !== "monitor" || !selectedClient?.id || typeof window === "undefined") {
+    if (activeTab !== "update" || !selectedClient?.id || typeof window === "undefined") {
       return undefined;
     }
 
@@ -9383,6 +9461,58 @@ const [savingPrivateNote, setSavingPrivateNote] = useState(false);
       window.clearInterval(interval);
     };
   }, [activeTab, selectedClient?.id]);
+
+  useEffect(() => {
+    if (!supabase || !session?.user?.id || !coachRealtimeClientKey) {
+      return undefined;
+    }
+
+    const clientIdSet = new Set(coachRealtimeClientKey.split("|").filter(Boolean));
+    const channel = supabase
+      .channel(`tmfit-coach-workout-completions-${session.user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "workout_sessions"
+        },
+        (payload) => {
+          const row = payload?.new || null;
+          if (!row?.id || !clientIdSet.has(String(row.client_id))) return;
+
+          const completed =
+            String(row.status || "").toLowerCase() === "completed" &&
+            (Number(row.duration_seconds) > 0 ||
+              Number(row.completed_sets) > 0 ||
+              Boolean(row.completed_at));
+
+          if (!completed) return;
+          if (lastWorkoutNoticeIdRef.current === String(row.id)) return;
+
+          lastWorkoutNoticeIdRef.current = String(row.id);
+          const client = clients.find(
+            (item) => String(item.id) === String(row.client_id)
+          );
+
+          setCoachControlData((current) => ({
+            ...current,
+            sessions: [
+              row,
+              ...(current.sessions || []).filter(
+                (item) => String(item.id) !== String(row.id)
+              )
+            ]
+          }));
+          setLiveWorkoutNotice({ session: row, client: client || null });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id, coachRealtimeClientKey]);
 
   useEffect(() => {
     if (!programBuilderDraftKey) return;
@@ -9463,6 +9593,9 @@ async function loadCoachControlCenter(rows = clients) {
   const clientIds = rows
     .map((client) => Number(client.id))
     .filter((id) => !Number.isNaN(id));
+  const recentDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 
   if (clientIds.length === 0) {
     setCoachControlData({
@@ -9489,31 +9622,39 @@ async function loadCoachControlCenter(rows = clients) {
         .from("workout_plans")
         .select("*")
         .in("client_id", clientIds)
+        .in("status", ["active", "published", "draft"])
         .order("created_at", { ascending: false }),
 
       supabase
         .from("diets")
         .select("*")
         .in("client_id", clientIds)
+        .in("status", ["active", "published", "draft"])
         .order("created_at", { ascending: false }),
 
       supabase
         .from("client_checkins")
         .select("*")
         .in("client_id", clientIds)
-        .order("checkin_date", { ascending: false }),
+        .gte("checkin_date", recentDate)
+        .order("checkin_date", { ascending: false })
+        .limit(1200),
 
       supabase
         .from("progress_photos")
         .select("*")
         .in("client_id", clientIds)
-        .order("photo_date", { ascending: false }),
+        .gte("photo_date", recentDate)
+        .order("photo_date", { ascending: false })
+        .limit(1200),
 
       supabase
         .from("workout_sessions")
         .select("*")
         .in("client_id", clientIds)
+        .gte("session_date", recentDate)
         .order("session_date", { ascending: false })
+        .limit(2000)
     ]);
 
     if (plansResult.error) console.warn(plansResult.error.message);
@@ -10617,10 +10758,27 @@ function updateProgressionField(
         console.warn("TMFIT archivio credenziali:", credentialArchiveError);
       }
 
-      setClients((prev) => [result.client, ...prev]);
-      setSelectedClientId(String(result.client.id));
+      let createdClient = result.client;
+      const desiredServiceType = normalizeClientServiceType(newClient.service_type);
+
+      const { data: serviceTaggedClient, error: serviceTagError } = await supabase
+        .from("clients")
+        .update({ service_type: desiredServiceType })
+        .eq("id", Number(result.client.id))
+        .select("*")
+        .maybeSingle();
+
+      if (serviceTagError) {
+        console.warn("TMFIT etichetta percorso:", serviceTagError.message);
+        createdClient = { ...createdClient, service_type: desiredServiceType };
+      } else if (serviceTaggedClient) {
+        createdClient = serviceTaggedClient;
+      }
+
+      setClients((prev) => [createdClient, ...prev]);
+      setSelectedClientId(String(createdClient.id));
       setClientAccessCredentials({
-        clientId: String(result.client.id),
+        clientId: String(createdClient.id),
         email: createdCredentials.email || "",
         password: createdCredentials.password || "",
         available: Boolean(createdCredentials.password),
@@ -10637,6 +10795,7 @@ function updateProgressionField(
         birth_date: "",
         height_cm: "",
         goal: "",
+        service_type: "NA",
         notes: ""
       });
     } catch (error) {
@@ -10646,6 +10805,34 @@ function updateProgressionField(
     } finally {
       setCreatingClient(false);
     }
+  }
+
+  async function updateSelectedClientServiceType(nextType) {
+    if (!selectedClient?.id) return;
+
+    const serviceType = normalizeClientServiceType(nextType);
+    const { data, error } = await supabase
+      .from("clients")
+      .update({ service_type: serviceType })
+      .eq("id", Number(selectedClient.id))
+      .select("*")
+      .single();
+
+    if (error) {
+      alert(error.message || "Non è stato possibile aggiornare il percorso.");
+      return;
+    }
+
+    setClients((current) =>
+      current.map((client) =>
+        String(client.id) === String(data.id) ? data : client
+      )
+    );
+    await loadCoachControlCenter(
+      clients.map((client) =>
+        String(client.id) === String(data.id) ? data : client
+      )
+    );
   }
 
   async function deleteSelectedClient() {
@@ -11705,7 +11892,7 @@ try {
     const hasCards = Boolean(dietExtractedInfo(diet));
     const confirmed = window.confirm(
       hasCards
-        ? "Vuoi pubblicare questo piano al cliente? Diventerà l’unica dieta visibile nella sua area Dieta."
+        ? "Vuoi pubblicare questo piano al cliente? Diventerà l’unica dieta visibile nella sua area Nutrizione."
         : "Questa dieta non ha ancora card Pasti generate. Il cliente vedrà riepilogo e PDF. Vuoi pubblicarla comunque?"
     );
 
@@ -11714,29 +11901,54 @@ try {
     setUpdatingDietId(String(diet.id));
 
     try {
-      const { error: activeError } = await supabase
-        .from("diets")
-        .update({ status: "active" })
-        .eq("id", diet.id);
+      // V5.3: pubblicazione atomica lato database.
+      // Evita due update separati e impedisce che restino due diete attive.
+      const { data: publishResult, error: publishError } = await supabase.rpc(
+        "tmfit_publish_diet",
+        {
+          p_client_id: Number(selectedClient.id),
+          p_diet_id: String(diet.id)
+        }
+      );
 
-      if (activeError) {
-        alert(activeError.message);
+      if (publishError) {
+        alert(
+          `Pubblicazione non completata. Nessuna dieta è stata cambiata.\n\n${publishError.message}\n\nVerifica di aver eseguito la migration TMFIT v5.3.`
+        );
         return;
       }
 
-      const { error: inactiveError } = await supabase
+      const { data: activeRows, error: verifyError } = await supabase
         .from("diets")
-        .update({ status: "inactive" })
+        .select("id, client_id, status, published_at, publication_revision")
         .eq("client_id", Number(selectedClient.id))
-        .neq("id", diet.id);
+        .eq("status", "active")
+        .order("published_at", { ascending: false, nullsFirst: false });
 
-      if (inactiveError) {
-        alert(inactiveError.message);
+      if (verifyError) {
+        alert(`Dieta aggiornata, ma verifica finale non riuscita: ${verifyError.message}`);
+        await loadClientBundle(selectedClient.id);
         return;
       }
 
-      await loadClientBundle(selectedClient.id);
-      alert("Dieta pubblicata. Ora è visibile al cliente.");
+      const activeId = activeRows?.[0]?.id ? String(activeRows[0].id) : "";
+      if (activeRows?.length !== 1 || activeId !== String(diet.id)) {
+        console.error("TMFIT verifica dieta attiva fallita", { publishResult, activeRows });
+        alert(
+          "ATTENZIONE: il controllo finale non conferma in modo univoco la dieta appena pubblicata. Non considerare conclusa la pubblicazione e contatta l'assistenza tecnica."
+        );
+        await loadClientBundle(selectedClient.id);
+        return;
+      }
+
+      await Promise.all([
+        loadClientBundle(selectedClient.id),
+        loadCoachControlCenter(clients)
+      ]);
+      alert("Dieta pubblicata e verificata. È l’unica dieta attiva del cliente.");
+    } catch (error) {
+      console.error("TMFIT pubblicazione dieta", error);
+      alert(error?.message || "Errore durante la pubblicazione della dieta.");
     } finally {
       setUpdatingDietId("");
     }
@@ -11776,6 +11988,13 @@ try {
 
   async function deleteDietFromHistory(diet) {
     if (!selectedClient || !diet?.id || String(diet.client_id) !== String(selectedClient.id)) return;
+
+    if (isDietPublished(diet)) {
+      alert(
+        "Per sicurezza non puoi eliminare definitivamente la dieta attiva. Pubblica prima un altro piano oppure rendi questo piano non visibile."
+      );
+      return;
+    }
 
     const confirmed = window.confirm(
       "Vuoi eliminare definitivamente questa dieta dallo storico? Verranno rimossi il record della dieta e, se possibile, anche il PDF collegato. Questa azione non può essere annullata."
@@ -12195,15 +12414,24 @@ async function savePrivateNote(event) {
     });
 
     const clientsWithoutActivePlan = clients
-      .filter((client) => !activePlanClientIds.has(String(client.id)))
+      .filter(
+        (client) =>
+          clientNeedsTraining(client) &&
+          !activePlanClientIds.has(String(client.id))
+      )
       .slice(0, 5);
 
     const clientsWithoutDiet = clients
-      .filter((client) => !activeDietClientIds.has(String(client.id)))
+      .filter(
+        (client) =>
+          clientNeedsNutrition(client) &&
+          !activeDietClientIds.has(String(client.id))
+      )
       .slice(0, 5);
 
     const inactiveClients = clients
       .filter((client) => {
+        if (!clientNeedsTraining(client)) return false;
         const lastSession = lastSessionByClient.get(String(client.id));
         if (!lastSession) return true;
         return now - lastSession.getTime() > sevenDaysMs;
@@ -12251,7 +12479,7 @@ async function savePrivateNote(event) {
         text: `Check-in critico: ${checkin.criticalReason}. Valuta scarico, recupero o modifica del percorso.`,
         actionLabel: "Apri monitor",
         tone: "red",
-        onAction: () => openClient(checkin.client_id, "monitor")
+        onAction: () => openClient(checkin.client_id, "update")
       })),
       ...recentCheckins.slice(0, 3).map((checkin) => ({
         id: `reminder-checkin-${checkin.id}`,
@@ -12260,7 +12488,7 @@ async function savePrivateNote(event) {
         text: `Ricevuto ${formatShortDate(checkin.checkin_date || checkin.created_at)}. Valutalo e aggiorna il percorso se serve.`,
         actionLabel: "Leggi",
         tone: "teal",
-        onAction: () => openClient(checkin.client_id, "monitor")
+        onAction: () => openClient(checkin.client_id, "update")
       }))
     ].slice(0, 8);
 
@@ -12367,12 +12595,12 @@ async function savePrivateNote(event) {
                 </p>
 
                 <h2 className="mt-3 text-3xl font-black leading-tight md:text-5xl">
-                  Oggi su TMFIT Pro
+                  Centro operativo
                 </h2>
 
                 <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-300 md:text-base">
-                  Vista operativa per capire subito priorità, nuovi check-in e
-                  clienti da seguire negli ultimi 7 giorni.
+                  La tua regia quotidiana: priorità reali, update ricevuti e
+                  allenamenti completati, filtrati in base al percorso N / A / N+A.
                 </p>
 
                 <div className="mt-5 grid gap-2 sm:grid-cols-3">
@@ -12468,8 +12696,8 @@ async function savePrivateNote(event) {
                 </h3>
 
                 <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
-                  Priorità generate dai dati già presenti: programmi, diete,
-                  check-in recenti e aderenza da controllare.
+                  Le priorità rispettano il servizio assegnato al cliente: niente
+                  più alert allenamento per i clienti N o dieta per i clienti A.
                 </p>
               </div>
 
@@ -12498,7 +12726,7 @@ async function savePrivateNote(event) {
               {reminderItems.length === 0 && (
                 <Empty
                   title="Nessun promemoria operativo"
-                  text="Programmi, dieta, check-in e aderenza risultano sotto controllo."
+                  text="Programmi, nutrizione, update e aderenza risultano sotto controllo."
                 />
               )}
             </div>
@@ -12612,7 +12840,7 @@ async function savePrivateNote(event) {
                 <button
                   key={checkin.id}
                   type="button"
-                  onClick={() => openClient(checkin.client_id, "monitor")}
+                  onClick={() => openClient(checkin.client_id, "update")}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
                 >
                   <p className="font-black text-slate-950">
@@ -12719,6 +12947,10 @@ async function savePrivateNote(event) {
                 </Pill>
 
                 <Pill className="bg-white/10 text-white">
+                  {clientServiceShortLabel(selectedClient)} · {clientServiceLongLabel(selectedClient)}
+                </Pill>
+
+                <Pill className="bg-white/10 text-white">
                   {selectedClient.goal || "Obiettivo non impostato"}
                 </Pill>
               </div>
@@ -12754,6 +12986,10 @@ function SelectedClientCompactBar() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+  <Pill className={clientServicePillClass(selectedClient)}>
+    {clientServiceShortLabel(selectedClient)}
+  </Pill>
+
   <Pill className="bg-teal-100 text-teal-700">
     {selectedClient.status || "active"}
   </Pill>
@@ -12773,6 +13009,23 @@ function SelectedClientCompactBar() {
     </Card>
   );
 }
+function openWorkoutNoticeSummary(notice = liveWorkoutNotice) {
+  const workoutSession = notice?.session;
+  if (!workoutSession?.id || !workoutSession?.client_id) return;
+
+  setSelectedClientId(String(workoutSession.client_id));
+  setPendingWorkoutSummarySessionId(String(workoutSession.id));
+  setActiveTab("update");
+  setLiveWorkoutNotice(null);
+}
+
+function formatWorkoutNoticeDuration(value) {
+  const seconds = Math.max(0, Number(value) || 0);
+  if (!seconds) return "Durata non disponibile";
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  return `${minutes} min`;
+}
+
 const builderStats = getBuilderStats();
 const builderQuality = getBuilderQualityReport();
 const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
@@ -12829,6 +13082,56 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
   statusText={programPreviewModal.statusText}
   sourceLabel={programPreviewModal.sourceLabel}
 />
+{liveWorkoutNotice && (
+  <div className="fixed right-3 top-24 z-[140] w-[calc(100%-1.5rem)] max-w-md rounded-[1.7rem] border border-teal-200 bg-white p-4 shadow-[0_22px_65px_rgba(15,23,42,0.22)] md:right-6 md:top-6">
+    <div className="flex items-start gap-3">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-100 text-teal-700">
+        <Dumbbell size={19} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+          Allenamento completato
+        </p>
+        <h3 className="mt-1 truncate text-lg font-black text-slate-950">
+          {liveWorkoutNotice.client
+            ? fullName(liveWorkoutNotice.client)
+            : "Cliente TMFIT"}
+        </h3>
+        <p className="mt-1 text-sm font-bold text-slate-500">
+          {formatWorkoutNoticeDuration(liveWorkoutNotice.session?.duration_seconds)}
+          {Number(liveWorkoutNotice.session?.completed_sets) > 0
+            ? ` · ${liveWorkoutNotice.session.completed_sets} serie completate`
+            : ""}
+        </p>
+      </div>
+      <button
+        type="button"
+        aria-label="Chiudi notifica"
+        onClick={() => setLiveWorkoutNotice(null)}
+        className="rounded-xl bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200"
+      >
+        <X size={16} />
+      </button>
+    </div>
+
+    <div className="mt-4 grid grid-cols-2 gap-2">
+      <Button
+        type="button"
+        onClick={() => setLiveWorkoutNotice(null)}
+        className="border border-slate-200 bg-white text-slate-700"
+      >
+        Più tardi
+      </Button>
+      <Button
+        type="button"
+        onClick={() => openWorkoutNoticeSummary()}
+        className="bg-[#07111f] text-white"
+      >
+        Riepilogo
+      </Button>
+    </div>
+  </div>
+)}
     <main
   className={`mx-auto grid gap-4 p-3 pb-28 md:p-5 ${
     activeTab === "programs" || activeTab === "dashboard"
@@ -12853,6 +13156,28 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
               />
             </div>
 
+            <div className="mb-2 grid grid-cols-4 gap-1">
+              {[
+                ["ALL", "Tutti"],
+                ["N", "N"],
+                ["A", "A"],
+                ["NA", "N+A"]
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setServiceFilter(value)}
+                  className={`rounded-xl px-2 py-2 text-[10px] font-black transition ${
+                    serviceFilter === value
+                      ? "bg-[#07111f] text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div
   className={`space-y-1.5 overflow-y-auto pr-1 ${
     activeTab === "programs" ? "max-h-[300px]" : "max-h-[420px]"
@@ -12868,7 +13193,12 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                       : "border-slate-200 bg-white"
                   }`}
                 >
-                  <p className="truncate text-sm font-black">{fullName(client)}</p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate text-sm font-black">{fullName(client)}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black ${clientServicePillClass(client)}`}>
+                      {clientServiceShortLabel(client)}
+                    </span>
+                  </div>
 
                   {activeTab !== "programs" && (
   <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">
@@ -12888,7 +13218,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
         <section className="min-w-0 space-y-5">
           {activeTab === "programs" ? (
   <SelectedClientCompactBar />
-) : activeTab === "dashboard" ? null : (
+) : activeTab === "dashboard" || activeTab === "clients" ? null : (
   <SelectedClientHero />
 )}
           {activeTab === "dashboard" && <CoachTodayDashboard />}
@@ -13005,8 +13335,9 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                     setProgramPanel("builder");
                   }}
                   onOpenDiets={() => setActiveTab("diets")}
-                  onOpenMeasurements={() => setActiveTab("measurements")}
-                  onOpenMonitor={() => setActiveTab("monitor")}
+                  onOpenMeasurements={() => setActiveTab("update")}
+                  onOpenMonitor={() => setActiveTab("update")}
+                  onChangeServiceType={updateSelectedClientServiceType}
                   onAddNote={() => setClientPanel("notes")}
                   onDeleteClient={deleteSelectedClient}
                 />
@@ -13627,6 +13958,22 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                         </p>
 
                         <div className="grid gap-3">
+                          <Label title="Servizio attivo" labelClassName="text-slate-500">
+                            <Select
+                              value={newClient.service_type || "NA"}
+                              onChange={(event) =>
+                                setNewClient({
+                                  ...newClient,
+                                  service_type: event.target.value
+                                })
+                              }
+                            >
+                              <option value="N">N · Solo nutrizione</option>
+                              <option value="A">A · Solo allenamento</option>
+                              <option value="NA">N+A · Nutrizione + allenamento</option>
+                            </Select>
+                          </Label>
+
                           <Label title="Obiettivo" labelClassName="text-slate-500">
                             <Input
                               placeholder="Esempio: ricomposizione, dimagrimento, forza..."
@@ -14964,7 +15311,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
               )}
             </div>
           )}
-          {activeTab === "monitor" && (
+          {activeTab === "update" && (
             <CoachMonitorPanel
               selectedClient={selectedClient}
               checkins={checkins}
@@ -14973,10 +15320,12 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
               plans={plans}
               photos={photos}
               openStorageFile={openStorageFile}
+              openWorkoutSessionId={pendingWorkoutSummarySessionId}
+              onWorkoutSessionOpened={() => setPendingWorkoutSummarySessionId("")}
             />
           )}
 
-          {activeTab === "measurements" && (
+          {activeTab === "update" && (
             <div className="space-y-5">
               <div className="grid gap-3 md:grid-cols-3">
                 <Card className="p-4">
@@ -15425,17 +15774,41 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                 </div>
               </Card>
 
+              <TmfitPdfComposer
+                client={selectedClient}
+                supabase={supabase}
+                professionalId={session?.user?.id}
+                supplements={clientSupplements}
+                latestMeasurement={measurements[0] || null}
+                onGeneratedFile={(file, settings) => {
+                  setDietFile(file);
+                  setDietForm((current) => ({
+                    ...current,
+                    title: `PAP ${fullName(selectedClient)}`,
+                    diet_type: "daily_pdf",
+                    calorie_target: settings?.calorie_target || "",
+                    summary: [
+                      settings?.meals_count ? `${settings.meals_count} pasti` : "",
+                      settings?.objective || ""
+                    ]
+                      .filter(Boolean)
+                      .join(" · "),
+                    notes: "PDF completo generato dal compositore TMFIT."
+                  }));
+                }}
+              />
+
               <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                 <Card className="overflow-hidden">
                   <div className="border-b border-slate-200 bg-white px-5 py-4">
                     <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                      Upload PDF
+                      Pubblicazione in app
                     </p>
                     <h3 className="mt-1 text-xl font-black text-slate-950">
-                      Carica dieta SIFA
+                      PDF finale del cliente
                     </h3>
                     <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                      Il PDF viene caricato come bozza: lo pubblichi solo quando è pronto.
+                      Dopo “Genera PDF completo” il file viene già selezionato qui. Puoi caricarlo come bozza e pubblicarlo nell’app solo quando vuoi. In alternativa puoi scegliere manualmente un PDF già pronto.
                     </p>
                   </div>
 
@@ -15643,7 +16016,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                 onClick={() => previewDietInApp(activeDietForSelectedClient)}
                                 className="bg-teal-300 text-slate-950 hover:bg-teal-200"
                               >
-PDF sotto
+                                Anteprima PDF
                               </Button>
                               <Button
                                 onClick={() => openDietFullscreen(activeDietForSelectedClient)}
@@ -15806,6 +16179,9 @@ Apri PDF
                           </div>
                           <p className="mt-1 truncate text-sm font-semibold text-slate-500">
                             {diet.file_name || "PDF dieta"}
+                          </p>
+                          <p className="mt-1 text-xs font-black uppercase tracking-[0.12em] text-slate-400">
+                            Caricata il {formatAdminUploadDate(diet.created_at)}
                           </p>
                           <p className="mt-1 text-xs font-bold text-slate-400">
                             {dietTypeLabel(diet.diet_type)} · {dietStructuredInfo(diet).calorieTarget || dietPeriodLabel(diet)}
@@ -17374,6 +17750,7 @@ function CoachClientSnapshot({
   onOpenDiets,
   onOpenMeasurements,
   onOpenMonitor,
+  onChangeServiceType,
   onAddNote,
   onDeleteClient
 }) {
@@ -17432,25 +17809,34 @@ function CoachClientSnapshot({
   const lastWorkoutDays = daysSince(lastWorkoutDate);
   const lastCheckinDays = daysSince(lastCheckinDate);
 
+  const needsTraining = clientNeedsTraining(selectedClient);
+  const needsNutrition = clientNeedsNutrition(selectedClient);
+
   let clientStatus = {
     label: "In ordine",
-    text: "Programma attivo e percorso sotto controllo.",
+    text: "Il percorso assegnato è configurato e sotto controllo.",
     className: "bg-teal-300 text-slate-950"
   };
 
-  if (activePlans.length === 0) {
+  if (needsTraining && activePlans.length === 0) {
     clientStatus = {
       label: "Da configurare",
-      text: "Manca un programma attivo da assegnare.",
+      text: "Il percorso include allenamento, ma manca una scheda attiva.",
       className: "bg-amber-300 text-slate-950"
     };
-  } else if (lastWorkoutDays === null) {
+  } else if (needsNutrition && activeDiets.length === 0) {
+    clientStatus = {
+      label: "Da configurare",
+      text: "Il percorso include nutrizione, ma manca un piano alimentare attivo.",
+      className: "bg-amber-300 text-slate-950"
+    };
+  } else if (needsTraining && lastWorkoutDays === null) {
     clientStatus = {
       label: "Da avviare",
-      text: "Programma presente, ma nessun allenamento registrato.",
+      text: "Scheda presente, ma nessun allenamento ancora registrato.",
       className: "bg-sky-300 text-slate-950"
     };
-  } else if (lastWorkoutDays > 10) {
+  } else if (needsTraining && lastWorkoutDays > 10) {
     clientStatus = {
       label: "A rischio drop",
       text: `Nessun allenamento registrato da ${lastWorkoutDays} giorni.`,
@@ -17459,35 +17845,45 @@ function CoachClientSnapshot({
   } else if (lastCheckinDays !== null && lastCheckinDays <= 3) {
     clientStatus = {
       label: "Da seguire",
-      text: "Check-in recente da valutare e trasformare in feedback.",
+      text: "Update recente da valutare e trasformare in feedback.",
       className: "bg-violet-100 text-violet-700"
     };
   }
 
   const quickStats = [
     {
-      label: "Programma",
-      value: activePlan?.title || "Nessun programma attivo",
-      helper: activePlan?.duration_weeks
-        ? `${activePlan.duration_weeks} settimane`
-        : "Crea o assegna una scheda"
+      label: "Servizio",
+      value: clientServiceShortLabel(selectedClient),
+      helper: clientServiceLongLabel(selectedClient)
     },
     {
-      label: "Dieta",
-      value: activeDiet?.title || "Nessuna dieta caricata",
-      helper: activeDiet?.created_at
-        ? `Caricata ${formatDate(activeDiet.created_at)}`
-        : "Carica piano o PDF"
+      label: "Peso",
+      value: latestMeasurement?.weight_kg
+        ? `${latestMeasurement.weight_kg} kg`
+        : latestCheckin?.weight_kg
+        ? `${latestCheckin.weight_kg} kg`
+        : "—",
+      helper: recencyText(lastMeasurementDate || lastCheckinDate, "Nessun dato")
     },
     {
-      label: "Check-in",
-      value: latestCheckin?.weight_kg ? `${latestCheckin.weight_kg} kg` : "—",
-      helper: recencyText(lastCheckinDate, "Nessun check-in")
+      label: "Nutrizione",
+      value: needsNutrition
+        ? activeDiet?.title || "Piano da preparare"
+        : "Non prevista",
+      helper: needsNutrition
+        ? activeDiet?.created_at
+          ? `Aggiornata ${formatDate(activeDiet.created_at)}`
+          : "Apri il compositore PDF"
+        : "Nessun alert dieta"
     },
     {
       label: "Allenamento",
-      value: latestSession?.session_date ? formatDate(latestSession.session_date) : "—",
-      helper: recencyText(lastWorkoutDate, "Nessuna sessione")
+      value: needsTraining
+        ? activePlan?.title || "Scheda da preparare"
+        : "Non previsto",
+      helper: needsTraining
+        ? recencyText(lastWorkoutDate, "Nessuna sessione")
+        : "Nessun alert programma"
     }
   ];
 
@@ -17561,6 +17957,10 @@ function CoachClientSnapshot({
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <Pill className={clientStatus.className}>{clientStatus.label}</Pill>
+
+                <Pill className="bg-white/10 text-white">
+                  {clientServiceShortLabel(selectedClient)} · {clientServiceLongLabel(selectedClient)}
+                </Pill>
 
                 <Pill className="bg-white/10 text-white">
                   {selectedClient.email || "Email non inserita"}
@@ -17639,9 +18039,9 @@ function CoachClientSnapshot({
               className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
             >
               <FileText size={20} className="text-teal-600" />
-              <p className="mt-3 font-black">Carica dieta</p>
+              <p className="mt-3 font-black">Piano PDF</p>
               <p className="mt-1 text-xs font-bold text-slate-500">
-                Vai ai piani alimentari.
+                Apri il compositore nutrizione.
               </p>
             </button>
 
@@ -17651,9 +18051,9 @@ function CoachClientSnapshot({
               className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
             >
               <Scale size={20} className="text-teal-600" />
-              <p className="mt-3 font-black">Registra misure</p>
+              <p className="mt-3 font-black">Registra update</p>
               <p className="mt-1 text-xs font-bold text-slate-500">
-                Peso, circonferenze e foto.
+                Misure, foto e andamento.
               </p>
             </button>
 
@@ -17663,9 +18063,9 @@ function CoachClientSnapshot({
               className="rounded-3xl border border-slate-200 bg-white p-4 text-left transition hover:border-teal-300 hover:bg-teal-50"
             >
               <ClipboardCheck size={20} className="text-teal-600" />
-              <p className="mt-3 font-black">Apri check-in</p>
+              <p className="mt-3 font-black">Apri update</p>
               <p className="mt-1 text-xs font-bold text-slate-500">
-                Controlla feedback cliente.
+                Check-in, progressi e feedback.
               </p>
             </button>
 
@@ -17698,9 +18098,9 @@ function CoachClientSnapshot({
         <Card className="p-5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-xl font-black">Profilo</h3>
+              <h3 className="text-xl font-black">Accesso cliente</h3>
               <p className="text-sm font-semibold text-slate-500">
-                Dati rapidi e gestione account.
+                Qui restano solo credenziali e gestione dell’account.
               </p>
             </div>
 
@@ -17715,6 +18115,41 @@ function CoachClientSnapshot({
           </div>
 
           <div className="space-y-3">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                Etichetta percorso
+              </p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {[
+                  ["N", "N", "Nutrizione"],
+                  ["A", "A", "Allenamento"],
+                  ["NA", "N+A", "Completo"]
+                ].map(([value, short, label]) => {
+                  const active = normalizeClientServiceType(selectedClient) === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => onChangeServiceType?.(value)}
+                      className={`rounded-2xl border px-2 py-3 text-center transition ${
+                        active
+                          ? "border-[#07111f] bg-[#07111f] text-white"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-teal-300"
+                      }`}
+                    >
+                      <span className="block text-sm font-black">{short}</span>
+                      <span className={`mt-1 block text-[9px] font-bold ${active ? "text-slate-300" : "text-slate-400"}`}>
+                        {label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
+                Questa etichetta decide quali alert sono realmente dovuti. Le sezioni non assegnate restano comunque visibili al cliente come anteprima del servizio.
+              </p>
+            </div>
+
             <CoachClientCredentialsCard
               selectedClient={selectedClient}
               credentials={accessCredentials}
@@ -17726,35 +18161,6 @@ function CoachClientSnapshot({
               onReload={onReloadCredentials}
               onResetPassword={onResetClientPassword}
             />
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                  Telefono
-                </p>
-                <p className="mt-1 text-sm font-black">
-                  {selectedClient.phone || "—"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                  Altezza
-                </p>
-                <p className="mt-1 text-sm font-black">
-                  {selectedClient.height_cm ? `${selectedClient.height_cm} cm` : "—"}
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                Creato il
-              </p>
-              <p className="mt-1 text-sm font-black">
-                {formatDate(selectedClient.created_at)}
-              </p>
-            </div>
           </div>
         </Card>
       </div>
@@ -18023,6 +18429,10 @@ function PlansList({
                   <h3 className="mt-3 break-words text-lg font-black text-slate-950">
                     {plan.title || "Programma senza titolo"}
                   </h3>
+
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.12em] text-slate-400">
+                    Caricata il {formatAdminUploadDate(plan.created_at)}
+                  </p>
 
                   <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">
                     {plan.goal || "Nessun obiettivo inserito"}
@@ -19843,7 +20253,9 @@ function CoachMonitorPanel({
   logs = [],
   plans = [],
   photos = [],
-  openStorageFile
+  openStorageFile,
+  openWorkoutSessionId = "",
+  onWorkoutSessionOpened
 }) {
   const clientId = selectedClient?.id ? String(selectedClient.id) : null;
   const visibleCheckins = clientId
@@ -20016,6 +20428,24 @@ function CoachMonitorPanel({
     .filter((report) => report.completedSets > 0)
     .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
 
+  useEffect(() => {
+    if (!openWorkoutSessionId) return;
+
+    const target = workoutReports.find(
+      (report) => String(report.session?.id) === String(openWorkoutSessionId)
+    );
+
+    if (!target) return;
+
+    setSelectedWorkoutReport(target);
+    onWorkoutSessionOpened?.();
+  }, [
+    openWorkoutSessionId,
+    visibleSessions.length,
+    visibleLogs.length,
+    plans.length
+  ]);
+
   const latestCheckin = visibleCheckins[0] || null;
   const latestPhoto = visiblePhotos[0] || null;
   const latestWorkout = workoutReports[0] || null;
@@ -20070,7 +20500,7 @@ function CoachMonitorPanel({
       <Card className="border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">Monitor</p>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-teal-700">Update cliente</p>
             <h2 className="mt-1 text-2xl font-black text-slate-950">
               {selectedClient ? fullName(selectedClient) : "Monitor clienti"}
             </h2>
@@ -20161,8 +20591,8 @@ function CoachMonitorPanel({
 
       <Card className="border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h3 className="text-lg font-black text-slate-950">Alert check-in</h3>
-          <Pill className="bg-slate-100 text-slate-700">Ultimo check-in</Pill>
+          <h3 className="text-lg font-black text-slate-950">Alert ultimo update</h3>
+          <Pill className="bg-slate-100 text-slate-700">Ultimo update</Pill>
         </div>
 
         {alerts.length > 0 ? (
@@ -20188,7 +20618,7 @@ function CoachMonitorPanel({
 
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <Card className="border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-black text-slate-950">Check-in recenti</h3>
+          <h3 className="text-lg font-black text-slate-950">Update recenti</h3>
           <div className="mt-3 space-y-2">
             {visibleCheckins.slice(0, 6).map((checkin) => (
               <button
@@ -20217,7 +20647,7 @@ function CoachMonitorPanel({
             ))}
 
             {visibleCheckins.length === 0 && (
-              <Empty title="Nessun check-in" text="Non ci sono check-in da visualizzare." />
+              <Empty title="Nessun update" text="Non ci sono update da visualizzare." />
             )}
           </div>
         </Card>
@@ -21409,6 +21839,58 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
   );
 }
 
+function ClientUnassignedServiceCard({ type = "training", included = false, onContact }) {
+  const training = type === "training";
+  const title = included
+    ? training
+      ? "La tua scheda è in preparazione"
+      : "Il tuo piano nutrizionale è in preparazione"
+    : training
+    ? "Allenamento non ancora assegnato"
+    : "Nutrizione non ancora assegnata";
+  const text = included
+    ? "Il professionista sta preparando il contenuto previsto dal tuo percorso. Quando sarà pubblicato, comparirà automaticamente qui."
+    : training
+    ? "Il tuo percorso attuale è focalizzato sulla nutrizione. Se in futuro verrà attivato anche un programma di allenamento personalizzato, lo troverai in questa sezione."
+    : "Il tuo percorso attuale è focalizzato sull’allenamento. Se in futuro verrà attivato anche un piano nutrizionale personalizzato, lo troverai in questa sezione.";
+
+  return (
+    <Card className="overflow-hidden border-slate-200">
+      <div className="bg-[#07111f] p-5 text-white">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-teal-300">
+          {training ? <Dumbbell size={22} /> : <FileText size={22} />}
+        </div>
+        <p className="mt-4 text-[10px] font-black uppercase tracking-[0.25em] text-teal-300">
+          {training ? "Allenamento TMFIT" : "Nutrizione TMFIT"}
+        </p>
+        <h2 className="mt-2 text-2xl font-black">{title}</h2>
+        <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{text}</p>
+      </div>
+      <div className="p-5">
+        {!included && (
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm font-black text-slate-950">
+              {training
+                ? "Programmazione personalizzata, progressioni e storico delle sedute."
+                : "Piano alimentare, integrazione e documenti personalizzati."}
+            </p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+              La sezione resta visibile per mostrarti ciò che può essere aggiunto al percorso, senza attivare nulla automaticamente.
+            </p>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onContact}
+          className="mt-4 min-h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:border-teal-300 hover:bg-teal-50"
+        >
+          {included ? "Contatta il professionista" : "Parlane con il professionista"}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function ClientDashboard({ session, userProfile, onLogout }) {
   const [activeTab, setActiveTab] = useState("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -21492,10 +21974,9 @@ function ClientDashboard({ session, userProfile, onLogout }) {
 
   const clientTabs = [
     { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
-    { id: "training", label: "Scheda", icon: <Dumbbell size={19} /> },
-    { id: "checkin", label: "Check-in", icon: <ClipboardCheck size={19} /> },
-    { id: "progress", label: "Progressi", icon: <Camera size={19} /> },
-    { id: "diet", label: "Dieta", icon: <FileText size={19} /> }
+    { id: "training", label: "Allenamento", icon: <Dumbbell size={19} /> },
+    { id: "update", label: "Update", icon: <RefreshCw size={19} /> },
+    { id: "diet", label: "Nutrizione", icon: <FileText size={19} /> }
   ];
 
   const clientDrawerTabs = [
@@ -21508,6 +21989,47 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   useEffect(() => {
     loadClientArea();
   }, []);
+
+  // V5.3: la dieta attiva viene ricontrollata quando la PWA torna in primo piano
+  // e in tempo reale quando cambia il record su Supabase. In questo modo una
+  // schermata rimasta aperta per ore non continua a mostrare un PDF precedente.
+  useEffect(() => {
+    if (!client?.id || !supabase) return;
+
+    let disposed = false;
+    const refresh = async () => {
+      if (disposed) return;
+      await refreshClientActiveDiet(client.id);
+    };
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    const channel = supabase
+      .channel(`tmfit-client-diet-${client.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "diets",
+          filter: `client_id=eq.${Number(client.id)}`
+        },
+        refresh
+      )
+      .subscribe();
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      supabase.removeChannel(channel);
+    };
+  }, [client?.id]);
 
   useEffect(() => {
     setSelectedWorkoutWeeks(safeReadLocalJson(workoutWeekSelectionKey, {}));
@@ -21567,6 +22089,37 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     }
   }, []);
 
+  async function refreshClientActiveDiet(clientId = client?.id) {
+    if (!clientId || !supabase) return [];
+
+    const numericClientId = Number(clientId);
+    const { data, error } = await supabase
+      .from("diets")
+      .select("*")
+      .eq("client_id", numericClientId)
+      .eq("status", "active")
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.warn("TMFIT aggiornamento dieta attiva:", error.message);
+      return [];
+    }
+
+    const next = data || [];
+    setDiets(next);
+
+    const activeId = next[0]?.id ? String(next[0].id) : "";
+    setDietPreview((current) => {
+      if (!current?.dietId) return current;
+      if (activeId && String(current.dietId) === activeId) return current;
+      return { dietId: "", url: "", loading: false, error: "" };
+    });
+
+    return next;
+  }
+
   async function loadClientArea() {
     const { data: clientData, error: clientError } = await supabase
       .from("clients")
@@ -21613,14 +22166,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
 
     setPlans(normalizePlans(planData || []));
 
-    const { data: dietData } = await supabase
-      .from("diets")
-      .select("*")
-      .eq("client_id", numericClientId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false });
-
-    setDiets(dietData || []);
+    await refreshClientActiveDiet(numericClientId);
 
     const { data: supplementData, error: supplementError } = await supabase
       .from("client_supplement_assignments")
@@ -23017,7 +23563,7 @@ function getExerciseHistory(exercise) {
               detail: latestCheckin
                 ? `Ultimo: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}`
                 : "Nessun check-in inviato",
-              onClick: () => setActiveTab("checkin")
+              onClick: () => setActiveTab("update")
             }}
             dietStatus={{
               active: Boolean(latestDiet),
@@ -23050,11 +23596,19 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "training" && (
           <div className="space-y-5">
-            <WorkoutHistoryCalendar
-              sessions={workoutCalendarSessions}
-              logs={workoutCalendarLogs}
-              plans={workoutCalendarPlans.length ? workoutCalendarPlans : plans}
-            />
+            {plans.length > 0 ? (
+              <WorkoutHistoryCalendar
+                sessions={workoutCalendarSessions}
+                logs={workoutCalendarLogs}
+                plans={workoutCalendarPlans.length ? workoutCalendarPlans : plans}
+              />
+            ) : (
+              <ClientUnassignedServiceCard
+                type="training"
+                included={clientNeedsTraining(client)}
+                onContact={() => setActiveTab("support")}
+              />
+            )}
 
             {plans.map((plan) => {
               const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
@@ -23173,7 +23727,7 @@ function getExerciseHistory(exercise) {
           </div>
         )}
 
-        {activeTab === "checkin" && (
+        {activeTab === "update" && (
           <div className="space-y-4">
             <ClientCheckinWizard
               form={checkinForm}
@@ -23229,7 +23783,7 @@ function getExerciseHistory(exercise) {
           </div>
         )}
 
-        {activeTab === "progress" && (
+        {activeTab === "update" && (
           <div className="space-y-5">
             <Card className="p-5">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -23700,12 +24254,11 @@ function getExerciseHistory(exercise) {
             ) : supplements.length > 0 ? (
               <ClientSupplementProtocol supplements={supplements} />
             ) : (
-              <Card className="p-5">
-                <Empty
-                  title="Nessuna dieta o integrazione"
-                  text="Il professionista non ha ancora pubblicato un piano alimentare o un protocollo di integrazione."
-                />
-              </Card>
+              <ClientUnassignedServiceCard
+                type="nutrition"
+                included={clientNeedsNutrition(client)}
+                onContact={() => setActiveTab("support")}
+              />
             )}
           </div>
         )}

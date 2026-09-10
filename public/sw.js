@@ -1,3 +1,8 @@
+const TMFIT_SW_VERSION = "5.3";
+
+// Questo service worker NON intercetta le richieste dati/PDF con strategie cache-first.
+// Supabase e i documenti dieta restano sempre network-driven.
+
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
@@ -13,9 +18,6 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-self.addEventListener("fetch", () => {
-  return;
-});
 
 function restTimerTag(data = {}) {
   if (data.tag) return String(data.tag);
