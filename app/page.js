@@ -9193,6 +9193,40 @@ const [coachControlData, setCoachControlData] = useState({
   const [liveWorkoutNotice, setLiveWorkoutNotice] = useState(null);
   const [pendingWorkoutSummarySessionId, setPendingWorkoutSummarySessionId] = useState("");
   const lastWorkoutNoticeIdRef = useRef("");
+  const coachReadActivityStorageKey = `tmfit_prof_read_activity_${session?.user?.id || "coach"}`;
+  const [coachReadActivityIds, setCoachReadActivityIds] = useState(() => {
+    const saved = safeReadLocalJson(
+      `tmfit_prof_read_activity_${session?.user?.id || "coach"}`,
+      []
+    );
+    return Array.isArray(saved) ? saved : [];
+  });
+
+  useEffect(() => {
+    const saved = safeReadLocalJson(coachReadActivityStorageKey, []);
+    setCoachReadActivityIds(Array.isArray(saved) ? saved : []);
+  }, [coachReadActivityStorageKey]);
+
+  function coachActivityKey(type, id) {
+    return `${String(type || "activity")}:${String(id || "")}`;
+  }
+
+  function isCoachActivityRead(type, id) {
+    if (!id) return false;
+    return coachReadActivityIds.includes(coachActivityKey(type, id));
+  }
+
+  function markCoachActivityRead(type, id) {
+    if (!id) return;
+
+    const key = coachActivityKey(type, id);
+    setCoachReadActivityIds((current) => {
+      if (current.includes(key)) return current;
+      const next = [...current, key].slice(-1000);
+      safeWriteLocalJson(coachReadActivityStorageKey, next);
+      return next;
+    });
+  }
   const [plans, setPlans] = useState([]);
   const [logs, setLogs] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -12389,10 +12423,20 @@ async function savePrivateNote(event) {
       .slice(0, 6);
 
     const recentSessions = coachControlData.sessions
-      .filter((sessionItem) =>
-        isRecent(sessionItem.session_date || sessionItem.created_at)
-      )
+      .filter((sessionItem) => {
+        const completed =
+          String(sessionItem?.status || "").toLowerCase() === "completed" ||
+          Boolean(sessionItem?.completed_at);
+        return completed && isRecent(sessionItem.session_date || sessionItem.created_at);
+      })
       .slice(0, 6);
+
+    const unreadRecentCheckins = recentCheckins.filter(
+      (checkin) => !isCoachActivityRead("checkin", checkin.id)
+    );
+    const unreadRecentSessions = recentSessions.filter(
+      (sessionItem) => !isCoachActivityRead("session", sessionItem.id)
+    );
 
     const recentPhotos = coachControlData.photos
       .filter((photo) => isRecent(photo.photo_date || photo.created_at))
@@ -12481,14 +12525,31 @@ async function savePrivateNote(event) {
         tone: "red",
         onAction: () => openClient(checkin.client_id, "update")
       })),
-      ...recentCheckins.slice(0, 3).map((checkin) => ({
+      ...unreadRecentCheckins.slice(0, 3).map((checkin) => ({
         id: `reminder-checkin-${checkin.id}`,
         priority: "Nuovo",
         title: `${clientNameFromId(checkin.client_id)} ha inviato un check-in`,
         text: `Ricevuto ${formatShortDate(checkin.checkin_date || checkin.created_at)}. Valutalo e aggiorna il percorso se serve.`,
         actionLabel: "Leggi",
         tone: "teal",
-        onAction: () => openClient(checkin.client_id, "update")
+        onAction: () => {
+          markCoachActivityRead("checkin", checkin.id);
+          openClient(checkin.client_id, "update");
+        }
+      })),
+      ...unreadRecentSessions.slice(0, 3).map((sessionItem) => ({
+        id: `reminder-session-${sessionItem.id}`,
+        priority: "Nuovo",
+        title: `${clientNameFromId(sessionItem.client_id)} ha completato un allenamento`,
+        text: `Completato ${formatShortDate(sessionItem.session_date || sessionItem.created_at)}. Apri il riepilogo della seduta.`,
+        actionLabel: "Riepilogo",
+        tone: "teal",
+        onAction: () => {
+          markCoachActivityRead("session", sessionItem.id);
+          setSelectedClientId(String(sessionItem.client_id));
+          setPendingWorkoutSummarySessionId(String(sessionItem.id));
+          setActiveTab("update");
+        }
       }))
     ].slice(0, 8);
 
@@ -12829,31 +12890,39 @@ async function savePrivateNote(event) {
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-black">Ultimi check-in</h3>
-                <p className="text-xs font-bold text-slate-400">Aggiornamenti clienti</p>
+                <h3 className="text-lg font-black">Check-in da leggere</h3>
+                <p className="text-xs font-bold text-slate-400">Scompaiono dal Centro operativo dopo la lettura</p>
               </div>
               <ClipboardCheck size={18} className="text-teal-600" />
             </div>
 
             <div className="space-y-3">
-              {recentCheckins.map((checkin) => (
+              {unreadRecentCheckins.map((checkin) => (
                 <button
                   key={checkin.id}
                   type="button"
-                  onClick={() => openClient(checkin.client_id, "update")}
+                  onClick={() => {
+                    markCoachActivityRead("checkin", checkin.id);
+                    openClient(checkin.client_id, "update");
+                  }}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
                 >
-                  <p className="font-black text-slate-950">
-                    {clientNameFromId(checkin.client_id)}
-                  </p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">
-                    {formatShortDate(checkin.checkin_date || checkin.created_at)}
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-black text-slate-950">
+                        {clientNameFromId(checkin.client_id)}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-400">
+                        {formatShortDate(checkin.checkin_date || checkin.created_at)}
+                      </p>
+                    </div>
+                    <Pill className="shrink-0 bg-teal-100 text-teal-700">Leggi</Pill>
+                  </div>
                 </button>
               ))}
 
-              {recentCheckins.length === 0 && (
-                <Empty title="Nessun check-in recente" text="Ultimi 7 giorni." />
+              {unreadRecentCheckins.length === 0 && (
+                <Empty title="Nessun check-in da leggere" text="Tutto letto." />
               )}
             </div>
           </Card>
@@ -12861,31 +12930,41 @@ async function savePrivateNote(event) {
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-black">Ultimi allenamenti</h3>
-                <p className="text-xs font-bold text-slate-400">Sessioni completate</p>
+                <h3 className="text-lg font-black">Allenamenti da vedere</h3>
+                <p className="text-xs font-bold text-slate-400">Scompaiono dal Centro operativo dopo il riepilogo</p>
               </div>
               <Dumbbell size={18} className="text-teal-600" />
             </div>
 
             <div className="space-y-3">
-              {recentSessions.map((sessionItem) => (
+              {unreadRecentSessions.map((sessionItem) => (
                 <button
                   key={sessionItem.id}
                   type="button"
-                  onClick={() => openClient(sessionItem.client_id, "monitor")}
+                  onClick={() => {
+                    markCoachActivityRead("session", sessionItem.id);
+                    setSelectedClientId(String(sessionItem.client_id));
+                    setPendingWorkoutSummarySessionId(String(sessionItem.id));
+                    setActiveTab("update");
+                  }}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-white"
                 >
-                  <p className="font-black text-slate-950">
-                    {clientNameFromId(sessionItem.client_id)}
-                  </p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">
-                    {formatShortDate(sessionItem.session_date || sessionItem.created_at)}
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-black text-slate-950">
+                        {clientNameFromId(sessionItem.client_id)}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-400">
+                        {formatShortDate(sessionItem.session_date || sessionItem.created_at)}
+                      </p>
+                    </div>
+                    <Pill className="shrink-0 bg-teal-100 text-teal-700">Riepilogo</Pill>
+                  </div>
                 </button>
               ))}
 
-              {recentSessions.length === 0 && (
-                <Empty title="Nessun allenamento recente" text="Ultimi 7 giorni." />
+              {unreadRecentSessions.length === 0 && (
+                <Empty title="Nessun allenamento da vedere" text="Tutto letto." />
               )}
             </div>
           </Card>
@@ -13013,6 +13092,7 @@ function openWorkoutNoticeSummary(notice = liveWorkoutNotice) {
   const workoutSession = notice?.session;
   if (!workoutSession?.id || !workoutSession?.client_id) return;
 
+  markCoachActivityRead("session", workoutSession.id);
   setSelectedClientId(String(workoutSession.client_id));
   setPendingWorkoutSummarySessionId(String(workoutSession.id));
   setActiveTab("update");
@@ -21077,7 +21157,7 @@ function TrainingPlanNavigatorCard({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-2xl font-black leading-tight tracking-tight text-white">
-                  {selectedDay?.title || "Scheda non disponibile"}
+                  {selectedDay ? `ALL. ${String.fromCharCode(65 + safeIndex)}` : "Scheda non disponibile"}
                 </h2>
                 <p className="mt-1 truncate text-xs font-bold text-slate-300">
                   {plan.title}
