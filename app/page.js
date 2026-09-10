@@ -12485,6 +12485,8 @@ async function savePrivateNote(event) {
     const reminderItems = [
       ...clientsWithoutActivePlan.map((client) => ({
         id: `reminder-plan-${client.id}`,
+        dismissType: "reminder",
+        dismissId: `reminder-plan-${client.id}`,
         priority: "Alta",
         title: `${fullName(client)} senza programma`,
         text: "Crea una scheda attiva per avviare o proseguire il percorso.",
@@ -12494,6 +12496,8 @@ async function savePrivateNote(event) {
       })),
       ...clientsWithoutDiet.map((client) => ({
         id: `reminder-diet-${client.id}`,
+        dismissType: "reminder",
+        dismissId: `reminder-diet-${client.id}`,
         priority: "Media",
         title: `${fullName(client)} senza dieta`,
         text: "Carica il piano alimentare o aggiorna quello attuale.",
@@ -12506,6 +12510,8 @@ async function savePrivateNote(event) {
 
         return {
           id: `reminder-inactive-${client.id}`,
+          dismissType: "reminder",
+          dismissId: `reminder-inactive-${client.id}`,
           priority: "Alta",
           title: `${fullName(client)} poco attivo`,
           text: lastSession
@@ -12518,6 +12524,8 @@ async function savePrivateNote(event) {
       }),
       ...criticalCheckins.map((checkin) => ({
         id: `reminder-critical-checkin-${checkin.id}`,
+        dismissType: "reminder",
+        dismissId: `reminder-critical-checkin-${checkin.id}`,
         priority: "Critico",
         title: `${clientNameFromId(checkin.client_id)} da attenzionare`,
         text: `Check-in critico: ${checkin.criticalReason}. Valuta scarico, recupero o modifica del percorso.`,
@@ -12527,6 +12535,8 @@ async function savePrivateNote(event) {
       })),
       ...unreadRecentCheckins.slice(0, 3).map((checkin) => ({
         id: `reminder-checkin-${checkin.id}`,
+        dismissType: "checkin",
+        dismissId: checkin.id,
         priority: "Nuovo",
         title: `${clientNameFromId(checkin.client_id)} ha inviato un check-in`,
         text: `Ricevuto ${formatShortDate(checkin.checkin_date || checkin.created_at)}. Valutalo e aggiorna il percorso se serve.`,
@@ -12539,6 +12549,8 @@ async function savePrivateNote(event) {
       })),
       ...unreadRecentSessions.slice(0, 3).map((sessionItem) => ({
         id: `reminder-session-${sessionItem.id}`,
+        dismissType: "session",
+        dismissId: sessionItem.id,
         priority: "Nuovo",
         title: `${clientNameFromId(sessionItem.client_id)} ha completato un allenamento`,
         text: `Completato ${formatShortDate(sessionItem.session_date || sessionItem.created_at)}. Apri il riepilogo della seduta.`,
@@ -12551,7 +12563,15 @@ async function savePrivateNote(event) {
           setActiveTab("update");
         }
       }))
-    ].slice(0, 8);
+    ]
+      .filter(
+        (item) =>
+          !isCoachActivityRead(
+            item.dismissType || "reminder",
+            item.dismissId || item.id
+          )
+      )
+      .slice(0, 8);
 
     const urgentReminderCount = reminderItems.filter((item) =>
       ["Alta", "Nuovo"].includes(item.priority)
@@ -12638,9 +12658,29 @@ async function savePrivateNote(event) {
             </p>
           </div>
 
-          <Button onClick={item.onAction} className="w-full shrink-0 bg-[#07111f] text-white md:w-auto">
-            {item.actionLabel}
-          </Button>
+          <div className="flex w-full shrink-0 items-center gap-2 md:w-auto">
+            <Button
+              onClick={item.onAction}
+              className="min-w-0 flex-1 bg-[#07111f] text-white md:flex-none"
+            >
+              {item.actionLabel}
+            </Button>
+
+            <button
+              type="button"
+              onClick={() =>
+                markCoachActivityRead(
+                  item.dismissType || "reminder",
+                  item.dismissId || item.id
+                )
+              }
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 active:scale-[.96]"
+              aria-label={`Rimuovi ${item.title} dal Centro operativo`}
+              title="Rimuovi dal Centro operativo"
+            >
+              <X size={17} />
+            </button>
+          </div>
         </div>
       );
     }
@@ -12757,8 +12797,8 @@ async function savePrivateNote(event) {
                 </h3>
 
                 <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
-                  Le priorità rispettano il servizio assegnato al cliente: niente
-                  più alert allenamento per i clienti N o dieta per i clienti A.
+                  Le priorità rispettano il servizio assegnato al cliente. Puoi aprire
+                  l’azione oppure rimuovere manualmente una notifica con la X.
                 </p>
               </div>
 
@@ -23427,7 +23467,7 @@ function getExerciseHistory(exercise) {
     return {
       id: String(dayId),
       available: Boolean(activePlan && day),
-      title: day?.title || `Allenamento ${dayIndex + 1}`,
+      title: `Allen. ${String.fromCharCode(65 + dayIndex)}`,
       minutes: day?.estimated_minutes || 60,
       week: activePlanWeekNumber,
       planTitle: activePlan?.title || "",
