@@ -5141,19 +5141,12 @@ function splitDietEmbeddedParserLine(line) {
 
   let prepared = clean
     .replace(/\s+/g, " ")
-    // Un nome di giorno dentro una frase NON è automaticamente un nuovo giorno.
-    // Esempio reale SIFA: "oppure 100g pane ... (se sabato cena abbondante 50 gr pane)".
-    // Separiamo un giorno inline solo se è seguito da un vero pasto e subito da
-    // contenuto strutturato (quantità/opzione/nota), non da testo discorsivo.
-    .replace(
-      new RegExp(
-        `([^\\n\\s])\\s*(${dayPattern})\\s+(${mealPattern})(?=$|\\s+(?:\\d|OPZIONE\\b|NOTE?\\b))`,
-        "gi"
-      ),
-      "$1\n$2\n$3"
-    )
-    // Caso raro: il giorno è davvero l'ultimo token della riga.
-    .replace(new RegExp(`([^\\n\\s])\\s*(${dayPattern})$`, "gi"), "$1\n$2")
+    // Un nome di giorno dentro una frase NON è mai un nuovo giorno.
+    // I giorni vengono riconosciuti soltanto come intestazioni autonome oppure a inizio riga.
+    // Così frasi come "se sabato cena..." o "domenica pranzo..." restano nell’opzione/pasto.
+    // Non separiamo MAI un giorno solo perché compare come ultimo token di una riga.
+    // Nei PDF SIFA una frase può andare a capo proprio dopo parole come "sabato"
+    // (es. "... pane di grano duro (se sabato"), e in quel caso il giorno è testo del pasto.
     // Giorno + pasto all'inizio della riga: stessa protezione contro frasi come
     // "sabato cena abbondante...".
     .replace(
@@ -5208,9 +5201,26 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
     lines.flatMap((line) => splitDietEmbeddedParserLine(line))
   );
 
-  preparedLines.forEach((line) => {
+  // Conserviamo il contesto delle parentesi anche quando il PDF manda a capo una frase.
+  // Dentro una parentesi i nomi dei giorni e dei pasti sono testo, non intestazioni.
+  let parenthesisDepth = 0;
+  const contextualLines = preparedLines.map((line) => {
+    const clean = cleanDietPdfLine(line);
+    const startsInsideParenthesis = parenthesisDepth > 0;
+    const opens = (clean.match(/\(/g) || []).length;
+    const closes = (clean.match(/\)/g) || []).length;
+    parenthesisDepth = Math.max(0, parenthesisDepth + opens - closes);
+    return { line: clean, startsInsideParenthesis };
+  });
+
+  contextualLines.forEach(({ line, startsInsideParenthesis }) => {
     const clean = cleanDietPdfLine(line);
     if (!clean) return;
+
+    if (startsInsideParenthesis) {
+      expanded.push(clean);
+      return;
+    }
 
     const normalized = normalizeDietToken(clean);
     let handled = false;
