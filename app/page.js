@@ -5141,11 +5141,28 @@ function splitDietEmbeddedParserLine(line) {
 
   let prepared = clean
     .replace(/\s+/g, " ")
-    // Se un giorno compare dopo del testo, quello è sempre un confine netto.
-    // Esempio: "... 10g olio Martedì COLAZIONE" => chiude Lunedì e apre Martedì.
-    .replace(new RegExp(`([^\\n\\s])\\s*(${dayPattern})(?=\\s|$)`, "gi"), "$1\n$2")
-    // Se il giorno è seguito dal primo pasto sulla stessa riga, separiamo giorno e pasto.
-    .replace(new RegExp(`(^|\\n|\\s)(${dayPattern})\\s+(${mealPattern})(?=\\s|$|\\d)`, "gi"), "$1$2\n$3")
+    // Un nome di giorno dentro una frase NON è automaticamente un nuovo giorno.
+    // Esempio reale SIFA: "oppure 100g pane ... (se sabato cena abbondante 50 gr pane)".
+    // Separiamo un giorno inline solo se è seguito da un vero pasto e subito da
+    // contenuto strutturato (quantità/opzione/nota), non da testo discorsivo.
+    .replace(
+      new RegExp(
+        `([^\\n\\s])\\s*(${dayPattern})\\s+(${mealPattern})(?=$|\\s+(?:\\d|OPZIONE\\b|NOTE?\\b))`,
+        "gi"
+      ),
+      "$1\n$2\n$3"
+    )
+    // Caso raro: il giorno è davvero l'ultimo token della riga.
+    .replace(new RegExp(`([^\\n\\s])\\s*(${dayPattern})$`, "gi"), "$1\n$2")
+    // Giorno + pasto all'inizio della riga: stessa protezione contro frasi come
+    // "sabato cena abbondante...".
+    .replace(
+      new RegExp(
+        `(^|\\n)\\s*(${dayPattern})\\s+(${mealPattern})(?=$|\\s+(?:\\d|OPZIONE\\b|NOTE?\\b))`,
+        "gi"
+      ),
+      "$1$2\n$3"
+    )
     // Non separiamo più ogni parola-pasto quando compare dentro una frase.
     // Esempi come "SE COLAZIONE 1..." o "PRANZO E CENA RIDURRE..."
     // sono note al pasto e non devono creare nuove card.
@@ -5216,10 +5233,29 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
       }
 
       if (normalized.startsWith(`${dayToken} `)) {
-        expanded.push(day);
         const rest = clean.slice(day.length).trim();
-        if (rest) expanded.push(...splitDietEmbeddedParserLine(rest));
-        handled = true;
+        const normalizedRest = normalizeDietToken(rest);
+        const embeddedMealMatch = normalizedRest.match(
+          new RegExp(`^(${DIET_MEAL_RAW_PATTERN})(?:\\s+(.+))?$`, "i")
+        );
+        const embeddedMealRest = cleanDietPdfLine(embeddedMealMatch?.[2] || "");
+        const startsWithMealHeading = Boolean(
+          embeddedMealMatch &&
+            (
+              !embeddedMealRest ||
+              isDietFoodStart(embeddedMealRest) ||
+              Boolean(detectDietOptionMarker(embeddedMealRest)) ||
+              extractDietMealNoteIntro(embeddedMealRest) !== null
+            )
+        );
+
+        // Non trasformare in intestazione frasi come
+        // "sabato cena abbondante 50 gr pane)": qui Sabato è parte del testo del pasto.
+        if (startsWithMealHeading) {
+          expanded.push(day);
+          if (rest) expanded.push(...splitDietEmbeddedParserLine(rest));
+          handled = true;
+        }
       }
     });
 
