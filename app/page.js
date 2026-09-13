@@ -4328,6 +4328,14 @@ function isDietDailyTailStopLine(line) {
 
   if (!normalized) return false;
 
+  // I riepiloghi SIFA successivi alla dieta giornaliera iniziano spesso con
+  // intestazioni come "1550 CAL - D". Dopo Domenica questa è una chiusura
+  // inequivocabile del piano verticale e impedisce di rileggere la matrice
+  // settimanale/lista della spesa come nuove card.
+  if (/^\d+(?:[.,]\d+)?\s*(?:CAL|KCAL)\b/.test(normalized)) {
+    return true;
+  }
+
   const stopStarts = [
     "DIETA",
     "WEEK",
@@ -4367,12 +4375,11 @@ function shouldStopDailyDietAfterSunday(currentDay, currentMeal, line) {
 
   if (!hasSundayContent) return false;
 
-  const nextDayName = detectDietDayLine(line);
-
-  if (nextDayName && normalizeDietToken(nextDayName) !== normalizeDietToken("Domenica")) {
-    return true;
-  }
-
+  // NON interrompere Domenica solo perché una riga estratta dal PDF coincide
+  // con un nome di giorno. PDF.js può spezzare una frase come
+  // "... (se sabato cena abbondante ...)" in tre righe e produrre una riga
+  // autonoma "Sabato". Il vero termine del piano viene riconosciuto dalla
+  // matrice settimanale o dalle intestazioni di coda (lista alimenti, tabella, ecc.).
   if (lineLooksLikeDietWeeklyMatrixHeader(line)) {
     return true;
   }
@@ -5195,10 +5202,66 @@ function mergeSplitDietMealNoteHeadings(lines = []) {
   return merged.filter(Boolean);
 }
 
+function mergeDietParentheticalContinuations(lines = []) {
+  const merged = [];
+  let buffer = "";
+  let depth = 0;
+  let bufferedLines = 0;
+
+  function parenDelta(value) {
+    const clean = String(value || "");
+    return (clean.match(/\(/g) || []).length - (clean.match(/\)/g) || []).length;
+  }
+
+  function flushBuffer() {
+    if (buffer) merged.push(cleanDietPdfLine(buffer));
+    buffer = "";
+    depth = 0;
+    bufferedLines = 0;
+  }
+
+  (lines || []).forEach((rawLine) => {
+    const clean = cleanDietPdfLine(rawLine);
+    if (!clean) return;
+
+    if (buffer) {
+      buffer = cleanDietPdfLine(`${buffer} ${clean}`);
+      depth += parenDelta(clean);
+      bufferedLines += 1;
+
+      // Le parentesi dei PDF SIFA possono essere spezzate su più item/righe da PDF.js.
+      // Ricomponiamo il testo PRIMA di cercare intestazioni come Sabato o Cena, così
+      // nessuna parola interna a una nota/opzione può diventare un giorno o un pasto.
+      if (depth <= 0 || bufferedLines >= 4) flushBuffer();
+      return;
+    }
+
+    const delta = parenDelta(clean);
+    const canStartContinuation =
+      delta > 0 &&
+      clean.includes("(") &&
+      (isDietFoodStart(clean) || isDietAlternativeLine(clean));
+
+    if (canStartContinuation) {
+      buffer = clean;
+      depth = delta;
+      bufferedLines = 1;
+      return;
+    }
+
+    merged.push(clean);
+  });
+
+  flushBuffer();
+  return merged.filter(Boolean);
+}
+
 function expandDietLinesForParsing(lines = [], mode = "daily") {
   const expanded = [];
-  const preparedLines = mergeSplitDietMealNoteHeadings(
-    lines.flatMap((line) => splitDietEmbeddedParserLine(line))
+  const preparedLines = mergeDietParentheticalContinuations(
+    mergeSplitDietMealNoteHeadings(
+      lines.flatMap((line) => splitDietEmbeddedParserLine(line))
+    )
   );
 
   // Conserviamo il contesto delle parentesi anche quando il PDF manda a capo una frase.
@@ -5321,6 +5384,57 @@ function parseDailyDietLines(lines, sourceName) {
   let currentMeal = null;
   let currentMealOption = null;
   let readingMealNotes = false;
+  let pendingInlineDayFragment = false;
+
+  function dietDayPosition(value) {
+    const normalized = normalizeDietToken(value);
+    return DIET_DAY_NAMES.findIndex((day) => normalizeDietToken(day) === normalized);
+  }
+
+  function currentMealIsEndOfDay() {
+    const normalized = normalizeDietToken(currentMeal?.name || currentMeal?.title || "");
+    return (
+      normalized.startsWith("CENA") ||
+      normalized.startsWith("PRE NANNA") ||
+      normalized.startsWith("PASTO LIBERO")
+    );
+  }
+
+  function nextMeaningfulLine(index) {
+    for (let nextIndex = index + 1; nextIndex < scopedLines.length; nextIndex += 1) {
+      const candidate = cleanDietPdfLine(scopedLines[nextIndex]);
+      if (candidate) return candidate;
+    }
+    return "";
+  }
+
+  function isRealDayHeader(dayName, lineIndex) {
+    if (!dayName) return false;
+
+    const nextLine = nextMeaningfulLine(lineIndex);
+    const nextMeal = detectStrictDailyMealHeading(nextLine);
+
+    // Un giorno del piano deve essere seguito da una vera intestazione di pasto.
+    // Una parola "sabato/domenica/..." isolata dentro una frase non soddisfa
+    // questa condizione e resta nel testo del pasto.
+    if (!nextMeal) return false;
+
+    if (!currentDay || isDietShiftContainer(currentDay?.day || currentDay?.title || "")) {
+      return true;
+    }
+
+    const currentPosition = dietDayPosition(currentDay?.day || currentDay?.title || "");
+    const candidatePosition = dietDayPosition(dayName);
+
+    // Dopo l'avvio del piano accettiamo solo il giorno cronologicamente successivo
+    // e solo dopo un vero pasto di chiusura giornata. Questo impedisce che parole
+    // come "sabato" dentro un'opzione di Domenica diventino un nuovo giorno.
+    return (
+      currentPosition >= 0 &&
+      candidatePosition === currentPosition + 1 &&
+      currentMealIsEndOfDay()
+    );
+  }
 
   function activeDailyMealTarget() {
     return currentMealOption || currentMeal;
@@ -5370,9 +5484,27 @@ function parseDailyDietLines(lines, sourceName) {
     target.items.push(clean);
   }
 
+  function appendCurrentMealItemFragment(line) {
+    const target = activeDailyMealTarget();
+    if (!target) return;
+
+    const clean = cleanDietPdfLine(line);
+    if (!clean) return;
+
+    target.items = Array.isArray(target.items) ? target.items : [];
+
+    if (target.items.length === 0) {
+      target.items.push(clean);
+      return;
+    }
+
+    const lastIndex = target.items.length - 1;
+    target.items[lastIndex] = cleanDietPdfLine(`${target.items[lastIndex]} ${clean}`);
+  }
+
   let stopParsingDaily = false;
 
-  scopedLines.forEach((line) => {
+  scopedLines.forEach((line, lineIndex) => {
     if (stopParsingDaily) return;
 
     if (shouldStopDailyDietAtPlanTail(currentDay, currentMeal, line)) {
@@ -5395,9 +5527,23 @@ function parseDailyDietLines(lines, sourceName) {
       return;
     }
 
-    const containerName = detectDietPlanContainerLine(line);
+    const shiftContainerName = detectDietShiftLine(line);
+    const dayCandidate = detectDietDayLine(line);
+    const acceptedDayName =
+      dayCandidate && isRealDayHeader(dayCandidate, lineIndex) ? dayCandidate : null;
+    const containerName = shiftContainerName || acceptedDayName;
+
+    // Se PDF.js ha spezzato una frase proprio sul nome di un giorno
+    // (es. "... (se" / "sabato" / "cena abbondante ...)"), quel token NON è
+    // un'intestazione: viene ricucito alla riga alimentare precedente.
+    if (dayCandidate && !acceptedDayName && !shiftContainerName && currentMeal) {
+      appendCurrentMealItemFragment(line);
+      pendingInlineDayFragment = true;
+      return;
+    }
 
     if (containerName) {
+      pendingInlineDayFragment = false;
       if (currentDay) {
         pushDietMeal(currentDay.meals, currentMeal);
         days.push(currentDay);
@@ -5416,6 +5562,28 @@ function parseDailyDietLines(lines, sourceName) {
     }
 
     if (!currentDay) return;
+
+    if (pendingInlineDayFragment) {
+      const strictMealAfterFragment = detectDailyMealHeading(line);
+      const nextDayAfterFragment = detectDietDayLine(line);
+      const shiftAfterFragment = detectDietShiftLine(line);
+      const optionAfterFragment = detectDietOptionMarker(line);
+      const noteAfterFragment = extractDietMealNoteIntro(line);
+
+      if (
+        !strictMealAfterFragment &&
+        !nextDayAfterFragment &&
+        !shiftAfterFragment &&
+        !optionAfterFragment &&
+        noteAfterFragment === null
+      ) {
+        appendCurrentMealItemFragment(line);
+        pendingInlineDayFragment = false;
+        return;
+      }
+
+      pendingInlineDayFragment = false;
+    }
 
     const optionMarker = detectDietOptionMarker(line);
 
