@@ -5700,6 +5700,104 @@ function pdfTextItemsToLines(items = []) {
     .filter(Boolean);
 }
 
+function selectDietMealParsingPages(pageChunks = [], parseStartPage = 1) {
+  const selectedLines = [];
+  const seenContainers = new Set();
+  let sawSunday = false;
+  let parseEndPage = Math.max(1, Number(parseStartPage) || 1);
+  let stoppedBeforePage = null;
+  let excludedReason = "";
+
+  function registerContainers(lines = []) {
+    (lines || []).forEach((line) => {
+      const containerName = detectDietPlanContainerLine(line);
+      if (!containerName) return;
+
+      const normalized = normalizeDietToken(containerName);
+      if (normalized) seenContainers.add(normalized);
+
+      if (normalized === normalizeDietToken("Domenica")) {
+        sawSunday = true;
+      }
+    });
+  }
+
+  for (const chunk of pageChunks || []) {
+    const pageNumber = Number(chunk?.pageNumber || parseEndPage || parseStartPage || 1);
+    const pageLines = (chunk?.lines || []).map(cleanDietPdfLine).filter(Boolean);
+    if (pageLines.length === 0) continue;
+
+    // I PDF SIFA possono contenere, dopo le pagine giornaliere verticali,
+    // una tabella riepilogativa settimanale orizzontale. Quella tabella duplica
+    // i giorni e può essere spezzata su due pagine: non deve mai alimentare
+    // le card Pasti, altrimenti l'ultima giornata (tipicamente Domenica) può
+    // risultare troncata o mescolata con il riepilogo.
+    const weeklyMatrixIndex = pageLines.findIndex((line) =>
+      lineLooksLikeDietWeeklyMatrixHeader(line)
+    );
+
+    if (weeklyMatrixIndex >= 0) {
+      const beforeMatrix = pageLines.slice(0, weeklyMatrixIndex);
+      const beforeMatrixHasPlanContent = beforeMatrix.some(
+        (line) =>
+          Boolean(detectDietPlanContainerLine(line)) ||
+          Boolean(detectDailyMealHeading(line)) ||
+          dietLineLooksLikeRealFoodEntry(line)
+      );
+
+      // Titoli come "1550 CAL - D" che precedono la matrice non fanno parte
+      // della Cena di Domenica e non devono essere trascinati nelle card.
+      if (beforeMatrix.length > 0 && beforeMatrixHasPlanContent) {
+        selectedLines.push(...beforeMatrix);
+        registerContainers(beforeMatrix);
+        parseEndPage = pageNumber;
+      } else if (selectedLines.length > 0) {
+        parseEndPage = Math.max(parseStartPage, pageNumber - 1);
+      } else {
+        parseEndPage = Math.max(1, pageNumber - 1);
+      }
+
+      stoppedBeforePage = pageNumber;
+      excludedReason = "weekly_matrix";
+      break;
+    }
+
+    // Dopo Domenica, eventuali pagine di lista alimenti / lista della spesa /
+    // banca dati sono allegati del PDF, non prosecuzione della giornata.
+    // Se una di queste sezioni inizia a metà pagina, conserviamo solo ciò che
+    // viene prima dell'intestazione di coda.
+    let tailIndex = -1;
+    if (sawSunday) {
+      tailIndex = pageLines.findIndex((line) => isDietDailyTailStopLine(line));
+    }
+
+    if (tailIndex >= 0) {
+      const beforeTail = pageLines.slice(0, tailIndex);
+      if (beforeTail.length > 0) {
+        selectedLines.push(...beforeTail);
+        registerContainers(beforeTail);
+        parseEndPage = pageNumber;
+      }
+
+      stoppedBeforePage = pageNumber;
+      excludedReason = "plan_tail";
+      break;
+    }
+
+    selectedLines.push(...pageLines);
+    registerContainers(pageLines);
+    parseEndPage = pageNumber;
+  }
+
+  return {
+    lines: selectedLines,
+    parseEndPage,
+    stoppedBeforePage,
+    excludedReason,
+    seenContainerCount: seenContainers.size
+  };
+}
+
 async function extractDietTextFromPdfFile(file, options = {}) {
   const pdfjsLib = await loadPdfJsForDietExtraction();
   const buffer = await file.arrayBuffer();
@@ -5709,19 +5807,32 @@ async function extractDietTextFromPdfFile(file, options = {}) {
     ? Math.max(0, Number(options.skipIntroPages))
     : DIET_PARSER_SKIP_INTRO_PAGES;
   const parseStartPage = pageCount > skipIntroPages ? skipIntroPages + 1 : 1;
-  const pages = [];
+  const pageChunks = [];
 
   for (let pageNumber = parseStartPage; pageNumber <= pageCount; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
-    pages.push(...pdfTextItemsToLines(content.items || []));
+    pageChunks.push({
+      pageNumber,
+      lines: pdfTextItemsToLines(content.items || [])
+    });
   }
 
+  const scoped = selectDietMealParsingPages(pageChunks, parseStartPage);
+  const parseEndPage = Math.max(
+    parseStartPage,
+    Math.min(pageCount || parseStartPage, Number(scoped.parseEndPage || pageCount || parseStartPage))
+  );
+
   return {
-    lines: pages.map(cleanDietPdfLine).filter(Boolean),
+    lines: (scoped.lines || []).map(cleanDietPdfLine).filter(Boolean),
     pageCount,
     parseStartPage,
-    skippedIntroPages: Math.max(0, parseStartPage - 1)
+    parseEndPage,
+    stoppedBeforePage: scoped.stoppedBeforePage || null,
+    excludedReason: scoped.excludedReason || "",
+    skippedIntroPages: Math.max(0, parseStartPage - 1),
+    excludedTailPages: Math.max(0, pageCount - parseEndPage)
   };
 }
 
@@ -5754,9 +5865,15 @@ async function extractDietPdfForApp(file, dietType) {
   const extractionMeta = {
     pageCount: textExtraction.pageCount || 0,
     parseStartPage: textExtraction.parseStartPage || 1,
+    parseEndPage: textExtraction.parseEndPage || textExtraction.pageCount || 1,
+    stoppedBeforePage: textExtraction.stoppedBeforePage || null,
+    excludedReason: textExtraction.excludedReason || "",
+    excludedTailPages: textExtraction.excludedTailPages || 0,
     skippedIntroPages: textExtraction.skippedIntroPages || 0,
     parseScope: textExtraction.skippedIntroPages > 0
-      ? `pagine ${textExtraction.parseStartPage}-${textExtraction.pageCount}`
+      ? `pagine ${textExtraction.parseStartPage}-${textExtraction.parseEndPage || textExtraction.pageCount}`
+      : textExtraction.parseEndPage && textExtraction.parseEndPage < textExtraction.pageCount
+      ? `pagine 1-${textExtraction.parseEndPage}`
       : "intero PDF"
   };
   const daily = sanitizeExtractedDietForMeals(parseDailyDietLines(lines, file.name));
