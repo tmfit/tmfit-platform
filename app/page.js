@@ -59,8 +59,8 @@ const supabase =
       })
     : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.3.1";
-const APP_VERSION_LABEL = "TMFIT Pro v5.3.1";
+const APP_VERSION = "v5.3.9";
+const APP_VERSION_LABEL = "TMFIT Pro v5.3.9";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -7668,6 +7668,281 @@ async function extractWorkoutExcelForBuilder(file) {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
   return parseWorkoutExcelWorkbookForBuilder(workbook, file?.name || "scheda.xlsx");
+}
+
+function safeWorkoutExcelFilePart(value, fallback = "scheda") {
+  const clean = String(value || fallback)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  return clean || fallback;
+}
+
+function savedProgramWorkoutDays(program) {
+  const weeks = sortByOrder(program?.workout_weeks || [], "week_number");
+  const baseWeek = weeks[0] || null;
+  return sortByOrder(baseWeek?.workout_days || []);
+}
+
+function workoutExcelFixedPrescription(exercise) {
+  if (!exercise || exercise.has_weekly_progression) return "";
+
+  const sets = String(exercise.sets || "").trim();
+  const reps = String(exercise.reps || "").trim();
+  const parts = [];
+
+  if (sets && reps) parts.push(`${sets}x${reps}`);
+  else if (sets || reps) parts.push(sets || reps);
+
+  if (String(exercise.target_rir || "").trim()) {
+    parts.push(`RIR ${String(exercise.target_rir).trim()}`);
+  }
+  if (String(exercise.target_rpe || "").trim()) {
+    parts.push(`RPE ${String(exercise.target_rpe).trim()}`);
+  }
+
+  return parts.join(" · ");
+}
+
+function workoutExcelProgressionPrescription(exercise, weekNumber) {
+  const progression = (exercise?.workout_exercise_progressions || []).find(
+    (item) => Number(item.week_number) === Number(weekNumber)
+  );
+
+  if (!progression) return "";
+
+  const sets = String(progression.target_sets || "").trim();
+  const reps = String(progression.target_reps || "").trim();
+  const loadText = String(progression.target_load_text || "").trim();
+  const loadKg = String(progression.target_load_kg || "").trim();
+  const rir = String(progression.target_rir || "").trim();
+  const rpe = String(progression.target_rpe || "").trim();
+  const notes = String(progression.notes || "").trim();
+  const parts = [];
+
+  if (sets && reps) parts.push(`${sets}x${reps}`);
+  else if (sets || reps) parts.push(sets || reps);
+
+  if (loadText) parts.push(loadText);
+  else if (loadKg) parts.push(`${loadKg} kg`);
+
+  if (rir) parts.push(`RIR ${rir}`);
+  if (rpe) parts.push(`RPE ${rpe}`);
+  if (notes) parts.push(notes);
+
+  return parts.join(" · ");
+}
+
+function workoutExcelExecutionText(exercise) {
+  const execution = String(exercise?.execution_mode || "").trim();
+  const notes = cleanWorkoutNotes(exercise?.notes || "");
+  const values = [execution, notes]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(values)).join(" · ");
+}
+
+function workoutExcelGroupText(exercise) {
+  const meta = workoutGroupMetaForExercise(exercise || {});
+  if (!meta?.type) return "";
+
+  const label = String(meta.label || "").trim();
+  if (label) {
+    return meta.type === "triset" ? `TRISET ${label}` : `SUPERSERIE ${label}`;
+  }
+
+  return meta.type === "triset" ? "TRISET" : "SUPERSET";
+}
+
+function workoutExcelDayHeading(day, dayIndex) {
+  const letter = String.fromCharCode(65 + dayIndex);
+  const rawTitle = String(day?.title || "").trim();
+  const normalizedTitle = normalizeWorkoutPdfText(rawTitle);
+  const generic = [
+    `ALLENAMENTO ${letter}`,
+    `ALL. ${letter}`,
+    `ALLEN ${letter}`,
+    `WORKOUT ${letter}`
+  ].includes(normalizedTitle);
+
+  return rawTitle && !generic
+    ? `ALLENAMENTO ${letter} - ${rawTitle}`
+    : `ALLENAMENTO ${letter}`;
+}
+
+function applyWorkoutExcelSheetSizing(sheet, durationWeeks) {
+  const weekCount = Math.max(4, Number(durationWeeks) || 4);
+  sheet["!cols"] = [
+    { wch: 31 },
+    { wch: 19 },
+    { wch: 13 },
+    { wch: 34 },
+    { wch: 16 },
+    ...Array.from({ length: weekCount }).map(() => ({ wch: 19 }))
+  ];
+}
+
+async function appendWorkoutExerciseBankFromTemplate(XLSX, workbook) {
+  try {
+    const response = await fetch("/tmfit-workout-template.xlsx", { cache: "no-store" });
+    if (!response.ok) return;
+
+    const templateBuffer = await response.arrayBuffer();
+    const templateWorkbook = XLSX.read(templateBuffer, { type: "array", cellDates: false });
+    const templateSheet = templateWorkbook.Sheets?.SCHEDA;
+    if (!templateSheet) return;
+
+    const rows = XLSX.utils.sheet_to_json(templateSheet, {
+      header: 1,
+      raw: false,
+      defval: ""
+    });
+    const bankRows = [["DISTRETTO", "ESERCIZIO", "ATTREZZATURA", "LIVELLO"]];
+
+    rows.slice(1).forEach((row) => {
+      const values = [row?.[11], row?.[12], row?.[13], row?.[14]].map((value) =>
+        String(value || "").trim()
+      );
+      if (!values[1]) return;
+      bankRows.push(values);
+    });
+
+    if (bankRows.length <= 1) return;
+
+    const bankSheet = XLSX.utils.aoa_to_sheet(bankRows);
+    bankSheet["!cols"] = [
+      { wch: 20 },
+      { wch: 38 },
+      { wch: 24 },
+      { wch: 18 }
+    ];
+    XLSX.utils.book_append_sheet(workbook, bankSheet, "BANCA DATI");
+  } catch (error) {
+    console.warn("TMFIT export Excel: banca dati non allegata", error?.message || error);
+  }
+}
+
+async function downloadSavedProgramExcel(program, clientName = "Cliente") {
+  if (!program) throw new Error("Programma non disponibile.");
+
+  const XLSX = await loadWorkoutExcelLibrary();
+  const durationWeeks = Math.max(1, Math.min(12, Number(program.duration_weeks) || 4));
+  const exportWeekCount = Math.max(4, durationWeeks);
+  const days = savedProgramWorkoutDays(program);
+
+  if (days.length === 0) {
+    throw new Error("La scheda salvata non contiene allenamenti esportabili.");
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const currentYear = new Date().getFullYear();
+  const safeClientName = String(clientName || "Cliente").trim() || "Cliente";
+  const configRows = [
+    ["CONFIGURAZIONE PIANO ALLENAMENTO", "", "", ""],
+    ["", "", "", ""],
+    ["Nome e Cognome", safeClientName, "", "ISTRUZIONI"],
+    ["Durata", `${durationWeeks} settimane`, "", "1. Il file è stato ricreato dalla scheda salvata in TMFIT."],
+    ["Obiettivo", program.goal || "", "", "2. Le colonne SETT. riportano la progressione salvata nell'app."],
+    ["Numero allenamenti", days.length, "", "3. Se non c'è progressione viene compilata SERIE/RIP FISSE."],
+    ["Note generali", program.notes || "", "", "4. Superset e triset mantengono il gruppo salvato nella scheda."],
+    ["Anno / Codice", `${currentYear} / WO`, "", "5. Il file può essere modificato e reimportato nel builder TMFIT."],
+    ["", "", "", "6. La banca dati esercizi è disponibile nel foglio BANCA DATI."],
+    ["", "", "", "7. Le schede salvate nel database non vengono modificate dal download."]
+  ];
+
+  const configSheet = XLSX.utils.aoa_to_sheet(configRows);
+  configSheet["!cols"] = [
+    { wch: 24 },
+    { wch: 30 },
+    { wch: 4 },
+    { wch: 72 }
+  ];
+  configSheet["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }
+  ];
+  XLSX.utils.book_append_sheet(workbook, configSheet, "CONFIG");
+
+  const header = [
+    "ESERCIZIO",
+    "SERIE/RIP FISSE",
+    "RECUPERO",
+    "MODALITÀ ESECUZIONE",
+    "SUPERSET",
+    ...Array.from({ length: exportWeekCount }).map((_, index) => `SETT. ${index + 1}`)
+  ];
+  const sheetRows = [];
+  const mergeRows = [];
+  const titleLastColumn = header.length - 1;
+
+  sheetRows.push([
+    `${currentYear} / WO – ${durationWeeks} settimane – ${safeClientName}`,
+    ...Array.from({ length: titleLastColumn }).map(() => "")
+  ]);
+  mergeRows.push({ s: { r: 0, c: 0 }, e: { r: 0, c: titleLastColumn } });
+  sheetRows.push([]);
+  sheetRows.push(["Nome", safeClientName]);
+  sheetRows.push(["Durata", `${durationWeeks} settimane`]);
+  sheetRows.push(["Obiettivo", program.goal || ""]);
+  sheetRows.push(["N. allenamenti", days.length]);
+  sheetRows.push([]);
+
+  days.forEach((day, dayIndex) => {
+    const headingRowIndex = sheetRows.length;
+    sheetRows.push([
+      workoutExcelDayHeading(day, dayIndex),
+      ...Array.from({ length: titleLastColumn }).map(() => "")
+    ]);
+    mergeRows.push({
+      s: { r: headingRowIndex, c: 0 },
+      e: { r: headingRowIndex, c: titleLastColumn }
+    });
+    sheetRows.push(header);
+
+    const exercises = sortByOrder(
+      (day?.workout_blocks || []).flatMap((block) => block.workout_exercises || [])
+    );
+
+    exercises.forEach((exercise) => {
+      const recovery = String(exercise.recovery_seconds || "").trim();
+      const row = [
+        exercise.exercise_name || "",
+        workoutExcelFixedPrescription(exercise),
+        recovery ? compactWorkoutRecoveryLabel(recovery) : "",
+        workoutExcelExecutionText(exercise),
+        workoutExcelGroupText(exercise)
+      ];
+
+      for (let weekNumber = 1; weekNumber <= exportWeekCount; weekNumber += 1) {
+        row.push(
+          weekNumber <= durationWeeks
+            ? workoutExcelProgressionPrescription(exercise, weekNumber)
+            : ""
+        );
+      }
+
+      sheetRows.push(row);
+    });
+
+    sheetRows.push([]);
+  });
+
+  const scheduleSheet = XLSX.utils.aoa_to_sheet(sheetRows);
+  scheduleSheet["!merges"] = mergeRows;
+  applyWorkoutExcelSheetSizing(scheduleSheet, exportWeekCount);
+  scheduleSheet["!rows"] = sheetRows.map((row, index) => ({
+    hpt: index === 0 ? 24 : row?.[0]?.startsWith?.("ALLENAMENTO") ? 22 : 18
+  }));
+  XLSX.utils.book_append_sheet(workbook, scheduleSheet, "SCHEDA");
+  await appendWorkoutExerciseBankFromTemplate(XLSX, workbook);
+
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const filename = `TMFIT-${safeWorkoutExcelFilePart(safeClientName, "cliente")}-${safeWorkoutExcelFilePart(program.title || "scheda", "scheda")}-${timestamp}.xlsx`;
+
+  XLSX.writeFile(workbook, filename, { compression: true });
 }
 
 function dietExtractToNotesBlock(extractedDiet) {
@@ -18785,6 +19060,87 @@ function TemplatesPanel({
     </Card>
   );
 }
+function SavedProgramCompactPreview({
+  plan,
+  selectedClient,
+  onOpenFullPreview
+}) {
+  const durationWeeks = Math.max(1, Number(plan?.duration_weeks) || 4);
+  const [currentWeek, setCurrentWeek] = useState(1);
+  const weeks = sortByOrder(plan?.workout_weeks || [], "week_number");
+  const baseWeek = weeks[0] || null;
+  const days = sortByOrder(baseWeek?.workout_days || []);
+  const weekNumbers = Array.from({ length: durationWeeks }).map((_, index) => index + 1);
+
+  useEffect(() => {
+    setCurrentWeek(1);
+  }, [plan?.id]);
+
+  return (
+    <div className="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-3 md:p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-teal-700">
+            Vista compatta cliente
+          </p>
+          <h4 className="mt-1 text-lg font-black text-slate-950">
+            {selectedClient ? fullName(selectedClient) : "Cliente"} · {plan?.title || "Scheda allenamento"}
+          </h4>
+          <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+            Stessa lettura rapida disponibile nell’area cliente, senza avviare alcun allenamento.
+          </p>
+        </div>
+
+        <Pill className="bg-white text-teal-700 ring-1 ring-teal-100">
+          Settimana {currentWeek}
+        </Pill>
+      </div>
+
+      {weekNumbers.length > 1 && (
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {weekNumbers.map((weekNumber) => (
+            <button
+              key={weekNumber}
+              type="button"
+              onClick={() => setCurrentWeek(weekNumber)}
+              className={`min-w-10 rounded-xl border px-3 py-2 text-xs font-black transition ${
+                Number(currentWeek) === Number(weekNumber)
+                  ? "border-[#07111f] bg-[#07111f] text-white"
+                  : "border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              {weekNumber}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        {days.map((day, dayIndex) => (
+          <CompactWorkoutDayCard
+            key={day?.id || `${plan?.id || "plan"}-${dayIndex}`}
+            week={baseWeek}
+            day={day}
+            dayIndex={dayIndex}
+            currentWeek={currentWeek}
+            onOpen={() => onOpenFullPreview?.(plan)}
+            onStart={() => {}}
+            showStart={false}
+            openLabel="Apri anteprima completa"
+          />
+        ))}
+      </div>
+
+      {days.length === 0 && (
+        <Empty
+          title="Scheda compatta non disponibile"
+          text="Il programma salvato non contiene allenamenti leggibili."
+        />
+      )}
+    </div>
+  );
+}
+
 function PlansList({
   plans,
   selectedClient,
@@ -18799,6 +19155,24 @@ function PlansList({
   const publishedCount = plans.filter(isProgramPublished).length;
   const draftCount = plans.filter(isProgramDraft).length;
   const hiddenCount = plans.filter(isProgramRemoved).length;
+  const [compactProgramId, setCompactProgramId] = useState("");
+  const [exportingProgramId, setExportingProgramId] = useState("");
+
+  async function exportProgramExcel(plan) {
+    if (!plan) return;
+
+    setExportingProgramId(String(plan.id));
+    try {
+      await downloadSavedProgramExcel(
+        plan,
+        selectedClient ? fullName(selectedClient) : "Cliente"
+      );
+    } catch (error) {
+      alert(error?.message || "Non è stato possibile ricreare il file Excel della scheda.");
+    } finally {
+      setExportingProgramId("");
+    }
+  }
 
   return (
     <Card className="border border-slate-300 bg-white p-4 shadow-sm md:p-5">
@@ -18907,12 +19281,35 @@ function PlansList({
                   </div>
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[620px] xl:grid-cols-6">
+                <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[820px] xl:grid-cols-8">
                   <Button
                     onClick={() => onPreviewProgram(plan)}
                     className="border border-slate-300 bg-white text-slate-900"
                   >
                     Anteprima
+                  </Button>
+
+                  <Button
+                    onClick={() =>
+                      setCompactProgramId((current) =>
+                        String(current) === String(plan.id) ? "" : String(plan.id)
+                      )
+                    }
+                    className={
+                      String(compactProgramId) === String(plan.id)
+                        ? "border border-teal-300 bg-teal-50 text-teal-800"
+                        : "border border-slate-300 bg-white text-slate-900"
+                    }
+                  >
+                    {String(compactProgramId) === String(plan.id) ? "Chiudi" : "Compatta"}
+                  </Button>
+
+                  <Button
+                    onClick={() => exportProgramExcel(plan)}
+                    disabled={String(exportingProgramId) === String(plan.id)}
+                    className="border border-emerald-200 bg-emerald-50 text-emerald-800"
+                  >
+                    {String(exportingProgramId) === String(plan.id) ? "Excel..." : "Excel"}
                   </Button>
 
                   <Button
@@ -18982,6 +19379,16 @@ function PlansList({
                   </Button>
                 </div>
               </div>
+
+              {String(compactProgramId) === String(plan.id) && (
+                <div className="mt-4">
+                  <SavedProgramCompactPreview
+                    plan={plan}
+                    selectedClient={selectedClient}
+                    onOpenFullPreview={onPreviewProgram}
+                  />
+                </div>
+              )}
 
               <div className="mt-4 space-y-3">
                 {plan.workout_weeks?.map((week) => (
@@ -21329,7 +21736,10 @@ function CompactWorkoutDayCard({
   dayIndex,
   currentWeek,
   onStart,
-  onOpen
+  onOpen,
+  showStart = true,
+  openLabel = "Visualizza scheda",
+  startLabel = "Inizia"
 }) {
   const exercises = (day?.workout_blocks || []).flatMap(
     (block) => block.workout_exercises || []
@@ -21431,23 +21841,25 @@ function CompactWorkoutDayCard({
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className={`mt-4 grid ${showStart ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
           <button
             type="button"
             onClick={onOpen}
             className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
           >
             <FileText size={16} className="mr-2" />
-            Visualizza scheda
+            {openLabel}
           </button>
-          <button
-            type="button"
-            onClick={onStart}
-            className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
-          >
-            <Dumbbell size={16} className="mr-2" />
-            Inizia
-          </button>
+          {showStart && (
+            <button
+              type="button"
+              onClick={onStart}
+              className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
+            >
+              <Dumbbell size={16} className="mr-2" />
+              {startLabel}
+            </button>
+          )}
         </div>
       </div>
     </article>
