@@ -20944,9 +20944,6 @@ function WorkoutPlayerModal({
                     <h4 className="mt-1 text-xl font-black text-slate-950">
                       Serie {setIndex + 1} di {plannedSets.length}
                     </h4>
-                    <p className="mt-1 text-sm font-black text-slate-500">
-                      {plannedSets.length} × {targetReps}
-                    </p>
                   </div>
                   <Pill
                     className={
