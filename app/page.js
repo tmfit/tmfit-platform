@@ -59,8 +59,8 @@ const supabase =
       })
     : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.4.0";
-const APP_VERSION_LABEL = "TMFIT Pro v5.4.0";
+const APP_VERSION = "v5.4.1";
+const APP_VERSION_LABEL = "TMFIT Pro v5.4.1";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -7041,7 +7041,7 @@ function workoutExcelColumnRole(value) {
   }
 
   if (
-    /SERIE.*RIP|RIP.*SERIE|SETS?.*REPS?|VOLUME|SERIERIP|SERIEBASE|TARGETBASE/.test(
+    /SERIE.*RIP|RIP.*SERIE|SETS?.*REPS?|VOLUME|SERIERIP|SERIEBASE|TARGETBASE|PRESCRIZIONEBASE|PRESCRIZIONE/.test(
       compact
     )
   ) {
@@ -11316,6 +11316,32 @@ function updateProgressionField(
     next.days[dayIndex].exercises[exerciseIndex].progressions[
       progressionIndex
     ][field] = value;
+  });
+}
+
+function updateExercisePrescription(dayIndex, exerciseIndex, value) {
+  const raw = String(value || "").trim();
+  const parsed = parseWorkoutExcelSetsReps(raw);
+
+  updateBuilder((next) => {
+    const exercise = next.days[dayIndex].exercises[exerciseIndex];
+    exercise.sets = parsed.sets || "";
+    exercise.reps = parsed.reps || raw;
+    if (parsed.target_rpe) exercise.target_rpe = parsed.target_rpe;
+    if (parsed.target_rir) exercise.target_rir = parsed.target_rir;
+  });
+}
+
+function updateProgressionPrescription(dayIndex, exerciseIndex, progressionIndex, value) {
+  const raw = String(value || "").trim();
+  const parsed = parseWorkoutExcelSetsReps(raw);
+
+  updateBuilder((next) => {
+    const progression = next.days[dayIndex].exercises[exerciseIndex].progressions[progressionIndex];
+    progression.target_sets = parsed.sets || "";
+    progression.target_reps = parsed.reps || raw;
+    if (parsed.target_rpe) progression.target_rpe = parsed.target_rpe;
+    if (parsed.target_rir) progression.target_rir = parsed.target_rir;
   });
 }
 
@@ -15752,24 +15778,13 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                       />
                                     </Label>
 
-                                    <Label title="Serie" className="lg:col-span-1">
+                                    <Label title="Prescrizione" className="lg:col-span-3">
                                       <Input
-                                        value={exercise.sets || ""}
+                                        value={workoutSetsRepsDisplay(exercise.sets, exercise.reps, "")}
                                         onChange={(event) =>
-                                          updateExerciseField(dayIndex, exerciseIndex, "sets", event.target.value)
+                                          updateExercisePrescription(dayIndex, exerciseIndex, event.target.value)
                                         }
-                                        placeholder="3"
-                                        className="h-10 bg-white py-2 text-center text-sm"
-                                      />
-                                    </Label>
-
-                                    <Label title="Reps" className="lg:col-span-2">
-                                      <Input
-                                        value={exercise.reps || ""}
-                                        onChange={(event) =>
-                                          updateExerciseField(dayIndex, exerciseIndex, "reps", event.target.value)
-                                        }
-                                        placeholder="8-10"
+                                        placeholder="3x8-10 oppure 1x5 + 3x8"
                                         className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
@@ -15953,9 +15968,27 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                               </div>
 
                                               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+                                                <Label title="Prescrizione" className="lg:col-span-3">
+                                                  <Input
+                                                    value={workoutSetsRepsDisplay(
+                                                      progression.target_sets,
+                                                      progression.target_reps,
+                                                      ""
+                                                    )}
+                                                    onChange={(event) =>
+                                                      updateProgressionPrescription(
+                                                        dayIndex,
+                                                        exerciseIndex,
+                                                        progressionIndex,
+                                                        event.target.value
+                                                      )
+                                                    }
+                                                    placeholder="3x8-10 oppure 1x5 + 3x8"
+                                                    className="text-center"
+                                                  />
+                                                </Label>
+
                                                 {[
-                                                  ["target_sets", "Serie", "lg:col-span-1"],
-                                                  ["target_reps", "Reps", "lg:col-span-2"],
                                                   ["target_load_text", "Kg/target", "lg:col-span-2"],
                                                   ["target_rpe", "RPE", "lg:col-span-1"],
                                                   ["target_rir", "RIR", "lg:col-span-1"],
@@ -17927,19 +17960,27 @@ function ClientProgramPreviewPanel({
   }
 
   function progressionMainText(progression) {
-    const direct = String(progression.target_load_text || "").trim();
-    if (direct) return direct;
-
     const sets = String(progression.target_sets || "").trim();
     const reps = String(progression.target_reps || "").trim();
+    const loadText = String(progression.target_load_text || "").trim();
+    const loadKg = String(progression.target_load_kg || "").trim();
+    const notes = String(progression.notes || "").trim();
     const parts = [];
 
-    if (sets || reps) parts.push(workoutSetsRepsDisplay(sets, reps));
+    const loadContainsPrescription = /\d+\s*[x×]\s*/i.test(loadText);
+    if (loadContainsPrescription) {
+      parts.push(loadText);
+    } else {
+      if (sets || reps) parts.push(workoutSetsRepsDisplay(sets, reps));
+      if (loadText) parts.push(loadText);
+      else if (loadKg) parts.push(`${loadKg} kg`);
+    }
+
     if (progression.target_rir) parts.push(`RIR ${progression.target_rir}`);
     if (progression.target_rpe) parts.push(`RPE ${progression.target_rpe}`);
-    if (progression.notes) parts.push(progression.notes);
+    if (notes) parts.push(notes);
 
-    return parts.join(" · ") || "—";
+    return Array.from(new Set(parts.filter(Boolean))).join(" · ") || "—";
   }
 
   return (
@@ -22351,6 +22392,15 @@ function WorkoutDayPreviewModal({
                         progression?.recovery_seconds ??
                         exercise.recovery_seconds ??
                         "";
+                      const weeklyTargetDetails = [
+                        progression?.target_load_text ||
+                          (progression?.target_load_kg ? `${progression.target_load_kg} kg` : ""),
+                        progression?.target_rir ? `RIR ${progression.target_rir}` : "",
+                        progression?.target_rpe ? `RPE ${progression.target_rpe}` : "",
+                        progression?.notes || ""
+                      ]
+                        .map((value) => String(value || "").trim())
+                        .filter(Boolean);
                       const groupLabel = workoutGroupLabel(exercise);
                       const execution = String(
                         exercise.execution_mode ||
@@ -22433,6 +22483,17 @@ function WorkoutDayPreviewModal({
                                     </span>
                                   </button>
                                 </div>
+
+                                {weeklyTargetDetails.length > 0 && (
+                                  <div className="mt-3 rounded-2xl border border-teal-100 bg-teal-50 px-3 py-3">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-teal-700">
+                                      Target settimana {currentWeek}
+                                    </p>
+                                    <p className="mt-1 text-sm font-black leading-5 text-teal-950">
+                                      {Array.from(new Set(weeklyTargetDetails)).join(" · ")}
+                                    </p>
+                                  </div>
+                                )}
 
                                 {execution && (
                                   <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
