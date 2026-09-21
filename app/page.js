@@ -7351,6 +7351,70 @@ function workoutSetsRepsDisplay(sets, reps, fallback = "—") {
   return fallback;
 }
 
+
+const TMFIT_WORKOUT_RX_PREFIX = "[[TMFIT_RX:";
+const TMFIT_WORKOUT_RX_SUFFIX = "]]";
+
+function cleanStoredWorkoutProgressionNotes(value) {
+  return cleanWorkoutPdfLine(
+    String(value || "").replace(/\[\[TMFIT_RX:[\s\S]*?\]\]/gi, " ")
+  );
+}
+
+function storedWorkoutProgressionPrescription(value) {
+  const match = String(value || "").match(/\[\[TMFIT_RX:([\s\S]*?)\]\]/i);
+  return match ? cleanWorkoutPdfLine(match[1]) : "";
+}
+
+function workoutPrescriptionFromValue(value) {
+  const structured = parseWorkoutExcelPrescriptionBlocks(value);
+  return structured.prescription || "";
+}
+
+function workoutProgressionPrescriptionText(progression, exercise = null) {
+  if (!progression) {
+    return workoutSetsRepsDisplay(exercise?.sets, exercise?.reps, "—");
+  }
+
+  const stored = storedWorkoutProgressionPrescription(progression.notes);
+  if (stored) return stored.replace(/x/g, "×");
+
+  const fromSource = workoutPrescriptionFromValue(progression._excel_source_value || "");
+  if (fromSource) return fromSource.replace(/x/g, "×");
+
+  return workoutSetsRepsDisplay(
+    progression.target_sets || exercise?.sets,
+    progression.target_reps || exercise?.reps,
+    "—"
+  );
+}
+
+function workoutProgressionRepsBySet(progression, exercise = null) {
+  const stored = storedWorkoutProgressionPrescription(progression?.notes);
+  const source = stored || progression?._excel_source_value || "";
+  const structured = parseWorkoutExcelPrescriptionBlocks(source);
+  if (structured.repsBySet.length > 0) return structured.repsBySet;
+
+  const direct = workoutRepsSequence(progression?.target_reps || "");
+  if (direct.length > 1) return direct;
+
+  const fallback = workoutRepsSequence(exercise?.reps || "");
+  if (!progression && fallback.length > 1) return fallback;
+
+  return [];
+}
+
+function workoutProgressionNotesForStorage(progression) {
+  const humanNotes = cleanStoredWorkoutProgressionNotes(progression?.notes || "");
+  const sourcePrescription =
+    workoutPrescriptionFromValue(progression?._excel_source_value || "") ||
+    workoutSetsRepsDisplay(progression?.target_sets, progression?.target_reps, "");
+
+  if (!sourcePrescription || sourcePrescription === "—") return humanNotes || null;
+  const marker = `${TMFIT_WORKOUT_RX_PREFIX}${sourcePrescription.replace(/×/g, "x")}${TMFIT_WORKOUT_RX_SUFFIX}`;
+  return [humanNotes, marker].filter(Boolean).join(" ") || null;
+}
+
 function parseWorkoutExcelSetsReps(value) {
   const text = cleanWorkoutExcelCell(value).replace(/×/g, "x");
   const parsed = parseWorkoutSetsReps(text);
@@ -11848,7 +11912,8 @@ function buildProgressionsFromExercise(exercise, weeks) {
       target_rpe: found?.target_rpe || "",
       target_rir: found?.target_rir || "",
       recovery_seconds: found?.recovery_seconds || "",
-      notes: found?.notes || ""
+      notes: cleanStoredWorkoutProgressionNotes(found?.notes || ""),
+      _excel_source_value: storedWorkoutProgressionPrescription(found?.notes || "")
     };
   });
 }
@@ -12446,7 +12511,8 @@ try {
           const setRows = Array.from({ length: setsCount }).map((_, index) => ({
             workout_exercise_id: exerciseRow.id,
             set_number: index + 1,
-            target_reps: exercise.reps || null,
+            target_reps:
+              workoutTargetRepsForSet(exercise.reps, index) || exercise.reps || null,
             target_load_kg: null,
             target_rpe: numberOrNull(exercise.target_rpe),
             target_rir: numberOrNull(exercise.target_rir),
@@ -12472,7 +12538,7 @@ try {
                 target_rpe: progression.target_rpe || null,
                 target_rir: progression.target_rir || null,
                 recovery_seconds: numberOrNull(progression.recovery_seconds),
-                notes: progression.notes || null,
+                notes: workoutProgressionNotesForStorage(progression),
                 sort_order: index + 1
               })
             );
@@ -20188,6 +20254,10 @@ function WorkoutPlayerModal({
     90;
 
   const targetReps = currentSet?.target_reps || exercise?.reps || "libere";
+  const currentProgression = exercise ? progressionForModalExercise(exercise) : null;
+  const currentPrescription = exercise
+    ? workoutProgressionPrescriptionText(currentProgression, exercise)
+    : "";
   const showRpe = hasValue(currentSet?.target_rpe) || hasValue(exercise?.target_rpe);
   const showRir = hasValue(currentSet?.target_rir) || hasValue(exercise?.target_rir);
   const videoUrl = exercise?.video_url || exercise?.image_url || "";
@@ -20287,10 +20357,14 @@ function WorkoutPlayerModal({
   function plannedSetsForExercise(item) {
     const progression = progressionForModalExercise(item);
     const realSets = sortByOrder(item?.workout_exercise_sets || [], "set_number");
+    const progressionReps = workoutProgressionRepsBySet(progression, item);
+    const baseReps = workoutRepsSequence(item?.reps || "");
     const desiredCount = Math.max(
       1,
-      Number(progression?.target_sets) ||
+      progressionReps.length ||
+        Number(progression?.target_sets) ||
         realSets.length ||
+        baseReps.length ||
         Number(item?.sets) ||
         Number(item?.series) ||
         1
@@ -20307,8 +20381,10 @@ function WorkoutPlayerModal({
           `virtual-${item.id}-w${currentWeekForPlan()}-${index + 1}`,
         set_number: index + 1,
         target_reps:
+          progressionReps[index] ||
           workoutTargetRepsForSet(progression?.target_reps, index) ||
           existingSet?.target_reps ||
+          baseReps[index] ||
           workoutTargetRepsForSet(item?.reps, index) ||
           item?.reps ||
           "",
@@ -20743,14 +20819,27 @@ function WorkoutPlayerModal({
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2">
+                  {currentPrescription && currentPrescription !== "—" && (
+                    <div className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+                        Prescrizione settimana {currentWeekForPlan()}
+                      </p>
+                      <p className="mt-1 text-lg font-black text-slate-950">
+                        {currentPrescription}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-3 grid grid-cols-3 gap-2">
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-xl font-black text-slate-950">{plannedSets.length}</p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Serie</p>
+                      <p className="text-xl font-black text-slate-950">
+                        {Math.min(setIndex + 1, plannedSets.length)}/{plannedSets.length}
+                      </p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Serie corrente</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
                       <p className="truncate text-xl font-black text-slate-950">{targetReps}</p>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Reps</p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Reps target</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
                       <p className="text-xl font-black text-slate-950">{recoverySeconds}"</p>
@@ -21998,6 +22087,7 @@ function CompactWorkoutDayCard({
                 ) || null;
               const targetSets = progression?.target_sets || exercise.sets || "—";
               const targetReps = progression?.target_reps || exercise.reps || "—";
+              const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
 
               return (
                 <div
@@ -22011,7 +22101,7 @@ function CompactWorkoutDayCard({
                     {exercise.exercise_name || "Esercizio"}
                   </p>
                   <span className="shrink-0 text-xs font-black text-slate-500">
-                    {workoutSetsRepsDisplay(targetSets, targetReps)}
+                    {targetPrescription || workoutSetsRepsDisplay(targetSets, targetReps)}
                   </span>
                 </div>
               );
@@ -22388,6 +22478,7 @@ function WorkoutDayPreviewModal({
                         ) || null;
                       const targetSets = progression?.target_sets || exercise.sets || "—";
                       const targetReps = progression?.target_reps || exercise.reps || "—";
+                      const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
                       const targetRecovery =
                         progression?.recovery_seconds ??
                         exercise.recovery_seconds ??
@@ -22397,7 +22488,7 @@ function WorkoutDayPreviewModal({
                           (progression?.target_load_kg ? `${progression.target_load_kg} kg` : ""),
                         progression?.target_rir ? `RIR ${progression.target_rir}` : "",
                         progression?.target_rpe ? `RPE ${progression.target_rpe}` : "",
-                        progression?.notes || ""
+                        cleanStoredWorkoutProgressionNotes(progression?.notes || "")
                       ]
                         .map((value) => String(value || "").trim())
                         .filter(Boolean);
@@ -22437,7 +22528,7 @@ function WorkoutDayPreviewModal({
                                 <div className="mt-3 grid grid-cols-3 gap-2">
                                   <div className="rounded-2xl bg-slate-50 px-2 py-2.5 text-center">
                                     <p className="text-sm font-black text-slate-950">
-                                      {workoutSetsRepsDisplay(targetSets, targetReps)}
+                                      {targetPrescription || workoutSetsRepsDisplay(targetSets, targetReps)}
                                     </p>
                                     <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
                                       Serie / reps
