@@ -799,8 +799,63 @@ function tmfitWorkoutDurationWeeks(planOrValue) {
   return Math.max(1, Math.min(12, Number(raw) || 4));
 }
 
+function tmfitWorkoutProgressionHasConfiguredData(progression) {
+  if (!progression) return false;
+
+  return [
+    progression.target_sets,
+    progression.target_reps,
+    progression.target_load_text,
+    progression.target_load_kg,
+    progression.target_rpe,
+    progression.target_rir,
+    progression.recovery_seconds,
+    progression.notes
+  ].some((value) => String(value ?? "").trim() !== "");
+}
+
+function tmfitWorkoutConfiguredWeekNumbers(plan) {
+  const configured = new Set();
+
+  (plan?.workout_weeks || []).forEach((week) => {
+    (week?.workout_days || []).forEach((day) => {
+      (day?.workout_blocks || []).forEach((block) => {
+        (block?.workout_exercises || []).forEach((exercise) => {
+          (exercise?.workout_exercise_progressions || []).forEach((progression) => {
+            const weekNumber = Number(progression?.week_number) || 0;
+            if (weekNumber >= 1 && weekNumber <= 12 && tmfitWorkoutProgressionHasConfiguredData(progression)) {
+              configured.add(weekNumber);
+            }
+          });
+        });
+      });
+    });
+  });
+
+  const numbers = Array.from(configured).sort((a, b) => a - b);
+  if (numbers.length > 0) return numbers;
+
+  return Array.from({ length: tmfitWorkoutDurationWeeks(plan) }).map(
+    (_, index) => index + 1
+  );
+}
+
+function tmfitWorkoutResolveWeek(plan, requestedWeek) {
+  const options = tmfitWorkoutConfiguredWeekNumbers(plan);
+  const requested = Number(requestedWeek);
+
+  if (options.includes(requested)) return requested;
+
+  if (Number.isFinite(requested)) {
+    const previous = options.filter((weekNumber) => weekNumber <= requested).pop();
+    if (previous) return previous;
+  }
+
+  return options[0] || 1;
+}
+
 function tmfitWorkoutWeekForPlan(plan) {
-  if (!plan?.start_date) return 1;
+  if (!plan?.start_date) return tmfitWorkoutConfiguredWeekNumbers(plan)[0] || 1;
 
   const start = new Date(plan.start_date);
   const now = new Date();
@@ -809,16 +864,14 @@ function tmfitWorkoutWeekForPlan(plan) {
   );
   const week = Math.floor(diffDays / 7) + 1;
 
-  return Math.max(1, Math.min(tmfitWorkoutDurationWeeks(plan), week));
+  return tmfitWorkoutResolveWeek(plan, Math.max(1, week));
 }
 
 function tmfitPlannedSetCountForResume(plan, exercise, selectedWeek = null) {
-  const maxWeek = tmfitWorkoutDurationWeeks(plan);
-  const requestedWeek = Number(selectedWeek);
-  const week =
-    Number.isFinite(requestedWeek) && requestedWeek >= 1 && requestedWeek <= maxWeek
-      ? requestedWeek
-      : tmfitWorkoutWeekForPlan(plan);
+  const week = tmfitWorkoutResolveWeek(
+    plan,
+    selectedWeek ?? tmfitWorkoutWeekForPlan(plan)
+  );
   const progression =
     exercise?.workout_exercise_progressions?.find(
       (item) => Number(item.week_number) === week
@@ -7783,6 +7836,23 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       ),
     0
   );
+  const declaredDurationWeeks = Math.max(
+    1,
+    Math.min(12, Number(durationWeeks) || 4)
+  );
+  const effectiveDurationWeeks = foundWeeks || declaredDurationWeeks;
+
+  if (foundWeeks > 0 && foundWeeks < declaredDurationWeeks) {
+    uniqueDays.forEach((day) => {
+      day.exercises.forEach((exercise) => {
+        exercise.progressions = (exercise.progressions || []).slice(
+          0,
+          effectiveDurationWeeks
+        );
+      });
+    });
+  }
+
   const incompleteProgressions = uniqueDays.reduce(
     (count, day) =>
       count +
@@ -7790,7 +7860,7 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
         if (!exercise.has_weekly_progression) return false;
         const requiredWeeks = (exercise.progressions || []).slice(
           0,
-          Math.max(1, Math.min(12, Number(durationWeeks) || 4))
+          effectiveDurationWeeks
         );
         return requiredWeeks.some(
           (progression) =>
@@ -7807,14 +7877,14 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       goal: goal || "",
       start_date: today(),
       end_date: "",
-      duration_weeks: durationWeeks,
+      duration_weeks: effectiveDurationWeeks,
       level: "intermedio",
       location: "palestra",
       notes: [
         `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
         `Fonte lettura: ${sheetLabel}. Intestazioni e colonne riconosciute automaticamente.`,
-        foundWeeks && foundWeeks < Math.max(1, Math.min(12, Number(durationWeeks) || 4))
-          ? `Sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa le settimane mancanti prima della pubblicazione.`
+        foundWeeks && foundWeeks < declaredDurationWeeks
+          ? `Il file dichiara ${declaredDurationWeeks} settimane, ma risultano compilate solo le settimane 1-${foundWeeks}. TMFIT userà ${effectiveDurationWeeks} settimane senza crearne di vuote.`
           : "Controlla la bozza prima della pubblicazione al cliente.",
         incompleteProgressions > 0
           ? `${incompleteProgressions} esercizi hanno una progressione settimanale incompleta.`
@@ -7832,7 +7902,8 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       exercises: totalExercises,
       expectedExercises: 0,
       groups: groupCount,
-      durationWeeks,
+      durationWeeks: effectiveDurationWeeks,
+      declaredDurationWeeks,
       trainingCount: trainingCount || uniqueDays.length,
       foundWeeks,
       warnings: [
@@ -8032,7 +8103,10 @@ async function downloadSavedProgramExcel(program, clientName = "Cliente") {
   if (!program) throw new Error("Programma non disponibile.");
 
   const XLSX = await loadWorkoutExcelLibrary();
-  const durationWeeks = Math.max(1, Math.min(12, Number(program.duration_weeks) || 4));
+  const configuredWeekNumbers = tmfitWorkoutConfiguredWeekNumbers(program);
+  const durationWeeks = configuredWeekNumbers.length
+    ? Math.max(...configuredWeekNumbers)
+    : Math.max(1, Math.min(12, Number(program.duration_weeks) || 4));
   const exportWeekCount = Math.max(4, durationWeeks);
   const days = savedProgramWorkoutDays(program);
 
@@ -12527,8 +12601,21 @@ try {
           if (setsError) throw setsError;
 
           if (exercise.has_weekly_progression) {
-            const progressionRows = (exercise.progressions || []).map(
-              (progression, index) => ({
+            const progressionRows = (exercise.progressions || [])
+              .filter((progression) =>
+                [
+                  progression?._excel_source_value,
+                  progression?.target_sets,
+                  progression?.target_reps,
+                  progression?.target_load_text,
+                  progression?.target_load_kg,
+                  progression?.target_rpe,
+                  progression?.target_rir,
+                  progression?.recovery_seconds,
+                  cleanStoredWorkoutProgressionNotes(progression?.notes || "")
+                ].some((value) => String(value ?? "").trim() !== "")
+              )
+              .map((progression, index) => ({
                 workout_exercise_id: exerciseRow.id,
                 week_number: Number(progression.week_number) || index + 1,
                 target_sets: progression.target_sets || null,
@@ -12539,15 +12626,16 @@ try {
                 target_rir: progression.target_rir || null,
                 recovery_seconds: numberOrNull(progression.recovery_seconds),
                 notes: workoutProgressionNotesForStorage(progression),
-                sort_order: index + 1
-              })
-            );
+                sort_order: Number(progression.week_number) || index + 1
+              }));
 
-            const { error: progressionError } = await supabase
-              .from("workout_exercise_progressions")
-              .insert(progressionRows);
+            if (progressionRows.length > 0) {
+              const { error: progressionError } = await supabase
+                .from("workout_exercise_progressions")
+                .insert(progressionRows);
 
-            if (progressionError) throw progressionError;
+              if (progressionError) throw progressionError;
+            }
           }
         }
       }
@@ -19307,15 +19395,14 @@ function SavedProgramCompactPreview({
   selectedClient,
   onOpenFullPreview
 }) {
-  const durationWeeks = Math.max(1, Number(plan?.duration_weeks) || 4);
-  const [currentWeek, setCurrentWeek] = useState(1);
+  const weekNumbers = tmfitWorkoutConfiguredWeekNumbers(plan);
+  const [currentWeek, setCurrentWeek] = useState(weekNumbers[0] || 1);
   const weeks = sortByOrder(plan?.workout_weeks || [], "week_number");
   const baseWeek = weeks[0] || null;
   const days = sortByOrder(baseWeek?.workout_days || []);
-  const weekNumbers = Array.from({ length: durationWeeks }).map((_, index) => index + 1);
 
   useEffect(() => {
-    setCurrentWeek(1);
+    setCurrentWeek(tmfitWorkoutConfiguredWeekNumbers(plan)[0] || 1);
   }, [plan?.id]);
 
   return (
@@ -19897,9 +19984,9 @@ function WorkoutPlayerModal({
   const open = player?.open;
   const plan = player?.plan;
   const day = player?.day;
-  const selectedWeek = Math.max(
-    1,
-    Math.min(tmfitWorkoutDurationWeeks(plan), Number(player?.selectedWeek || player?.resumeState?.selectedWeek) || 1)
+  const selectedWeek = tmfitWorkoutResolveWeek(
+    plan,
+    Number(player?.selectedWeek || player?.resumeState?.selectedWeek) || 1
   );
   const resumeState = player?.resumeState || null;
   const resumeToken = resumeState?.updatedAt || "";
@@ -20330,18 +20417,10 @@ function WorkoutPlayerModal({
   }
 
   function currentWeekForPlan() {
-    const maxWeek = tmfitWorkoutDurationWeeks(plan);
-    const requestedWeek = Number(selectedWeek);
-
-    if (
-      Number.isFinite(requestedWeek) &&
-      requestedWeek >= 1 &&
-      requestedWeek <= maxWeek
-    ) {
-      return requestedWeek;
-    }
-
-    return Math.min(tmfitWorkoutWeekForPlan(plan), maxWeek);
+    return tmfitWorkoutResolveWeek(
+      plan,
+      Number(selectedWeek) || tmfitWorkoutWeekForPlan(plan)
+    );
   }
 
   function progressionForModalExercise(item) {
@@ -23556,22 +23635,11 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   }, [pendingRestAdvance, workoutLiveDraftKey, plans.length]);
 
   function automaticWeekNumber(plan) {
-    const maxWeek = tmfitWorkoutDurationWeeks(plan);
-    if (!plan?.start_date) return 1;
-
-    const start = new Date(plan.start_date);
-    const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const week = Math.floor(diffDays / 7) + 1;
-
-    return Math.max(1, Math.min(maxWeek, week));
+    return tmfitWorkoutWeekForPlan(plan);
   }
 
   function availableWeekNumbers(plan) {
-    const count = tmfitWorkoutDurationWeeks(plan);
-    return Array.from({ length: count }).map((_, index) => index + 1);
+    return tmfitWorkoutConfiguredWeekNumbers(plan);
   }
 
   function currentWeekNumber(plan) {
