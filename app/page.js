@@ -59,8 +59,8 @@ const supabase =
       })
     : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.3.9";
-const APP_VERSION_LABEL = "TMFIT Pro v5.3.9";
+const APP_VERSION = "v5.4.0";
+const APP_VERSION_LABEL = "TMFIT Pro v5.4.0";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -791,6 +791,14 @@ function isRecentWorkoutDraft(snapshot) {
   return Date.now() - updated < 1000 * 60 * 60 * 18;
 }
 
+function tmfitWorkoutDurationWeeks(planOrValue) {
+  const raw =
+    planOrValue && typeof planOrValue === "object"
+      ? planOrValue?.duration_weeks
+      : planOrValue;
+  return Math.max(1, Math.min(12, Number(raw) || 4));
+}
+
 function tmfitWorkoutWeekForPlan(plan) {
   if (!plan?.start_date) return 1;
 
@@ -801,11 +809,11 @@ function tmfitWorkoutWeekForPlan(plan) {
   );
   const week = Math.floor(diffDays / 7) + 1;
 
-  return Math.max(1, Math.min(Number(plan.duration_weeks) || 4, week));
+  return Math.max(1, Math.min(tmfitWorkoutDurationWeeks(plan), week));
 }
 
 function tmfitPlannedSetCountForResume(plan, exercise, selectedWeek = null) {
-  const maxWeek = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+  const maxWeek = tmfitWorkoutDurationWeeks(plan);
   const requestedWeek = Number(selectedWeek);
   const week =
     Number.isFinite(requestedWeek) && requestedWeek >= 1 && requestedWeek <= maxWeek
@@ -3363,7 +3371,7 @@ function tmfitWorkoutPdfExerciseSummary(exercise, weekNumber) {
     "";
   const rpe = progression?.target_rpe ?? exercise?.target_rpe ?? "";
   const rir = progression?.target_rir ?? exercise?.target_rir ?? "";
-  const parts = [`${targetSets} x ${targetReps}`];
+  const parts = [workoutSetsRepsDisplay(targetSets, targetReps)];
 
   if (String(recovery).trim()) parts.push(`rec. ${compactWorkoutRecoveryLabel(recovery)}`);
   if (String(rpe).trim()) parts.push(`RPE ${rpe}`);
@@ -3517,7 +3525,7 @@ function buildTmfitTrainingPlanPdfBytes({
       "";
 
     return {
-      seriesReps: `${sets} x ${reps}`,
+      seriesReps: workoutSetsRepsDisplay(sets, reps),
       recovery: String(recovery).trim() ? compactWorkoutRecoveryLabel(recovery) : "-",
       intensity: workoutIntensityLabel(exercise, progression)
     };
@@ -6462,7 +6470,8 @@ function parseWorkoutExerciseSegment(segment = [], durationWeeks = 4) {
     .filter((line) => !/^Sett\.?\s*\d+/i.test(line));
   const executionMode = cleanWorkoutPdfLine(executionLines.join(" "));
   const lastWeek = Math.max(0, ...Array.from(weekValues.keys()));
-  const baseWeekValue = weekValues.get(Math.min(4, lastWeek)) || weekValues.get(lastWeek) || "";
+  const firstWeek = Math.min(...Array.from(weekValues.keys()).filter((value) => Number.isFinite(value)));
+  const baseWeekValue = weekValues.get(1) || weekValues.get(firstWeek) || weekValues.get(lastWeek) || "";
   const parsedBase = parseWorkoutSetsReps(baseWeekValue);
   const hasSuperset = Boolean(groupLabel) || /\bSUPERSET\b/i.test(executionMode);
   const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, lastWeek || 4);
@@ -6671,7 +6680,8 @@ function parseWorkoutExerciseRows(rowSegment = [], titleRowIndex = 0, durationWe
   const supersetMatch = supersetText.match(/SS\s*\d+/i);
   const groupLabel = supersetMatch ? supersetMatch[0].replace(/\s+/g, "").toUpperCase() : "";
   const lastWeek = Math.max(0, ...Array.from(weekValues.keys()));
-  const baseWeekValue = weekValues.get(Math.min(4, lastWeek)) || weekValues.get(lastWeek) || "";
+  const firstWeek = Math.min(...Array.from(weekValues.keys()).filter((value) => Number.isFinite(value)));
+  const baseWeekValue = weekValues.get(1) || weekValues.get(firstWeek) || weekValues.get(lastWeek) || "";
   const parsedBase = parseWorkoutSetsReps(baseWeekValue);
   const hasSuperset = Boolean(groupLabel) || /\bSUPERSET\b/i.test(executionMode);
   const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, lastWeek || 4);
@@ -7126,12 +7136,9 @@ function defaultWorkoutExcelColumns() {
     recovery: 2,
     execution: 3,
     group: 4,
-    weeks: new Map([
-      [1, 5],
-      [2, 6],
-      [3, 7],
-      [4, 8]
-    ])
+    weeks: new Map(
+      Array.from({ length: 12 }).map((_, index) => [index + 1, index + 5])
+    )
   };
 }
 
@@ -7198,6 +7205,16 @@ function parseWorkoutExcelAthlete(rows = []) {
   return workoutExcelMetadataValue(rows, /^(?:nome|atleta|cliente)\b/i);
 }
 
+function parseWorkoutExcelTrainingCount(rows = []) {
+  const text = workoutExcelMetadataValue(
+    rows,
+    /^(?:numero\s+allenamenti|n\.?\s*allenamenti|allenamenti)\b/i
+  );
+  const match = String(text || "").match(/([1-9]\d*)/);
+  if (!match) return null;
+  return Math.max(1, Math.min(6, Number(match[1]) || 1));
+}
+
 function parseWorkoutExcelGroup(value = "", execution = "") {
   const text = cleanWorkoutPdfLine(`${value || ""} ${execution || ""}`);
 
@@ -7249,9 +7266,104 @@ function cleanWorkoutExcelWeekValue(value, weekNumber) {
     .trim();
 }
 
+function parseWorkoutExcelPrescriptionBlocks(value) {
+  const text = cleanWorkoutExcelCell(value).replace(/×/g, "x");
+  if (!text) {
+    return { blocks: [], totalSets: "", repsBySet: [], reps: "", prescription: "" };
+  }
+
+  const blocks = [];
+  const matcher = /(\d+)\s*x\s*([^+;·|]+)/gi;
+  let match = null;
+
+  while ((match = matcher.exec(text))) {
+    const sets = Math.max(0, Number(match[1]) || 0);
+    let reps = cleanWorkoutPdfLine(match[2] || "")
+      .replace(/\b(?:RIR|RPE|CARICO|LOAD|KG|%)\b.*$/i, "")
+      .replace(/^[\s:=-]+|[\s:=-]+$/g, "")
+      .trim();
+
+    if (!sets || !reps) continue;
+
+    blocks.push({ sets, reps });
+  }
+
+  if (!blocks.length) {
+    return { blocks: [], totalSets: "", repsBySet: [], reps: "", prescription: "" };
+  }
+
+  const totalSets = blocks.reduce((sum, block) => sum + block.sets, 0);
+  const repsBySet = blocks.flatMap((block) =>
+    Array.from({ length: block.sets }).map(() => block.reps)
+  );
+  const reps =
+    blocks.length > 1
+      ? repsBySet.join(" | ")
+      : blocks[0].reps;
+  const prescription = blocks
+    .map((block) => `${block.sets}x${block.reps}`)
+    .join(" + ");
+
+  return {
+    blocks,
+    totalSets: String(totalSets),
+    repsBySet,
+    reps,
+    prescription
+  };
+}
+
+function workoutRepsSequence(value) {
+  return String(value || "")
+    .split("|")
+    .map((item) => cleanWorkoutPdfLine(item))
+    .filter(Boolean);
+}
+
+function workoutTargetRepsForSet(value, setIndex = 0) {
+  const sequence = workoutRepsSequence(value);
+  if (sequence.length <= 1) return String(value || "").trim();
+
+  return sequence[Math.max(0, Math.min(Number(setIndex) || 0, sequence.length - 1))] || "";
+}
+
+function workoutSetsRepsDisplay(sets, reps, fallback = "—") {
+  const cleanSets = String(sets ?? "").trim();
+  const cleanReps = String(reps ?? "").trim();
+  const sequence = workoutRepsSequence(cleanReps);
+
+  if (sequence.length > 1) {
+    const blocks = [];
+    sequence.forEach((rep) => {
+      const previous = blocks[blocks.length - 1];
+      if (previous && previous.rep === rep) {
+        previous.count += 1;
+      } else {
+        blocks.push({ rep, count: 1 });
+      }
+    });
+
+    return blocks.map((block) => `${block.count}×${block.rep}`).join(" + ");
+  }
+
+  if (cleanSets && cleanReps) return `${cleanSets}×${cleanReps}`;
+  if (cleanSets || cleanReps) return cleanSets || cleanReps;
+  return fallback;
+}
+
 function parseWorkoutExcelSetsReps(value) {
   const text = cleanWorkoutExcelCell(value).replace(/×/g, "x");
   const parsed = parseWorkoutSetsReps(text);
+  const structured = parseWorkoutExcelPrescriptionBlocks(text);
+
+  if (structured.blocks.length > 0) {
+    parsed.sets = structured.totalSets;
+    parsed.reps = structured.reps;
+    parsed.prescription = structured.prescription;
+    parsed.reps_by_set = structured.repsBySet;
+    return parsed;
+  }
+
   const explicit = text.match(
     /(\d+(?:\s*(?:-|–)\s*\d+)?)\s*x\s*((?:\d+(?:\s*(?:-|–|\/)\s*\d+)?|AMRAP|MAX|CEDIMENTO)(?:\s*(?:REPS?|SEC|MIN(?:UTI)?|GIRI?))?)/i
   );
@@ -7292,8 +7404,8 @@ function workoutExcelProgressionNotes(value) {
 
   text = text
     .replace(
-      /\b\d+(?:\s*(?:-|–)\s*\d+)?\s*[x×]\s*(?:\d+(?:\s*(?:-|–|\/)\s*\d+)?|AMRAP|MAX|CEDIMENTO)(?:\s*(?:REPS?|SEC|MIN(?:UTI)?|GIRI?))?\b/i,
-      ""
+      /\b\d+\s*[x×]\s*[^+;·|]+/gi,
+      " "
     )
     .replace(/\bRIR\s*\d+(?:\s*(?:-|–)\s*\d+)?/gi, "")
     .replace(/\bRPE\s*\d+(?:\s*(?:-|–)\s*\d+)?/gi, "")
@@ -7309,7 +7421,7 @@ function workoutExcelCellAt(row, index) {
 }
 
 function workoutExcelWeekValues(row = [], columns = defaultWorkoutExcelColumns(), durationWeeks = 4) {
-  const safeWeeks = Math.max(4, Math.min(12, Number(durationWeeks) || 4));
+  const safeWeeks = Math.max(1, Math.min(12, Number(durationWeeks) || 4));
   return Array.from({ length: safeWeeks }).map((_, index) => {
     const weekNumber = index + 1;
     const columnIndex = columns.weeks?.get(weekNumber);
@@ -7343,7 +7455,7 @@ function parseWorkoutExcelExerciseRow(
   const baseParsed = parseWorkoutExcelSetsReps(fixed || firstWeeklyValue);
   const recoverySeconds = parseWorkoutExcelRecoverySeconds(recovery);
   const groupMeta = parseWorkoutExcelGroup(groupRaw, execution);
-  const safeDurationWeeks = Math.max(Number(durationWeeks) || 4, 4);
+  const safeDurationWeeks = Math.max(1, Math.min(12, Number(durationWeeks) || 4));
 
   const progressions = Array.from({ length: safeDurationWeeks }).map((_, index) => {
     const weekNumber = index + 1;
@@ -7354,14 +7466,17 @@ function parseWorkoutExcelExerciseRow(
       temp_id: uid(),
       week_number: weekNumber,
       _excel_source_value: value,
-      target_sets: parsed.sets || baseParsed.sets,
-      target_reps: parsed.reps || baseParsed.reps,
-      target_load_text: workoutExcelProgressionLoadText(value),
+      target_sets: value ? parsed.sets || baseParsed.sets : "",
+      target_reps: value ? parsed.reps || baseParsed.reps : "",
+      target_load_text: value ? workoutExcelProgressionLoadText(value) : "",
       target_load_kg: "",
-      target_rpe: parsed.target_rpe || (fixed ? baseParsed.target_rpe : ""),
-      target_rir: parsed.target_rir || (fixed ? baseParsed.target_rir : ""),
-      recovery_seconds: recovery && recovery !== "—" && recovery !== "-" ? String(recoverySeconds) : "",
-      notes: workoutExcelProgressionNotes(value)
+      target_rpe: value ? parsed.target_rpe || (fixed ? baseParsed.target_rpe : "") : "",
+      target_rir: value ? parsed.target_rir || (fixed ? baseParsed.target_rir : "") : "",
+      recovery_seconds:
+        value && recovery && recovery !== "—" && recovery !== "-"
+          ? String(recoverySeconds)
+          : "",
+      notes: value ? workoutExcelProgressionNotes(value) : ""
     };
   });
 
@@ -7491,10 +7606,11 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
           (index === 0 || /SCHEDA|ALLENAMENTO|WORKOUT|PROGRAMMA/i.test(item.sheetName))
       );
   const sheetsToParse = selectedSheets.length ? selectedSheets : [candidates[0]];
-  const allRows = sheetsToParse.flatMap((item) => item.rows || []);
+  const allRows = candidates.flatMap((item) => item.rows || []);
   const durationWeeks = parseWorkoutExcelDuration(allRows);
   const goal = parseWorkoutExcelGoal(allRows);
   const athleteName = parseWorkoutExcelAthlete(allRows);
+  const trainingCount = parseWorkoutExcelTrainingCount(allRows);
   const days = [];
   const warnings = [];
   let nextFallbackLetterCode = "A".charCodeAt(0);
@@ -7513,7 +7629,9 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       const dayMeta = extractWorkoutExcelDayMeta(row, fallbackLetter);
 
       if (dayMeta) {
-        skipCurrentDay = dayMeta.disabled;
+        const exceedsConfiguredDays =
+          trainingCount && days.length >= trainingCount;
+        skipCurrentDay = dayMeta.disabled || exceedsConfiguredDays;
         lastExercise = null;
         currentDay = skipCurrentDay
           ? null
@@ -7606,8 +7724,11 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       count +
       day.exercises.filter((exercise) => {
         if (!exercise.has_weekly_progression) return false;
-        const firstFour = (exercise.progressions || []).slice(0, Math.min(4, durationWeeks));
-        return firstFour.some(
+        const requiredWeeks = (exercise.progressions || []).slice(
+          0,
+          Math.max(1, Math.min(12, Number(durationWeeks) || 4))
+        );
+        return requiredWeeks.some(
           (progression) =>
             !String(progression._excel_source_value || "").trim()
         );
@@ -7628,7 +7749,7 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       notes: [
         `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
         `Fonte lettura: ${sheetLabel}. Intestazioni e colonne riconosciute automaticamente.`,
-        foundWeeks && foundWeeks < Math.min(durationWeeks, 4)
+        foundWeeks && foundWeeks < Math.max(1, Math.min(12, Number(durationWeeks) || 4))
           ? `Sono state riconosciute progressioni fino alla settimana ${foundWeeks}; completa le settimane mancanti prima della pubblicazione.`
           : "Controlla la bozza prima della pubblicazione al cliente.",
         incompleteProgressions > 0
@@ -7648,11 +7769,12 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       expectedExercises: 0,
       groups: groupCount,
       durationWeeks,
+      trainingCount: trainingCount || uniqueDays.length,
       foundWeeks,
       warnings: [
         uniqueDays.length === 0 ? "Nessun allenamento riconosciuto nell’Excel." : "",
         totalExercises === 0
-          ? "Nessun esercizio riconosciuto: verifica che siano presenti le intestazioni Esercizio e Settimana 1-4."
+          ? "Nessun esercizio riconosciuto: verifica che siano presenti le intestazioni Esercizio e Settimana 1-12."
           : "",
         incompleteProgressions > 0
           ? `${incompleteProgressions} esercizi hanno una o più settimane senza serie/ripetizioni.`
@@ -7694,8 +7816,7 @@ function workoutExcelFixedPrescription(exercise) {
   const reps = String(exercise.reps || "").trim();
   const parts = [];
 
-  if (sets && reps) parts.push(`${sets}x${reps}`);
-  else if (sets || reps) parts.push(sets || reps);
+  if (sets || reps) parts.push(workoutSetsRepsDisplay(sets, reps, ""));
 
   if (String(exercise.target_rir || "").trim()) {
     parts.push(`RIR ${String(exercise.target_rir).trim()}`);
@@ -7723,8 +7844,7 @@ function workoutExcelProgressionPrescription(exercise, weekNumber) {
   const notes = String(progression.notes || "").trim();
   const parts = [];
 
-  if (sets && reps) parts.push(`${sets}x${reps}`);
-  else if (sets || reps) parts.push(sets || reps);
+  if (sets || reps) parts.push(workoutSetsRepsDisplay(sets, reps, ""));
 
   if (loadText) parts.push(loadText);
   else if (loadKg) parts.push(`${loadKg} kg`);
@@ -7793,23 +7913,41 @@ async function appendWorkoutExerciseBankFromTemplate(XLSX, workbook) {
 
     const templateBuffer = await response.arrayBuffer();
     const templateWorkbook = XLSX.read(templateBuffer, { type: "array", cellDates: false });
-    const templateSheet = templateWorkbook.Sheets?.SCHEDA;
-    if (!templateSheet) return;
-
-    const rows = XLSX.utils.sheet_to_json(templateSheet, {
-      header: 1,
-      raw: false,
-      defval: ""
-    });
     const bankRows = [["DISTRETTO", "ESERCIZIO", "ATTREZZATURA", "LIVELLO"]];
+    const bankSourceSheet = templateWorkbook.Sheets?.["BANCA DATI"];
+    const legacySheet = templateWorkbook.Sheets?.SCHEDA;
 
-    rows.slice(1).forEach((row) => {
-      const values = [row?.[11], row?.[12], row?.[13], row?.[14]].map((value) =>
-        String(value || "").trim()
-      );
-      if (!values[1]) return;
-      bankRows.push(values);
-    });
+    if (bankSourceSheet) {
+      const rows = XLSX.utils.sheet_to_json(bankSourceSheet, {
+        header: 1,
+        raw: false,
+        defval: ""
+      });
+
+      rows.slice(1).forEach((row) => {
+        const values = [row?.[0], row?.[1], row?.[2], row?.[3]].map((value) =>
+          String(value || "").trim()
+        );
+        if (!values[1]) return;
+        bankRows.push(values);
+      });
+    } else if (legacySheet) {
+      const rows = XLSX.utils.sheet_to_json(legacySheet, {
+        header: 1,
+        raw: false,
+        defval: ""
+      });
+
+      rows.slice(1).forEach((row) => {
+        const values = [row?.[11], row?.[12], row?.[13], row?.[14]].map((value) =>
+          String(value || "").trim()
+        );
+        if (!values[1]) return;
+        bankRows.push(values);
+      });
+    } else {
+      return;
+    }
 
     if (bankRows.length <= 1) return;
 
@@ -11023,7 +11161,7 @@ function getBuilderQualityReport() {
 
       if (!summary.exercises) {
         alert(
-          "Excel letto, ma non ho riconosciuto esercizi. Verifica che siano presenti le intestazioni Esercizio e Settimana 1-4."
+          "Excel letto, ma non ho riconosciuto esercizi. Verifica che siano presenti le intestazioni Esercizio e Settimana 1-12."
         );
         setWorkoutImportSummary(summary);
         return;
@@ -15146,7 +15284,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           Excel consigliato, PDF come fallback
                         </h3>
                         <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                          L’importazione Excel riconosce automaticamente il foglio della scheda, le intestazioni, i giorni di allenamento e le progressioni Settimana 1-4. Controlla sempre l’anteprima prima della pubblicazione.
+                          L’importazione Excel riconosce automaticamente il foglio della scheda, le intestazioni, i giorni di allenamento e le progressioni Settimana 1-12. Controlla sempre l’anteprima prima della pubblicazione.
                         </p>
                       </div>
 
@@ -15177,7 +15315,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                           </div>
 
                           <p className="mt-2 text-[11px] font-bold leading-4 text-slate-500">
-                            Riconosce intestazioni anche spostate, più fogli, righe continuate, recuperi, superserie/triset e progressioni Settimana 1-4.
+                            Riconosce intestazioni anche spostate, più fogli, righe continuate, recuperi, superserie/triset e progressioni Settimana 1-12.
                           </p>
                         </div>
 
@@ -17771,9 +17909,7 @@ function ClientProgramPreviewPanel({
   function previewSetsReps(exercise) {
     const sets = String(exercise?.sets || "").trim();
     const reps = String(exercise?.reps || "").trim();
-    if (!sets && !reps) return "Serie/reps da completare";
-    if (sets && reps) return `${sets} x ${reps}`;
-    return sets || reps;
+    return workoutSetsRepsDisplay(sets, reps, "Serie/reps da completare");
   }
 
   function meaningfulProgressions(exercise) {
@@ -17798,8 +17934,7 @@ function ClientProgramPreviewPanel({
     const reps = String(progression.target_reps || "").trim();
     const parts = [];
 
-    if (sets && reps) parts.push(`${sets} x ${reps}`);
-    else if (sets || reps) parts.push(sets || reps);
+    if (sets || reps) parts.push(workoutSetsRepsDisplay(sets, reps));
     if (progression.target_rir) parts.push(`RIR ${progression.target_rir}`);
     if (progression.target_rpe) parts.push(`RPE ${progression.target_rpe}`);
     if (progression.notes) parts.push(progression.notes);
@@ -17996,11 +18131,11 @@ function ClientProgramPreviewPanel({
                                   </Pill>
                                 </div>
 
-                                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                                  {progressions.slice(0, 4).map((progression) => (
+                                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                                  {progressions.map((progression) => (
                                     <div
                                       key={progression.temp_id || progression.week_number}
-                                      className="rounded-2xl bg-white p-3"
+                                      className="min-w-[150px] shrink-0 rounded-2xl bg-white p-3"
                                     >
                                       <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                                         Sett. {progression.week_number}
@@ -19657,7 +19792,7 @@ function WorkoutPlayerModal({
   const day = player?.day;
   const selectedWeek = Math.max(
     1,
-    Math.min(4, Number(player?.selectedWeek || player?.resumeState?.selectedWeek) || 1)
+    Math.min(tmfitWorkoutDurationWeeks(plan), Number(player?.selectedWeek || player?.resumeState?.selectedWeek) || 1)
   );
   const resumeState = player?.resumeState || null;
   const resumeToken = resumeState?.updatedAt || "";
@@ -20084,7 +20219,7 @@ function WorkoutPlayerModal({
   }
 
   function currentWeekForPlan() {
-    const maxWeek = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+    const maxWeek = tmfitWorkoutDurationWeeks(plan);
     const requestedWeek = Number(selectedWeek);
 
     if (
@@ -20131,7 +20266,11 @@ function WorkoutPlayerModal({
           `virtual-${item.id}-w${currentWeekForPlan()}-${index + 1}`,
         set_number: index + 1,
         target_reps:
-          progression?.target_reps || existingSet?.target_reps || item?.reps || "",
+          workoutTargetRepsForSet(progression?.target_reps, index) ||
+          existingSet?.target_reps ||
+          workoutTargetRepsForSet(item?.reps, index) ||
+          item?.reps ||
+          "",
         target_rpe:
           progression?.target_rpe || existingSet?.target_rpe || item?.target_rpe || "",
         target_rir:
@@ -21751,7 +21890,11 @@ function CompactWorkoutDayCard({
         (item) => Number(item.week_number) === Number(currentWeek)
       ) || null;
     const rawSets = progression?.target_sets ?? exercise.sets ?? 0;
-    const numericSets = Number(String(rawSets).match(/\d+/)?.[0] || 0);
+    const repsSequence = workoutRepsSequence(progression?.target_reps || exercise.reps || "");
+    const numericSets =
+      repsSequence.length > 1
+        ? repsSequence.length
+        : Number(String(rawSets).match(/\d+/)?.[0] || 0);
     return sum + numericSets;
   }, 0);
   const previewExercises = exercises.slice(0, 3);
@@ -21827,7 +21970,7 @@ function CompactWorkoutDayCard({
                     {exercise.exercise_name || "Esercizio"}
                   </p>
                   <span className="shrink-0 text-xs font-black text-slate-500">
-                    {targetSets} × {targetReps}
+                    {workoutSetsRepsDisplay(targetSets, targetReps)}
                   </span>
                 </div>
               );
@@ -21986,7 +22129,7 @@ function TrainingPlanNavigatorCard({
             <span className="shrink-0 pl-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
               Settimana
             </span>
-            <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
+            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">
               {weekNumbers.map((weekNumber) => {
                 const isActiveWeek = Number(currentWeek) === Number(weekNumber);
 
@@ -21995,7 +22138,7 @@ function TrainingPlanNavigatorCard({
                     key={weekNumber}
                     type="button"
                     onClick={() => onSelectWeek(weekNumber)}
-                    className={`min-h-9 rounded-xl border text-sm font-black transition active:scale-[.97] ${
+                    className={`min-h-9 min-w-10 shrink-0 rounded-xl border px-2 text-sm font-black transition active:scale-[.97] ${
                       isActiveWeek
                         ? "border-teal-300 bg-teal-300 text-slate-950"
                         : "border-white/10 bg-white/[0.06] text-white"
@@ -22244,7 +22387,7 @@ function WorkoutDayPreviewModal({
                                 <div className="mt-3 grid grid-cols-3 gap-2">
                                   <div className="rounded-2xl bg-slate-50 px-2 py-2.5 text-center">
                                     <p className="text-sm font-black text-slate-950">
-                                      {targetSets} × {targetReps}
+                                      {workoutSetsRepsDisplay(targetSets, targetReps)}
                                     </p>
                                     <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
                                       Serie / reps
@@ -23264,7 +23407,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   }, [pendingRestAdvance, workoutLiveDraftKey, plans.length]);
 
   function automaticWeekNumber(plan) {
-    const maxWeek = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+    const maxWeek = tmfitWorkoutDurationWeeks(plan);
     if (!plan?.start_date) return 1;
 
     const start = new Date(plan.start_date);
@@ -23278,7 +23421,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   }
 
   function availableWeekNumbers(plan) {
-    const count = Math.max(1, Math.min(4, Number(plan?.duration_weeks) || 4));
+    const count = tmfitWorkoutDurationWeeks(plan);
     return Array.from({ length: count }).map((_, index) => index + 1);
   }
 
