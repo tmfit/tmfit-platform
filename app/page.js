@@ -816,14 +816,24 @@ function tmfitWorkoutProgressionHasConfiguredData(progression) {
 
 function tmfitWorkoutConfiguredWeekNumbers(plan) {
   const configured = new Set();
+  const materializedWeeks = new Set();
 
   (plan?.workout_weeks || []).forEach((week) => {
+    const materializedWeekNumber = Number(week?.week_number) || 0;
+    if (materializedWeekNumber >= 1 && materializedWeekNumber <= 12) {
+      materializedWeeks.add(materializedWeekNumber);
+    }
+
     (week?.workout_days || []).forEach((day) => {
       (day?.workout_blocks || []).forEach((block) => {
         (block?.workout_exercises || []).forEach((exercise) => {
           (exercise?.workout_exercise_progressions || []).forEach((progression) => {
             const weekNumber = Number(progression?.week_number) || 0;
-            if (weekNumber >= 1 && weekNumber <= 12 && tmfitWorkoutProgressionHasConfiguredData(progression)) {
+            if (
+              weekNumber >= 1 &&
+              weekNumber <= 12 &&
+              tmfitWorkoutProgressionHasConfiguredData(progression)
+            ) {
               configured.add(weekNumber);
             }
           });
@@ -832,12 +842,20 @@ function tmfitWorkoutConfiguredWeekNumbers(plan) {
     });
   });
 
-  const numbers = Array.from(configured).sort((a, b) => a - b);
-  if (numbers.length > 0) return numbers;
+  const durationWeeks = tmfitWorkoutDurationWeeks(plan);
+  const maxConfiguredWeek = Math.max(0, ...Array.from(configured));
+  const maxMaterializedWeek = Math.max(0, ...Array.from(materializedWeeks));
 
-  return Array.from({ length: tmfitWorkoutDurationWeeks(plan) }).map(
-    (_, index) => index + 1
+  // La durata del programma decide quante settimane il cliente può selezionare.
+  // Per i programmi legacy recuperiamo anche eventuali settimane già materializzate
+  // o progressioni salvate oltre duration_weeks. Il selettore è sempre contiguo:
+  // 1,2,3,4... anche quando un singolo esercizio non cambia in una settimana.
+  const effectiveWeeks = Math.max(
+    1,
+    Math.min(12, Math.max(durationWeeks, maxConfiguredWeek, maxMaterializedWeek))
   );
+
+  return Array.from({ length: effectiveWeeks }).map((_, index) => index + 1);
 }
 
 function tmfitWorkoutResolveWeek(plan, requestedWeek) {
@@ -852,6 +870,53 @@ function tmfitWorkoutResolveWeek(plan, requestedWeek) {
   }
 
   return options[0] || 1;
+}
+
+function tmfitWorkoutProgressionForWeek(exercise, weekNumber) {
+  const requestedWeek = Math.max(1, Number(weekNumber) || 1);
+  const progressions = (exercise?.workout_exercise_progressions || [])
+    .filter((progression) => tmfitWorkoutProgressionHasConfiguredData(progression))
+    .slice()
+    .sort((left, right) =>
+      (Number(left?.week_number) || 0) - (Number(right?.week_number) || 0)
+    );
+
+  const exact = progressions.find(
+    (progression) => Number(progression?.week_number) === requestedWeek
+  );
+  if (exact) return exact;
+
+  // Se l'esercizio non cambia nella settimana selezionata, conserva l'ultima
+  // prescrizione disponibile. Esempio: W1 = 3x8, W2 vuota => W2 = 3x8.
+  return (
+    progressions
+      .filter((progression) => Number(progression?.week_number) < requestedWeek)
+      .pop() || null
+  );
+}
+
+function tmfitWorkoutMaterializedWeekForSelection(plan, weekNumber) {
+  const requestedWeek = Math.max(1, Number(weekNumber) || 1);
+  const weeks = (plan?.workout_weeks || [])
+    .filter((week) => Array.isArray(week?.workout_days) && week.workout_days.length > 0)
+    .slice()
+    .sort((left, right) =>
+      (Number(left?.week_number) || 0) - (Number(right?.week_number) || 0)
+    );
+
+  const exact = weeks.find(
+    (week) => Number(week?.week_number) === requestedWeek
+  );
+  if (exact) return exact;
+
+  // Se i giorni di allenamento sono materializzati solo nella settimana base,
+  // riutilizziamo la settimana precedente più vicina. La settimana selezionata
+  // resta comunque quella richiesta e determina i target/progressioni.
+  return (
+    weeks
+      .filter((week) => Number(week?.week_number) < requestedWeek)
+      .pop() || weeks[0] || null
+  );
 }
 
 function tmfitWorkoutWeekForPlan(plan) {
@@ -872,10 +937,7 @@ function tmfitPlannedSetCountForResume(plan, exercise, selectedWeek = null) {
     plan,
     selectedWeek ?? tmfitWorkoutWeekForPlan(plan)
   );
-  const progression =
-    exercise?.workout_exercise_progressions?.find(
-      (item) => Number(item.week_number) === week
-    ) || null;
+  const progression = tmfitWorkoutProgressionForWeek(exercise, week);
   const realSets = sortByOrder(
     exercise?.workout_exercise_sets || [],
     "set_number"
@@ -3401,11 +3463,7 @@ function tmfitWrapWorkoutPdfText(value, size = 10, maxWidth = 500) {
 }
 
 function tmfitWorkoutPdfProgression(exercise, weekNumber) {
-  return (
-    exercise?.workout_exercise_progressions?.find(
-      (item) => Number(item.week_number) === Number(weekNumber)
-    ) || null
-  );
+  return tmfitWorkoutProgressionForWeek(exercise, weekNumber);
 }
 
 function tmfitWorkoutPdfExerciseSummary(exercise, weekNumber) {
@@ -7840,35 +7898,32 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
     1,
     Math.min(12, Number(durationWeeks) || 4)
   );
-  const effectiveDurationWeeks = foundWeeks || declaredDurationWeeks;
-
-  if (foundWeeks > 0 && foundWeeks < declaredDurationWeeks) {
-    uniqueDays.forEach((day) => {
-      day.exercises.forEach((exercise) => {
-        exercise.progressions = (exercise.progressions || []).slice(
-          0,
-          effectiveDurationWeeks
-        );
-      });
-    });
-  }
-
-  const incompleteProgressions = uniqueDays.reduce(
-    (count, day) =>
-      count +
-      day.exercises.filter((exercise) => {
-        if (!exercise.has_weekly_progression) return false;
-        const requiredWeeks = (exercise.progressions || []).slice(
-          0,
-          effectiveDurationWeeks
-        );
-        return requiredWeeks.some(
-          (progression) =>
-            !String(progression._excel_source_value || "").trim()
-        );
-      }).length,
-    0
+  const headerWeekNumbers = sheetsToParse.flatMap(({ header }) =>
+    Array.from(header?.columns?.weeks?.keys?.() || [])
+      .map((value) => Number(value) || 0)
+      .filter((value) => value >= 1 && value <= 12)
   );
+  const highestWeekColumn = Math.max(0, ...headerWeekNumbers);
+
+  // La durata effettiva non dipende dal fatto che ogni esercizio abbia una
+  // progressione in ogni settimana. Se una settimana è vuota, il cliente
+  // eredita l'ultima prescrizione precedente. Usiamo invece CONFIG, limitato
+  // alle colonne SETT. realmente presenti nel file: CONFIG=5 + colonne W1-W4
+  // => 4 settimane; CONFIG=8 + template W1-W12 => 8 settimane.
+  const effectiveDurationWeeks = highestWeekColumn
+    ? Math.max(1, Math.min(declaredDurationWeeks, highestWeekColumn))
+    : declaredDurationWeeks;
+
+  uniqueDays.forEach((day) => {
+    day.exercises.forEach((exercise) => {
+      exercise.progressions = (exercise.progressions || []).slice(
+        0,
+        effectiveDurationWeeks
+      );
+    });
+  });
+
+  const incompleteProgressions = 0;
   const sheetLabel = sheetsToParse.map((item) => item.sheetName).join(", ");
 
   return {
@@ -7883,8 +7938,10 @@ function parseWorkoutExcelWorkbookForBuilder(workbook, sourceName = "scheda.xlsx
       notes: [
         `Importato da Excel: ${sourceName || "scheda allenamento"}.`,
         `Fonte lettura: ${sheetLabel}. Intestazioni e colonne riconosciute automaticamente.`,
-        foundWeeks && foundWeeks < declaredDurationWeeks
-          ? `Il file dichiara ${declaredDurationWeeks} settimane, ma risultano compilate solo le settimane 1-${foundWeeks}. TMFIT userà ${effectiveDurationWeeks} settimane senza crearne di vuote.`
+        highestWeekColumn && highestWeekColumn < declaredDurationWeeks
+          ? `Il file dichiara ${declaredDurationWeeks} settimane ma contiene colonne fino a SETT. ${highestWeekColumn}. TMFIT userà ${effectiveDurationWeeks} settimane.`
+          : foundWeeks && foundWeeks < effectiveDurationWeeks
+          ? `Alcuni esercizi non cambiano in tutte le settimane: TMFIT manterrà automaticamente l'ultima prescrizione disponibile nelle settimane successive.`
           : "Controlla la bozza prima della pubblicazione al cliente.",
         incompleteProgressions > 0
           ? `${incompleteProgressions} esercizi hanno una progressione settimanale incompleta.`
@@ -20426,11 +20483,7 @@ function WorkoutPlayerModal({
   function progressionForModalExercise(item) {
     const week = currentWeekForPlan();
 
-    return (
-      item?.workout_exercise_progressions?.find(
-        (progression) => Number(progression.week_number) === week
-      ) || null
-    );
+    return tmfitWorkoutProgressionForWeek(item, week);
   }
 
   function plannedSetsForExercise(item) {
@@ -22091,10 +22144,7 @@ function CompactWorkoutDayCard({
   );
   const estimatedMinutes = day?.estimated_minutes || 60;
   const totalSets = exercises.reduce((sum, exercise) => {
-    const progression =
-      exercise.workout_exercise_progressions?.find(
-        (item) => Number(item.week_number) === Number(currentWeek)
-      ) || null;
+    const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
     const rawSets = progression?.target_sets ?? exercise.sets ?? 0;
     const repsSequence = workoutRepsSequence(progression?.target_reps || exercise.reps || "");
     const numericSets =
@@ -22157,10 +22207,7 @@ function CompactWorkoutDayCard({
         {previewExercises.length > 0 && (
           <div className="mt-4 space-y-2">
             {previewExercises.map((exercise, exerciseIndex) => {
-              const progression =
-                exercise.workout_exercise_progressions?.find(
-                  (item) => Number(item.week_number) === Number(currentWeek)
-                ) || null;
+              const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
               const targetSets = progression?.target_sets || exercise.sets || "—";
               const targetReps = progression?.target_reps || exercise.reps || "—";
               const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
@@ -22548,10 +22595,7 @@ function WorkoutDayPreviewModal({
 
                   <div className="space-y-3">
                     {blockExercises.map((exercise, exerciseIndex) => {
-                      const progression =
-                        exercise.workout_exercise_progressions?.find(
-                          (item) => Number(item.week_number) === Number(currentWeek)
-                        ) || null;
+                      const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
                       const targetSets = progression?.target_sets || exercise.sets || "—";
                       const targetReps = progression?.target_reps || exercise.reps || "—";
                       const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
@@ -23669,11 +23713,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   function progressionForExercise(plan, exercise) {
     const week = currentWeekNumber(plan);
 
-    return (
-      exercise.workout_exercise_progressions?.find(
-        (item) => Number(item.week_number) === week
-      ) || null
-    );
+    return tmfitWorkoutProgressionForWeek(exercise, week);
   }
 function normalizeExerciseTitle(value) {
   return String(value || "")
@@ -24516,9 +24556,9 @@ function getExerciseHistory(exercise) {
     : 1;
   const selectedWeekMatchesCalendar =
     activePlanWeekNumber === automaticActivePlanWeekNumber;
-  const activePlanWeek = activePlan?.workout_weeks?.find(
-    (week) => Number(week.week_number) === Number(activePlanWeekNumber)
-  ) || activePlan?.workout_weeks?.[0] || null;
+  const activePlanWeek = activePlan
+    ? tmfitWorkoutMaterializedWeekForSelection(activePlan, activePlanWeekNumber)
+    : null;
   const activeWeekDays = activePlanWeek?.workout_days || [];
   const currentWeekSessions = workoutCalendarSessions.filter((item) => {
     const date = clientDate(item.session_date || item.created_at);
@@ -24834,16 +24874,14 @@ function getExerciseHistory(exercise) {
             )}
 
             {plans.map((plan) => {
-              const allTrainingDays = (plan.workout_weeks || []).flatMap((week) =>
-                (week.workout_days || []).map((day) => ({ week, day }))
-              );
-
               const currentWeek = currentWeekNumber(plan);
-              const currentWeekDays = allTrainingDays.filter(
-                ({ week }) => Number(week?.week_number || 0) === currentWeek
+              const displayWeek = tmfitWorkoutMaterializedWeekForSelection(
+                plan,
+                currentWeek
               );
-              const visibleTrainingDays =
-                currentWeekDays.length > 0 ? currentWeekDays : allTrainingDays;
+              const visibleTrainingDays = (displayWeek?.workout_days || []).map(
+                (day) => ({ week: displayWeek, day })
+              );
 
               return (
                 <div key={plan.id} className="space-y-4">
