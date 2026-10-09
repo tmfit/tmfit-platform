@@ -1369,11 +1369,6 @@ function AppFooter({ role = "coach" }) {
             Webapp privata
           </Pill>
 
-          {!isClient && (
-            <Pill className="bg-white/10 text-white">
-              {APP_VERSION}
-            </Pill>
-          )}
         </div>
 
         {!isClient && (
@@ -2932,8 +2927,8 @@ function LegalDocumentModal({ documentKey, onClose }) {
 
         <div className="mt-6 rounded-2xl bg-white/10 p-4">
           <p className="text-xs font-semibold leading-5 text-slate-400">
-            Versione documenti: {LEGAL_VERSION}. I testi sono una base
-            operativa e andranno validati prima dell’utilizzo reale con clienti.
+            I testi sono una base operativa e andranno validati prima
+            dell’utilizzo reale con clienti.
           </p>
         </div>
 
@@ -3262,9 +3257,8 @@ if (typeof window !== "undefined") {
           </div>
 
           <p className="mt-5 text-xs font-semibold leading-5 text-slate-400">
-            Versione documenti: {LEGAL_VERSION}. I testi legali definitivi
-            dovranno essere caricati e validati prima dell’utilizzo reale con
-            clienti.
+            I testi legali definitivi dovranno essere caricati e validati
+            prima dell’utilizzo reale con clienti.
           </p>
         </form>
       </div>
@@ -8838,12 +8832,6 @@ function DietExtractedPlan({ diet, compact = false }) {
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
               {meal.name || meal.title || "Pasto"}
             </p>
-            {mealOptions.length > 0 && (
-              <p className="mt-1 text-xs font-bold text-slate-400">
-                {mealOptions.length} {mealOptions.length === 1 ? "opzione riconosciuta" : "opzioni riconosciute"} dal file
-                <span className="ml-1 text-[10px] text-slate-400">· lettura v5.4.4</span>
-              </p>
-            )}
 
           </div>
 
