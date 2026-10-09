@@ -59,8 +59,8 @@ const supabase =
       })
     : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.4.3";
-const APP_VERSION_LABEL = "TMFIT Pro v5.4.3";
+const APP_VERSION = "v5.4.4";
+const APP_VERSION_LABEL = "TMFIT Pro v5.4.4";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -4666,40 +4666,48 @@ function splitRecoveredDietFoodText(value) {
   const text = cleanDietPdfLine(value);
   if (!text) return [];
 
-  // Si interviene solo sui blocchi compatti; i normali elenchi PDF rimangono invariati.
-  if (!/\boppure\b/i.test(text) && !/\)\s+\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b/i.test(text)) {
-    return [text];
+  // Le parentesi appartengono all'alimento corrente: "oppure" dentro
+  // '(oppure 150 gr di omelette)' non è un separatore di una nuova card.
+  // Separiamo soltanto alternative esterne, nuovi alimenti dopo una parentesi
+  // chiusa o voci distinte da punto e virgola. Non cambiamo il testo originale.
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  function emit(end) {
+    const chunk = cleanDietPdfLine(text.slice(start, end));
+    if (chunk) parts.push(chunk);
+    start = end;
   }
-
-  const parts = text
-    .replace(/\)\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b)/gi, ")\n")
-    .replace(/\s+(?=\(?oppure\b)/gi, "\n")
-    .split(/\n+/)
-    .map((raw) => {
-      let part = cleanDietPdfLine(raw)
-        .replace(/^\(\s*(?=oppure\b)/i, "")
-        .replace(/\s*[-–—]\s*$/, "")
-        .replace(/\s+\($/, "")
-        .trim();
-      if (!part) return "";
-      const opens = (part.match(/\(/g) || []).length;
-      const closes = (part.match(/\)/g) || []).length;
-      if (opens > closes) part += ")".repeat(Math.min(opens - closes, 2));
-      if (closes > opens) part = part.replace(/\)+$/, "").trim();
-      return part;
-    })
-    .filter(Boolean);
-
-  // Se una frase non è un alimento né un'alternativa, non creare una
-  // falsa nuova voce: mantienila come continuazione della precedente.
-  return parts.reduce((result, part) => {
-    if (!result.length || dietLineLooksLikeRealFoodEntry(part) || isDietAlternativeLine(part)) {
-      result.push(part);
-    } else {
-      result[result.length - 1] = cleanDietPdfLine(`${result[result.length - 1]} ${part}`);
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '(') depth += 1;
+    else if (char === ')') depth = Math.max(0, depth - 1);
+    if (depth !== 0 || index <= start) continue;
+    if (char === ';' && /\d/.test(text.slice(index + 1))) {
+      emit(index);
+      start = index + 1;
+      continue;
     }
-    return result;
-  }, []);
+    if (!/\s/.test(char)) continue;
+    const next = text.slice(index).match(/^\s+(?:oppure\b|o\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b))/i);
+    if (next) {
+      emit(index);
+      start = index + next[0].match(/^\s*/)[0].length;
+      index = start - 1;
+      continue;
+    }
+    // Un nuovo alimento dopo una parentesi completa ("...) 5g frutta")
+    // deve rimanere una nuova riga. Non usare quantità dentro la parentesi.
+    const previous = text.slice(start, index).trim();
+    const following = text.slice(index).match(/^\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b)/i);
+    if (following && previous.endsWith(')')) {
+      emit(index);
+      start = index + following[0].length;
+      index = start - 1;
+    }
+  }
+  emit(text.length);
+  return parts.map(cleanDietPdfLine).filter(Boolean);
 }
 
 // Recupera le opzioni numerate dalle Note al pasto storiche, anche quando
@@ -6283,18 +6291,35 @@ function selectDietMealParsingPages(pageChunks = [], parseStartPage = 1) {
   };
 }
 
+// Individua la PRIMA pagina che contiene davvero una dieta, evitando l'ipotesi
+// che tutti i PDF abbiano esattamente 6 pagine introduttive.
+// È un criterio strutturale: intestazione giorno/turno + pasto + alimento,
+// oppure esplicito indice LISTA GIORNALIERA / WEEK 1 - ALIMENTI.
+function findDietFirstContentPage(pageChunks = []) {
+  const first = (pageChunks || []).find((chunk) => {
+    const lines = (chunk.lines || []).map(cleanDietPdfLine).filter(Boolean);
+    if (!lines.length) return false;
+    if (lines.some((line) =>
+      /^(LISTA GIORNALIERA|WEEK\s+1\s*[-–—]\s*ALIMENTI)\b/i.test(line)
+    )) return true;
+    const hasContainer = lines.some((line) => Boolean(detectDietPlanContainerLine(line)));
+    const hasMeal = lines.some((line) => Boolean(detectStrictDailyMealHeading(line)));
+    const hasFood = lines.some((line) => dietLineLooksLikeRealFoodEntry(line));
+    // Un giorno citato nel sommario NON basta per classificare la pagina
+    // come piano giornaliero.
+    return hasContainer && hasMeal && hasFood && !lines.some(lineLooksLikeDietWeeklyMatrixHeader);
+  });
+  return first?.pageNumber || 1;
+}
+
 async function extractDietTextFromPdfFile(file, options = {}) {
   const pdfjsLib = await loadPdfJsForDietExtraction();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   const pageCount = Number(pdf.numPages || 0);
-  const skipIntroPages = Number.isFinite(Number(options.skipIntroPages))
-    ? Math.max(0, Number(options.skipIntroPages))
-    : DIET_PARSER_SKIP_INTRO_PAGES;
-  const parseStartPage = pageCount > skipIntroPages ? skipIntroPages + 1 : 1;
   const pageChunks = [];
 
-  for (let pageNumber = parseStartPage; pageNumber <= pageCount; pageNumber += 1) {
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
     pageChunks.push({
@@ -6303,7 +6328,12 @@ async function extractDietTextFromPdfFile(file, options = {}) {
     });
   }
 
-  const scoped = selectDietMealParsingPages(pageChunks, parseStartPage);
+  const explicitSkip = options.skipIntroPages;
+  const parseStartPage = explicitSkip !== undefined && explicitSkip !== null
+    ? Math.max(1, Math.min(pageCount || 1, Number(explicitSkip) + 1 || 1))
+    : findDietFirstContentPage(pageChunks);
+  const selectedPages = pageChunks.filter((chunk) => chunk.pageNumber >= parseStartPage);
+  const scoped = selectDietMealParsingPages(selectedPages, parseStartPage);
   const parseEndPage = Math.max(
     parseStartPage,
     Math.min(pageCount || parseStartPage, Number(scoped.parseEndPage || pageCount || parseStartPage))
@@ -6315,9 +6345,37 @@ async function extractDietTextFromPdfFile(file, options = {}) {
     parseStartPage,
     parseEndPage,
     stoppedBeforePage: scoped.stoppedBeforePage || null,
-    excludedReason: scoped.excludedReason || "",
+    excludedReason: scoped.excludedReason || '',
     skippedIntroPages: Math.max(0, parseStartPage - 1),
     excludedTailPages: Math.max(0, pageCount - parseEndPage)
+  };
+}
+
+// Verifica una proprietà misurabile prima di salvare le card:
+// ogni intestazione autonoma "Opzione N" letta dal PDF deve avere una card.
+// Il conteggio è globale e conservativo: soltanto intestazioni isolate e
+// opzioni con alimenti vengono considerate, non frasi tipo "scegli opzione 2".
+function auditDietOptionCount(lines = [], parsed = {}) {
+  const sourceMarkers = (lines || []).map(cleanDietPdfLine)
+    .filter((line) => /^opzione\s*\d+\s*[:\-–—]?\s*$/i.test(line)).length;
+  const dayOptions = (parsed.days || []).reduce((total, day) => total +
+    (day.meals || day.sections || []).reduce((count, meal) => count +
+      (meal.options || []).filter((option) =>
+        (option.items || []).some(dietLineLooksLikeRealFoodEntry)
+      ).length, 0), 0);
+  // Alcuni PDF dispongono i titoli inline con il primo alimento: contiamo
+  // anche questi, ma solo se sono marcatori a inizio riga, non frasi discorsive.
+  const inlineMarkers = (lines || []).filter((line) =>
+    /^opzione\s*\d+\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b)/i.test(line)
+  ).length;
+  const expected = sourceMarkers + inlineMarkers;
+  return {
+    expected,
+    recognized: dayOptions,
+    ok: !expected || dayOptions >= expected,
+    message: dayOptions < expected
+      ? `Controllo opzioni: il PDF contiene almeno ${expected} intestazioni numerate, ma sono state create ${dayOptions} card. Verificare l'anteprima prima di pubblicare.`
+      : ''
   };
 }
 
@@ -6384,6 +6442,10 @@ async function extractDietPdfForApp(file, dietType) {
         alternativeScore: scoreDietExtraction(options),
         warnings: [
           ...(daily.warnings || []),
+          ...(() => {
+            const audit = auditDietOptionCount(lines, daily);
+            return audit.ok ? [] : [audit.message];
+          })(),
           ...(wantsOptions
             ? [
                 hasShiftStructure
@@ -8779,7 +8841,7 @@ function DietExtractedPlan({ diet, compact = false }) {
             {mealOptions.length > 0 && (
               <p className="mt-1 text-xs font-bold text-slate-400">
                 {mealOptions.length} {mealOptions.length === 1 ? "opzione riconosciuta" : "opzioni riconosciute"} dal file
-                <span className="ml-1 text-[10px] text-slate-400">· lettura v5.4.3</span>
+                <span className="ml-1 text-[10px] text-slate-400">· lettura v5.4.4</span>
               </p>
             )}
 
@@ -9088,7 +9150,7 @@ function dietExtractionStats(diet) {
         ? ["Premi Analizza PDF o Rigenera card per creare la visualizzazione pasti."]
         : ["Nessun PDF collegato a questa dieta."],
       confidence: 0,
-      parserScopeLabel: "Prime 6 pagine escluse dal parsing Pasti"
+      parserScopeLabel: "Pagine del piano ancora da identificare"
     };
   }
 
@@ -9112,7 +9174,10 @@ function dietExtractionStats(diet) {
     const meals = day.meals || day.sections || [];
     return (
       sum +
-      meals.reduce((mealSum, meal) => mealSum + ((meal.items || []).length || 0), 0)
+      meals.reduce((mealSum, meal) => mealSum +
+        ((meal.items || []).length || 0) +
+        (meal.options || []).reduce((optionSum, option) => optionSum + (option.items || []).length, 0)
+      , 0)
     );
   }, 0);
   const totalOptionItems = optionGroups.reduce((sum, group) => {
