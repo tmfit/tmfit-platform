@@ -59,8 +59,8 @@ const supabase =
       })
     : null;
 const LEGAL_VERSION = "tmfit-v1.0";
-const APP_VERSION = "v5.4.2";
-const APP_VERSION_LABEL = "TMFIT Pro v5.4.2";
+const APP_VERSION = "v5.4.3";
+const APP_VERSION_LABEL = "TMFIT Pro v5.4.3";
 
 
 function setTmfitTimerAudioSession(type = "ambient") {
@@ -4659,30 +4659,82 @@ function dietOptionNoteLines(option) {
   return [...titleLines, ...itemLines, ...noteLines].filter(Boolean);
 }
 
-// Recupera anche le card salvate con le vecchie versioni del parser, nelle
-// quali una Opzione numerata con alimento e grammatura era finita nelle note.
-// Non interpreta "opzione per omelette" o riferimenti generici come card.
-function recoverNumberedDietOptionFromNote(note) {
-  const clean = cleanDietPdfLine(note);
-  const match = clean.match(
-    /^(Opzione\s+(\d+))\s*(?:[:\-–—]\s*)?(\d+[,.]?\d*\s*(?:g|gr|kg|ml|l|kcal|cal)\b.*)$/i
-  );
+// Nei PDF SIFA un'opzione può trovarsi tutta su una riga del testo PDF.
+// Le alternative e un alimento finale (es. 5g frutta secca) devono essere
+// visualizzati come righe separate, mantenendo il testo e le grammature.
+function splitRecoveredDietFoodText(value) {
+  const text = cleanDietPdfLine(value);
+  if (!text) return [];
 
-  if (!match) return null;
+  // Si interviene solo sui blocchi compatti; i normali elenchi PDF rimangono invariati.
+  if (!/\boppure\b/i.test(text) && !/\)\s+\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b/i.test(text)) {
+    return [text];
+  }
 
-  const label = `Opzione ${Number(match[2])}`;
-  const foods = cleanDietPdfLine(match[3]);
-  if (!dietLineLooksLikeRealFoodEntry(foods)) return null;
+  const parts = text
+    .replace(/\)\s+(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l)\b)/gi, ")\n")
+    .replace(/\s+(?=\(?oppure\b)/gi, "\n")
+    .split(/\n+/)
+    .map((raw) => {
+      let part = cleanDietPdfLine(raw)
+        .replace(/^\(\s*(?=oppure\b)/i, "")
+        .replace(/\s*[-–—]\s*$/, "")
+        .replace(/\s+\($/, "")
+        .trim();
+      if (!part) return "";
+      const opens = (part.match(/\(/g) || []).length;
+      const closes = (part.match(/\)/g) || []).length;
+      if (opens > closes) part += ")".repeat(Math.min(opens - closes, 2));
+      if (closes > opens) part = part.replace(/\)+$/, "").trim();
+      return part;
+    })
+    .filter(Boolean);
 
-  // Mantenere il testo originale evita di perdere specifiche ON/OFF,
-  // sostituzioni e quantità nel recupero delle vecchie card.
-  return normalizeDietMealSection({
-    name: label,
-    title: label,
-    items: [foods],
-    notes: [],
-    options: []
-  });
+  // Se una frase non è un alimento né un'alternativa, non creare una
+  // falsa nuova voce: mantienila come continuazione della precedente.
+  return parts.reduce((result, part) => {
+    if (!result.length || dietLineLooksLikeRealFoodEntry(part) || isDietAlternativeLine(part)) {
+      result.push(part);
+    } else {
+      result[result.length - 1] = cleanDietPdfLine(`${result[result.length - 1]} ${part}`);
+    }
+    return result;
+  }, []);
+}
+
+// Recupera le opzioni numerate dalle Note al pasto storiche, anche quando
+// più righe sono state unite in una sola nota e "Opzione 2" non è a inizio testo.
+// Richiede una quantità + unità immediatamente dopo il numero dell'opzione:
+// "se scegli l'opzione 2" o "opzione per omelette" NON sono intestazioni.
+function recoverNumberedDietOptionsFromNotes(notes = []) {
+  const text = (Array.isArray(notes) ? notes : [notes])
+    .map(cleanDietPdfLine).filter(Boolean).join(" ");
+  if (!text) return { options: [], notes: [] };
+
+  const marker = /\bopzione\s*(\d{1,2})\s*[:\-–—]?\s*(?=\d+[,.]?\d*\s*(?:g|gr|kg|ml|l|kcal|cal)\b)/gi;
+  const markers = [...text.matchAll(marker)];
+  if (!markers.length) return { options: [], notes: [text] };
+
+  const remainingNotes = [];
+  const options = [];
+  const intro = cleanDietPdfLine(text.slice(0, markers[0].index));
+  if (stripDietMealNotePrefix(intro)) remainingNotes.push(intro);
+
+  for (let index = 0; index < markers.length; index += 1) {
+    const match = markers[index];
+    const start = match.index + match[0].length;
+    const end = markers[index + 1]?.index ?? text.length;
+    const foodText = cleanDietPdfLine(text.slice(start, end));
+    const foodItems = splitRecoveredDietFoodText(foodText);
+    if (!foodItems.some(dietLineLooksLikeRealFoodEntry)) {
+      remainingNotes.push(cleanDietPdfLine(text.slice(match.index, end)));
+      continue;
+    }
+    const title = `Opzione ${Number(match[1])}`;
+    options.push({ name: title, title, items: foodItems, notes: [], options: [] });
+  }
+
+  return { options, notes: remainingNotes };
 }
 
 function normalizeDietMealOptionsAndNotes(section, baseNotes = []) {
@@ -4700,24 +4752,36 @@ function normalizeDietMealOptionsAndNotes(section, baseNotes = []) {
     }
 
     const normalizedOption = normalizeDietMealSection(option);
-    if (normalizedOption) safeOptions.push(normalizedOption);
+    if (normalizedOption) {
+      // Alcune vecchie card avevano l'opzione 2 annidata nelle note
+      // dell'opzione 1. Non nascondere questa opzione nel livello interno.
+      const nestedOptions = Array.isArray(normalizedOption.options) ? normalizedOption.options : [];
+      safeOptions.push({ ...normalizedOption, options: [] }, ...nestedOptions);
+    }
   });
 
-  // Migrazione in lettura, senza riscrivere il piano salvato: se l'estrazione
-  // precedente aveva spostato "Opzione 2 20g ..." nelle Note al pasto,
-  // la mostriamo come opzione autonoma anche prima di rigenerare le card.
-  const remainingNotes = [];
+  // Recupera le card già salvate con una o più opzioni confluite nelle note.
+  // Si applica anche se la vecchia importazione ha unito una nota legittima
+  // e "Opzione 2 20g ..." nella stessa stringa.
+  const recoveredFromNotes = recoverNumberedDietOptionsFromNotes(safeNotes);
+  const remainingNotes = [...recoveredFromNotes.notes];
   const seenOptionTitles = new Set(
     safeOptions.map((option) => normalizeDietToken(option.title || option.name))
   );
-  safeNotes.forEach((note) => {
-    const recovered = recoverNumberedDietOptionFromNote(note);
-    const recoveredTitle = normalizeDietToken(recovered?.title || recovered?.name);
-    if (recovered && !seenOptionTitles.has(recoveredTitle)) {
-      seenOptionTitles.add(recoveredTitle);
+  recoveredFromNotes.options.forEach((recovered) => {
+    const title = normalizeDietToken(recovered.title || recovered.name);
+    if (!seenOptionTitles.has(title)) {
+      seenOptionTitles.add(title);
       safeOptions.push(recovered);
     } else {
-      remainingNotes.push(note);
+      // La fonte contiene due versioni diverse con lo stesso numero:
+      // non eliminare silenziosamente gli alimenti della seconda.
+      const existing = safeOptions.find((option) => normalizeDietToken(option.title || option.name) === title);
+      const existingText = (existing?.items || []).map(cleanDietPdfLine).join(" ");
+      const recoveredText = recovered.items.map(cleanDietPdfLine).join(" ");
+      if (!existingText.includes(recoveredText) && !recoveredText.includes(existingText)) {
+        remainingNotes.push(`${recovered.title}: ${recoveredText}`);
+      }
     }
   });
 
@@ -4740,7 +4804,10 @@ function normalizeDietMealSection(section) {
   if (isDietNonMealHeading(title)) return null;
 
   const rawItems = (section.items || []).map(cleanDietPdfLine).filter(Boolean);
-  const split = splitDietItemsAndMealNotes(rawItems);
+  const preparedItems = /^opzione\s*\d+\b/i.test(title) && rawItems.length === 1
+    ? splitRecoveredDietFoodText(rawItems[0])
+    : rawItems;
+  const split = splitDietItemsAndMealNotes(preparedItems);
   const existingNotes = Array.isArray(section.notes)
     ? section.notes.map(cleanDietPdfLine).filter(Boolean)
     : section.notes
@@ -5216,7 +5283,8 @@ function detectDietOptionMarker(line) {
 
   // Sono opzioni solo le intestazioni reali "Opzione" oppure "Opzione 1/2/3".
   // Frasi come "OPZIONE PER OMELETTE" sono note al pasto, non nuove opzioni.
-  if (/^OPZIONE\s+\d+\b/i.test(clean)) return clean;
+  const numbered = clean.match(/^Opzione\s*(\d+)\s*[:\-–—]?\s*$/i);
+  if (numbered) return `Opzione ${Number(numbered[1])}`;
   if (normalized === "OPZIONE") return clean;
 
   return null;
@@ -5321,7 +5389,7 @@ function splitDietEmbeddedParserLine(line) {
   // Alcuni PDF riportano intestazione e primo alimento sulla stessa riga:
   // "Opzione 2 20g proteine ..." deve diventare due righe logiche.
   const numberedOptionWithFood = clean.match(
-    /^(Opzione\s+\d+)\s*(?:[:\-–—]\s*)?(\d+[,.]?\d*\s*(?:g|gr|kg|ml|l|kcal|cal)\b.*)$/i
+    /^(Opzione\s*\d+)\s*(?:[:\-–—]\s*)?(\d+[,.]?\d*\s*(?:g|gr|kg|ml|l|kcal|cal)\b.*)$/i
   );
   if (numberedOptionWithFood) {
     return [cleanDietPdfLine(numberedOptionWithFood[1]), cleanDietPdfLine(numberedOptionWithFood[2])];
@@ -5782,6 +5850,14 @@ function parseDailyDietLines(lines, sourceName) {
       );
       if (isNumberedOptionHeading && dietLineLooksLikeRealFoodEntry(nextMeaningfulLine(lineIndex))) {
         startMealOption(optionMarker);
+        return;
+      }
+      const inlineOption = cleanLine.match(
+        /^opzione\s*(\d+)\s*[:\-–—]?\s*(\d+[,.]?\d*\s*(?:g|gr|kg|ml|l|kcal|cal)\b.*)$/i
+      );
+      if (inlineOption) {
+        startMealOption(`Opzione ${Number(inlineOption[1])}`);
+        splitRecoveredDietFoodText(inlineOption[2]).forEach(addCurrentMealItem);
         return;
       }
 
@@ -8702,7 +8778,8 @@ function DietExtractedPlan({ diet, compact = false }) {
             </p>
             {mealOptions.length > 0 && (
               <p className="mt-1 text-xs font-bold text-slate-400">
-                {mealOptions.length} opzioni riconosciute dal file
+                {mealOptions.length} {mealOptions.length === 1 ? "opzione riconosciuta" : "opzioni riconosciute"} dal file
+                <span className="ml-1 text-[10px] text-slate-400">· lettura v5.4.3</span>
               </p>
             )}
 
