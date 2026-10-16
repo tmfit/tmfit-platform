@@ -4099,8 +4099,7 @@ const DIET_SECTION_BASES = [
   "CENA 1",
   "FRUTTA",
   "CENA 2",
-  "CENA 3",
-  "PASTO LIBERO"
+  "CENA 3"
 ];
 
 function stripDietExtractBlock(value) {
@@ -4252,7 +4251,7 @@ function dietMealLabel(value) {
 function detectDynamicDietSectionBase(line) {
   const normalized = normalizeDietToken(line);
   const match = normalized.match(
-    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)(?:\s+\d+)?(?:\s*[-:]\s*.+)?$/
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA)(?:\s+\d+)?(?:\s*[-:]\s*.+)?$/
   );
 
   if (!match) return null;
@@ -4390,6 +4389,11 @@ function isDietNonMealHeading(line) {
   const normalized = normalizeDietToken(line);
 
   if (!normalized) return true;
+
+  // "Pasto libero" nelle indicazioni generali NON è mai un alimento o
+  // un pasto strutturato. Escludilo anche dalle estrazioni gia salvate,
+  // altrimenti una nota diventa l'unica card visibile al cliente.
+  if (/^PASTO LIBERO\b/.test(normalized)) return true;
 
   const blockedStarts = [
     "PIANO ALIMENTARE",
@@ -5242,8 +5246,7 @@ function detectStrictDailyMealHeading(line) {
     "INTRA WORKOUT",
     "PRE NANNA",
     "CENA",
-    "FRUTTA",
-    "PASTO LIBERO"
+    "FRUTTA"
   ];
 
   const exact = strictMeals.find((meal) => normalized === meal);
@@ -5254,7 +5257,7 @@ function detectStrictDailyMealHeading(line) {
   // Nei PDF con intestazione autonoma "TURNO ... - alimenti", invece, il turno
   // viene gestito come contenitore principale e il pasto resta semplicemente Colazione.
   const contextualMeal = normalized.match(
-    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)\s+(DOPO NOTTE|(?:TURNO\s+)?(?:MATTINA|POMERIGGIO|SERA|NOTTE|SMONTO))$/
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA)\s+(DOPO NOTTE|(?:TURNO\s+)?(?:MATTINA|POMERIGGIO|SERA|NOTTE|SMONTO))$/
   );
 
   if (contextualMeal) {
@@ -5262,7 +5265,7 @@ function detectStrictDailyMealHeading(line) {
   }
 
   const numbered = normalized.match(
-    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)\s+\d+$/
+    /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA)\s+\d+$/
   );
 
   return numbered ? dietMealLabel(numbered[1]) : null;
@@ -5694,7 +5697,7 @@ function expandDietLinesForParsing(lines = [], mode = "daily") {
     }
 
     const dynamicHeading = normalized.match(
-      /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA|PASTO LIBERO)(?:\s+\d+)?\s+(.+)$/
+      /^(COLAZIONE|PRANZO|MERENDA|SPUNTINO|PRE WORKOUT|POST WORKOUT|INTRA WORKOUT|PRE NANNA|CENA|FRUTTA)(?:\s+\d+)?\s+(.+)$/
     );
 
     if (dynamicHeading && isDietFoodStart(dynamicHeading[2])) {
@@ -6421,7 +6424,10 @@ function findDietFirstContentPage(pageChunks = []) {
     const isDailyPage = hasContainer && hasMeal && hasFood;
     return (isOptionsPage || isDailyPage) && !lines.some(lineLooksLikeDietWeeklyMatrixHeader);
   });
-  return first?.pageNumber || 1;
+  // Assenza reale della sezione pasti: NON ripiegare sulla pagina 1.
+  // Nei PDF tronchi rimangono solo indicazioni generali (es. "Pasto libero")
+  // e da queste non si deve generare alcuna card.
+  return first?.pageNumber || 0;
 }
 
 async function extractDietTextFromPdfFile(file, options = {}) {
@@ -6441,9 +6447,20 @@ async function extractDietTextFromPdfFile(file, options = {}) {
   }
 
   const explicitSkip = options.skipIntroPages;
+  // La prima pagina e' trovata in base alle intestazioni vere dei pasti,
+  // non al numero fisso di pagine introduttive.
+  const detectedFirstPage = findDietFirstContentPage(pageChunks);
+  if (!detectedFirstPage) {
+    throw new Error(
+      `PDF incompleto per le card (${pageCount} pagine): non è presente la sezione ` +
+      `con Colazione/Pranzo/Merenda/Cena e alimenti. Verifica in SIFA che ` +
+      `l'esportazione includa le pagine dei pasti. Le note sul "Pasto libero" ` +
+      `non vengono convertite in card. Nessuna card è stata salvata.`
+    );
+  }
   const parseStartPage = explicitSkip !== undefined && explicitSkip !== null
     ? Math.max(1, Math.min(pageCount || 1, Number(explicitSkip) + 1 || 1))
-    : findDietFirstContentPage(pageChunks);
+    : detectedFirstPage;
   const selectedPages = pageChunks.filter((chunk) => chunk.pageNumber >= parseStartPage);
   const scoped = selectDietMealParsingPages(selectedPages, parseStartPage);
   const parseEndPage = Math.max(
