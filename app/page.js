@@ -5364,18 +5364,108 @@ function cutDietLinesForDaily(lines) {
   return lines.slice(safeStart, nextListIndex > safeStart ? nextListIndex : undefined);
 }
 
+// Isola le opzioni alimentari da eventuali giornate speciali successive
+// (es. VENERDI con colazione, pranzo, merenda, prepartita e cena propri).
+function findDietOptionsSpecialDayStart(lines = [], safeStart = 0) {
+  let optionMarkers = 0;
+  let hasMealHeader = false;
+
+  for (let index = safeStart; index < lines.length; index += 1) {
+    const line = cleanDietPdfLine(lines[index]);
+    if (detectOptionMealHeading(line)) hasMealHeader = true;
+    if (detectDietOptionMarker(line)) optionMarkers += 1;
+    const day = detectDietDayLine(line);
+    if (!day || !hasMealHeader || optionMarkers < 2) continue;
+
+    // Non interrompere le opzioni per una semplice menzione del giorno
+    // in una nota: occorrono almeno due nuovi pasti con quantità reali.
+    const upcoming = lines.slice(index + 1, index + 32);
+    const specialAnchors = upcoming.filter((item) =>
+      isDietFoodStart(item) && dietSpecialMealLabel(item)
+    );
+    if (specialAnchors.length >= 2) return index;
+  }
+  return -1;
+}
+
 function cutDietLinesForOptions(lines) {
   const weekStart = lines.findIndex((line) =>
     normalizeDietToken(line).startsWith("WEEK 1 - ALIMENTI")
   );
   const safeStart = weekStart >= 0 ? weekStart + 1 : 0;
 
-  const endIndex = lines.findIndex((line, index) => {
+  const tailIndex = lines.findIndex((line, index) => {
     if (index <= safeStart + 20) return false;
     return normalizeDietToken(line) === "WEEK 1" || normalizeDietToken(line) === "ALTRO";
   });
+  const specialDayStart = findDietOptionsSpecialDayStart(lines, safeStart);
+  const stops = [tailIndex, specialDayStart].filter((index) => index > safeStart);
+  return lines.slice(safeStart, stops.length ? Math.min(...stops) : undefined);
+}
 
-  return lines.slice(safeStart, endIndex > safeStart ? endIndex : undefined);
+// Le annotazioni tra parentesi nei piani SIFA indicano il pasto speciale;
+// non sono nuove opzioni numerate e non devono finire nelle note dell'ultimo spuntino.
+function dietSpecialMealLabel(line) {
+  const value = cleanDietPdfLine(line);
+  const annotations = [...value.matchAll(/\(([^)]{1,90})\)/g)].map((match) =>
+    normalizeDietToken(match[1])
+  );
+  for (const annotation of annotations) {
+    if (/^COLAZIONE\b/.test(annotation)) return "Colazione";
+    if (/^PRANZO\b/.test(annotation)) return "Pranzo";
+    if (/^MERENDA\b/.test(annotation)) return "Merenda";
+    if (/^PREPARTITA\b/.test(annotation)) return "Prepartita";
+    if (/^CENA\b/.test(annotation)) return "Cena post-partita";
+  }
+  return "";
+}
+
+function parseDietSpecialDaysAfterOptions(lines = [], sourceName = "") {
+  const firstDayIndex = findDietOptionsSpecialDayStart(lines);
+  if (firstDayIndex < 0) return [];
+  const days = [];
+  let currentDay = null;
+  let currentMeal = null;
+
+  function pushMeal() {
+    if (!currentMeal || !currentDay) return;
+    const items = compactDietItems(currentMeal.items || []);
+    if (dietSectionHasMealFood(items)) currentDay.meals.push({
+      name: currentMeal.name, title: currentMeal.name, items, notes: [], options: []
+    });
+    currentMeal = null;
+  }
+  function pushDay() {
+    pushMeal();
+    if (currentDay?.meals?.length) {
+      currentDay.sections = currentDay.meals;
+      days.push(currentDay);
+    }
+    currentDay = null;
+  }
+
+  for (let index = firstDayIndex; index < lines.length; index += 1) {
+    const line = cleanDietPdfLine(lines[index]);
+    if (!line) continue;
+    if (index > firstDayIndex && isDietDailyTailStopLine(line)) break;
+    const dayName = detectDietDayLine(line);
+    if (dayName) {
+      pushDay();
+      currentDay = { day: dayName, title: dayName, meals: [], sourceName };
+      continue;
+    }
+    if (!currentDay) continue;
+    const label = dietSpecialMealLabel(line);
+    if (label && isDietFoodStart(line)) {
+      pushMeal();
+      currentMeal = { name: label, items: [] };
+    }
+    if (currentMeal && (isDietFoodStart(line) || isDietAlternativeLine(line))) {
+      currentMeal.items.push(line);
+    }
+  }
+  pushDay();
+  return days;
 }
 
 const DIET_MEAL_RAW_PATTERN =
@@ -6191,12 +6281,16 @@ function selectDietMealParsingPages(pageChunks = [], parseStartPage = 1) {
   const selectedLines = [];
   const seenContainers = new Set();
   let sawSunday = false;
+  let sawMealContent = false;
   let parseEndPage = Math.max(1, Number(parseStartPage) || 1);
   let stoppedBeforePage = null;
   let excludedReason = "";
 
   function registerContainers(lines = []) {
     (lines || []).forEach((line) => {
+      if (detectStrictDailyMealHeading(line) || detectOptionMealHeading(line)) {
+        sawMealContent = true;
+      }
       const containerName = detectDietPlanContainerLine(line);
       if (!containerName) return;
 
@@ -6256,14 +6350,32 @@ function selectDietMealParsingPages(pageChunks = [], parseStartPage = 1) {
     let tailIndex = -1;
     if (sawSunday) {
       tailIndex = pageLines.findIndex((line) => isDietDailyTailStopLine(line));
+    } else if (sawMealContent) {
+      // Nelle diete a opzioni la lista degli alimenti segue le card senza
+      // un contenitore Domenica. Fermarsi anche in questo formato.
+      tailIndex = pageLines.findIndex((line) => {
+        const normalized = normalizeDietToken(line);
+        return normalized === "ALTRO" ||
+          normalized === "LISTA DELLA SPESA" ||
+          normalized === "LISTA ALIMENTI" ||
+          normalized === "BANCA DATI";
+      });
     }
 
     if (tailIndex >= 0) {
       const beforeTail = pageLines.slice(0, tailIndex);
-      if (beforeTail.length > 0) {
+      const beforeTailHasPlanContent = beforeTail.some((line) =>
+        Boolean(detectDietPlanContainerLine(line)) ||
+        Boolean(detectStrictDailyMealHeading(line)) ||
+        Boolean(detectOptionMealHeading(line)) ||
+        dietLineLooksLikeRealFoodEntry(line)
+      );
+      if (beforeTailHasPlanContent) {
         selectedLines.push(...beforeTail);
         registerContainers(beforeTail);
         parseEndPage = pageNumber;
+      } else {
+        parseEndPage = Math.max(parseStartPage, pageNumber - 1);
       }
 
       stoppedBeforePage = pageNumber;
@@ -6299,9 +6411,15 @@ function findDietFirstContentPage(pageChunks = []) {
     const hasContainer = lines.some((line) => Boolean(detectDietPlanContainerLine(line)));
     const hasMeal = lines.some((line) => Boolean(detectStrictDailyMealHeading(line)));
     const hasFood = lines.some((line) => dietLineLooksLikeRealFoodEntry(line));
-    // Un giorno citato nel sommario NON basta per classificare la pagina
-    // come piano giornaliero.
-    return hasContainer && hasMeal && hasFood && !lines.some(lineLooksLikeDietWeeklyMatrixHeader);
+    const hasNumberedOption = lines.some((line) => Boolean(detectDietOptionMarker(line)));
+    const hasOptionMeal = lines.some((line) => Boolean(detectOptionMealHeading(line)));
+
+    // Identifica anche piani a opzioni privi dei giorni della settimana.
+    // Altrimenti un VENERDI eccezionale a pagina 12 può essere scambiato
+    // per l'inizio del piano e far perdere COLAZIONE/PRANZO/MERENDA/CENA.
+    const isOptionsPage = hasOptionMeal && hasNumberedOption && hasFood;
+    const isDailyPage = hasContainer && hasMeal && hasFood;
+    return (isOptionsPage || isDailyPage) && !lines.some(lineLooksLikeDietWeeklyMatrixHeader);
   });
   return first?.pageNumber || 1;
 }
@@ -6415,6 +6533,28 @@ async function extractDietPdfForApp(file, dietType) {
   };
   const daily = sanitizeExtractedDietForMeals(parseDailyDietLines(lines, file.name));
   const options = sanitizeExtractedDietForMeals(parseOptionsDietLines(lines, file.name));
+  options.specialDays = parseDietSpecialDaysAfterOptions(lines, file.name);
+
+  // Impedisce l'archiviazione silenziosa di una lettura parziale:
+  // ogni intestazione Opzione N autonoma deve corrispondere a una card.
+  const sourceOptionLines = cutDietLinesForOptions(lines);
+  const expectedOptionCount = sourceOptionLines.filter((line) =>
+    Boolean(detectDietOptionMarker(line))
+  ).length;
+  const recognizedOptionCount = countDietOptionCards(options);
+  const expectedOptionSections = new Set(sourceOptionLines
+    .map((line) => detectOptionMealHeading(line)?.base)
+    .filter(Boolean));
+  const recognizedOptionSections = new Set((options.optionGroups || [])
+    .map((group) => group.meal).filter(Boolean));
+  if (expectedOptionCount >= 2 &&
+      (recognizedOptionCount < expectedOptionCount ||
+       [...expectedOptionSections].some((base) => !recognizedOptionSections.has(base)))) {
+    throw new Error(
+      `Lettura incompleta del PDF: rilevate ${expectedOptionCount} opzioni ma solo ` +
+      `${recognizedOptionCount} card valide. Nessuna card parziale è stata salvata.`
+    );
+  }
   const wantsOptions = dietType === "options_pdf";
   const primary = wantsOptions ? options : daily;
   const fallback = wantsOptions ? daily : options;
@@ -8775,6 +8915,7 @@ function DietExtractedPlan({ diet, compact = false }) {
   const optionGroups = Array.isArray(extracted.optionGroups)
     ? extracted.optionGroups
     : [];
+  const specialDays = Array.isArray(extracted.specialDays) ? extracted.specialDays : [];
   const isOptions =
     extracted.format === "options_pdf" ||
     (optionGroups.length > 0 && dailyDays.length === 0);
@@ -9112,6 +9253,28 @@ function DietExtractedPlan({ diet, compact = false }) {
           ))}
 
 
+        </div>
+      )}
+      {isOptions && specialDays.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <p className="text-xs font-black uppercase tracking-wider text-teal-800">
+            Giornate speciali
+          </p>
+          {specialDays.map((day, dayIndex) => (
+            <details
+              key={`giornata-speciale-${day.day || dayIndex}`}
+              className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"
+            >
+              <summary className="cursor-pointer px-4 py-4 text-sm font-black text-slate-950">
+                {day.day || day.title}
+              </summary>
+              <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-3">
+                {(day.meals || []).map((meal, index) =>
+                  renderMealCard(meal, `special-${dayIndex}-${index}`)
+                )}
+              </div>
+            </details>
+          ))}
         </div>
       )}
     </div>
@@ -12987,8 +13150,15 @@ try {
       );
     } catch (error) {
       console.warn("TMFIT dieta: estrazione automatica non completata", error?.message || error);
+      alert(error?.message || "Lettura dieta non riuscita: controlla il PDF prima di caricarlo.");
+      return;
     } finally {
       setExtractingDietPdf(false);
+    }
+
+    if (!extractionHasCards(extractedDiet)) {
+      alert("Nessun pasto valido estratto: il piano non è stato salvato con card incomplete.");
+      return;
     }
 
     const safeName = dietFile.name.replaceAll(" ", "-");
