@@ -924,10 +924,12 @@ function tmfitWorkoutWeekForPlan(plan) {
 
   const start = new Date(plan.start_date);
   const now = new Date();
-  const diffDays = Math.floor(
-    (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  const week = Math.floor(diffDays / 7) + 1;
+  // Una data senza orario cambia settimana alla mezzanotte del cliente.
+  // Confrontiamo due date di calendario per evitare sfasamenti di fuso o DST.
+  const elapsedMs = /^\d{4}-\d{2}-\d{2}$/.test(plan.start_date)
+    ? Date.parse(tmfitLocalDateKey(now)) - start.getTime()
+    : now.getTime() - start.getTime();
+  const week = Math.floor(elapsedMs / (7 * 24 * 60 * 60 * 1000)) + 1;
 
   return tmfitWorkoutResolveWeek(plan, Math.max(1, week));
 }
@@ -3047,29 +3049,37 @@ function LoginScreen() {
   </div>
 </div>
           {error && (
-            <div className="mb-4 rounded-2xl border border-red-300 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
+            <div role="alert" className="mb-4 rounded-2xl border border-red-300 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
               {error}
             </div>
           )}
 
           <div className="space-y-3">
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
-              placeholder="Email"
-            />
+            <label className="block text-sm font-semibold text-slate-200">
+              Email
+              <input
+                type="email"
+                name="email"
+                autoComplete="username"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-white/40 bg-white/10 px-4 py-4 text-base text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
+              />
+            </label>
 
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
-              placeholder="Password"
-            />
+            <label className="block text-sm font-semibold text-slate-200">
+              Password
+              <input
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-white/40 bg-white/10 px-4 py-4 text-base text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
+              />
+            </label>
 
             <Button
   type="submit"
