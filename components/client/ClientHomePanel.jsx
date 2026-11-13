@@ -267,9 +267,17 @@ export default function ClientHomePanel({
             <div className="flex items-center justify-between text-sm">
               <span className="font-bold text-slate-600">Allenamenti</span>
               <span className="font-black text-slate-950">
-                {completed}/{planned || "—"}
+                {weeklySummary?.workoutsError || (weeklySummary?.workoutsLoading && !completed)
+                  ? "—"
+                  : `${completed}/${planned || "—"}`}
               </span>
             </div>
+            {weeklySummary?.workoutsError && (
+              <button type="button" onClick={weeklySummary.onRetryWorkouts}
+                className="mt-2 text-left text-xs font-bold text-amber-800">
+                {weeklySummary.workoutsError} Riprova.
+              </button>
+            )}
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-teal-400 transition-all"

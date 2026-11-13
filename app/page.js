@@ -1,12 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
 import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
 import TmfitPdfComposer from "../components/professional/TmfitPdfComposer";
+import {
+  completeWorkoutOnce,
+  completedWorkoutDays,
+  confirmedWorkoutSets,
+  createWorkoutDraftStore,
+  insertWorkoutSessionOnce,
+  readWorkoutPages,
+  readWorkoutSession,
+  saveWorkoutSetOnce,
+  workoutNumber,
+  workoutRequest,
+  workoutSeriesValues,
+  workoutSetUuid,
+  workoutWeekAtDate,
+  workoutWriteError
+} from "../lib/workout-sync.mjs";
 import {
   Activity,
   Bell,
@@ -755,12 +771,14 @@ function safeReadLocalJson(key, fallback = null) {
 }
 
 function safeWriteLocalJson(key, value) {
-  if (!key || typeof window === "undefined") return;
+  if (!key || typeof window === "undefined") return false;
 
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch (error) {
     console.warn("TMFIT local save:", error?.message || error);
+    return false;
   }
 }
 
@@ -779,12 +797,8 @@ function professionalProgramDraftKey(userId, clientId) {
   return `tmfit_prof_program_builder_${userId}_${clientId}`;
 }
 
-function clientWorkoutDraftKey(userId) {
-  if (!userId) return "";
-  return `tmfit_client_workout_live_${userId}_${today()}`;
-}
-
 function isRecentWorkoutDraft(snapshot) {
+  if (snapshot?.sessionId || snapshot?.sessionRequestId) return true;
   if (!snapshot?.updatedAt) return true;
   const updated = new Date(snapshot.updatedAt).getTime();
   if (Number.isNaN(updated)) return true;
@@ -920,16 +934,7 @@ function tmfitWorkoutMaterializedWeekForSelection(plan, weekNumber) {
 }
 
 function tmfitWorkoutWeekForPlan(plan) {
-  if (!plan?.start_date) return tmfitWorkoutConfiguredWeekNumbers(plan)[0] || 1;
-
-  const start = new Date(plan.start_date);
-  const now = new Date();
-  const diffDays = Math.floor(
-    (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  const week = Math.floor(diffDays / 7) + 1;
-
-  return tmfitWorkoutResolveWeek(plan, Math.max(1, week));
+  return tmfitWorkoutResolveWeek(plan, workoutWeekAtDate(plan?.start_date, tmfitLocalDateKey()));
 }
 
 function tmfitPlannedSetCountForResume(plan, exercise, selectedWeek = null) {
@@ -10474,6 +10479,7 @@ if (profile.role === "professional") {
 
 return (
   <ClientDashboard
+    key={session.user.id}
     session={session}
     userProfile={profile}
     onLogout={handleLogout}
@@ -20400,29 +20406,40 @@ function WorkoutPlayerModal({
   onWorkoutSaved,
   onWorkoutStateChange,
   onClearPersistedWorkout,
+  draftStorageWarning,
   userId,
   clientId,
   onCompleteWorkout
 }) {
-  const [exerciseIndex, setExerciseIndex] = useState(0);
-  const [setIndex, setSetIndex] = useState(0);
-  const [resting, setResting] = useState(false);
+  const { plan, day, resumeState } = player;
+  const { draftId, selectedWeek } = resumeState;
+  const [exerciseIndex, setExerciseIndex] = useState(() => Math.max(0, Number(resumeState.exerciseIndex) || 0));
+  const [setIndex, setSetIndex] = useState(() => Math.max(0, Number(resumeState.setIndex) || 0));
+  const [resting, setResting] = useState(Boolean(resumeState.resting));
   const [saving, setSaving] = useState(false);
-  const [finished, setFinished] = useState(false);
-  const [completedSetKeys, setCompletedSetKeys] = useState([]);
-  const [feedback, setFeedback] = useState({
+  const [saveError, setSaveError] = useState("");
+  const [finished, setFinished] = useState(Boolean(resumeState.finished));
+  const [completionSubmitted, setCompletionSubmitted] = useState(Boolean(resumeState.completionSubmitted));
+  const [completedSetKeys, setCompletedSetKeys] = useState(() =>
+    Array.isArray(resumeState.completedSetKeys) ? resumeState.completedSetKeys : []
+  );
+  const [feedback, setFeedback] = useState(() => ({
     difficulty: "",
     feeling: "",
     session_rpe: "",
-    notes: ""
-  });
-  const [sessionStartedAt, setSessionStartedAt] = useState(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    notes: "",
+    ...resumeState.feedback
+  }));
+  const sessionStartedAt = Number(resumeState.sessionStartedAt);
+  const [elapsedSeconds, setElapsedSeconds] = useState(() =>
+    Math.max(0, Number(resumeState.elapsedSeconds) || 0)
+  );
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [nextExercisePreviewOpen, setNextExercisePreviewOpen] = useState(false);
   const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const [completingWorkout, setCompletingWorkout] = useState(false);
   const latestWorkoutSnapshotRef = useRef(null);
+  const activeWriteRef = useRef(false);
   const restTimerControllerRef = useRef(null);
   const latestDraftsRef = useRef(drafts || {});
   const [, forceDraftRender] = useState(0);
@@ -20431,65 +20448,8 @@ function WorkoutPlayerModal({
     latestDraftsRef.current = drafts || {};
   }, [drafts]);
 
-  const open = player?.open;
-  const plan = player?.plan;
-  const day = player?.day;
-  const selectedWeek = tmfitWorkoutResolveWeek(
-    plan,
-    Number(player?.selectedWeek || player?.resumeState?.selectedWeek) || 1
-  );
-  const resumeState = player?.resumeState || null;
-  const resumeToken = resumeState?.updatedAt || "";
-
   useEffect(() => {
-    if (open) {
-      const shouldResume =
-        resumeState?.planId &&
-        resumeState?.dayId &&
-        String(resumeState.planId) === String(plan?.id) &&
-        String(resumeState.dayId) === String(day?.id) &&
-        isRecentWorkoutDraft(resumeState);
-
-      setExerciseIndex(
-        shouldResume ? Math.max(0, Number(resumeState.exerciseIndex) || 0) : 0
-      );
-      setSetIndex(
-        shouldResume ? Math.max(0, Number(resumeState.setIndex) || 0) : 0
-      );
-      setResting(shouldResume ? !!resumeState.resting : false);
-      setSaving(false);
-      setFinished(shouldResume ? !!resumeState.finished : false);
-      setCompletedSetKeys(
-        shouldResume && Array.isArray(resumeState.completedSetKeys)
-          ? resumeState.completedSetKeys
-          : []
-      );
-      setFeedback(
-        shouldResume && resumeState.feedback
-          ? {
-              difficulty: resumeState.feedback.difficulty || "",
-              feeling: resumeState.feedback.feeling || "",
-              session_rpe: resumeState.feedback.session_rpe || "",
-              notes: resumeState.feedback.notes || ""
-            }
-          : { difficulty: "", feeling: "", session_rpe: "", notes: "" }
-      );
-      setSessionStartedAt(
-        shouldResume
-          ? Number(resumeState.sessionStartedAt) || Date.now()
-          : Date.now()
-      );
-      setElapsedSeconds(
-        shouldResume ? Math.max(0, Number(resumeState.elapsedSeconds) || 0) : 0
-      );
-      setHistoryModalOpen(false);
-      setNextExercisePreviewOpen(false);
-      setFinishConfirmOpen(false);
-    }
-  }, [open, plan?.id, day?.id, resumeToken]);
-
-  useEffect(() => {
-    if (!open || !sessionStartedAt) return;
+    if (finished || !sessionStartedAt) return;
 
     const interval = window.setInterval(() => {
       setElapsedSeconds(
@@ -20498,15 +20458,15 @@ function WorkoutPlayerModal({
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [open, sessionStartedAt]);
+  }, [finished, sessionStartedAt]);
 
   useEffect(() => {
     setHistoryModalOpen(false);
     setNextExercisePreviewOpen(false);
-  }, [exerciseIndex, open]);
+  }, [exerciseIndex]);
 
   useEffect(() => {
-    if (!open || typeof window === "undefined" || typeof document === "undefined") {
+    if (typeof window === "undefined" || typeof document === "undefined") {
       return undefined;
     }
 
@@ -20549,46 +20509,39 @@ function WorkoutPlayerModal({
         window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
       });
     };
-  }, [open]);
+  }, []);
 
   function buildWorkoutSnapshot(overrides = {}) {
-    if (!plan || !day) return null;
-
     return {
       planId: plan.id,
       dayId: day.id,
       selectedWeek,
+      draftId,
       exerciseIndex,
       setIndex,
       resting,
+      restTimerKey: workoutRestTimerKey(exerciseIndex, setIndex),
       finished,
       resumeOnLaunch: true,
       completedSetKeys,
       feedback,
       sessionStartedAt,
-      elapsedSeconds,
-      drafts,
+      elapsedSeconds: finished ? elapsedSeconds : Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)),
+      drafts: latestDraftsRef.current,
       updatedAt: new Date().toISOString(),
       ...overrides
     };
   }
 
   function persistWorkoutStateNow(overrides = {}) {
-    if (!open || !plan || !day || !onWorkoutStateChange) return;
-
     const snapshot = buildWorkoutSnapshot(overrides);
-    if (!snapshot) return;
-
     latestWorkoutSnapshotRef.current = snapshot;
     onWorkoutStateChange(snapshot);
   }
 
   useEffect(() => {
-    if (!open || !plan || !day || !onWorkoutStateChange) return;
-
     persistWorkoutStateNow();
   }, [
-    open,
     plan?.id,
     day?.id,
     selectedWeek,
@@ -20599,18 +20552,18 @@ function WorkoutPlayerModal({
     completedSetKeys,
     feedback,
     sessionStartedAt,
-    elapsedSeconds,
     drafts,
+    draftId,
     onWorkoutStateChange
   ]);
 
   useEffect(() => {
-    if (!open || !plan || !day || !onWorkoutStateChange || typeof window === "undefined") {
+    if (typeof window === "undefined") {
       return undefined;
     }
 
     const flushBeforeIOSFreeze = () => {
-      const snapshot = latestWorkoutSnapshotRef.current || buildWorkoutSnapshot();
+      const snapshot = latestWorkoutSnapshotRef.current;
       if (snapshot) onWorkoutStateChange(snapshot);
     };
 
@@ -20627,9 +20580,9 @@ function WorkoutPlayerModal({
       window.removeEventListener("blur", flushBeforeIOSFreeze);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [open, plan?.id, day?.id, onWorkoutStateChange]);
+  }, [onWorkoutStateChange]);
 
-  if (!open || !plan || !day || typeof document === "undefined") return null;
+  if (typeof document === "undefined") return null;
 
   const exercises = (day.workout_blocks || [])
     .flatMap((block) => block.workout_exercises || [])
@@ -20742,7 +20695,8 @@ function WorkoutPlayerModal({
   const draft = liveDrafts[draftKey] || drafts[draftKey] || {};
 
   function handleDraftChange(field, value) {
-    if (!draftKey) return;
+    if (!draftKey || activeWriteRef.current) return;
+    setSaveError("");
 
     const baseDrafts = latestDraftsRef.current || drafts || {};
     const executionMarkers = {
@@ -20855,6 +20809,9 @@ function WorkoutPlayerModal({
   const currentSetSaved = Boolean(draftKey && completedSetKeys.includes(draftKey));
   const setHasRequiredExecutionData = hasRequiredSeriesInputs(draft, currentSetSaved);
   const executionLocked = currentSetSaved || resting;
+  const seriesMessage = saveError || (draft._pendingSave && !saving
+    ? "Serie da confermare. Tocca Riprova salvataggio per registrarla."
+    : "");
 
   function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
@@ -20863,7 +20820,7 @@ function WorkoutPlayerModal({
   function hasRequiredSeriesInputs(draftValue = {}, alreadySaved = false) {
     if (alreadySaved) return true;
 
-    return hasValue(draftValue.load_kg) && hasValue(draftValue.reps_done);
+    return Boolean(workoutSeriesValues(draftValue));
   }
 
   function currentWeekForPlan() {
@@ -20936,6 +20893,13 @@ function WorkoutPlayerModal({
     return `${item?.id}-${token}`;
   }
 
+  function workoutRestTimerKey(itemIndex, itemSetIndex) {
+    const item = exercises[itemIndex];
+    const set = item && plannedSetsForExercise(item)[itemSetIndex];
+    const base = resumeState.legacyTimer ? `${plan.id}-${day.id}` : draftId;
+    return `${base}-${set ? setKeyFor(item, set) : `${itemIndex}-${itemSetIndex}`}`;
+  }
+
   function completedSetsForExercise(item) {
     return plannedSetsForExercise(item).filter((set) =>
       completedSetKeys.includes(setKeyFor(item, set))
@@ -20986,17 +20950,17 @@ function WorkoutPlayerModal({
     return true;
   }
 
-  async function stopActiveRestTimer() {
+  function stopActiveRestTimer() {
     const controller = restTimerControllerRef.current;
-    if (controller?.stop) {
-      await controller.stop();
-    }
+    void controller?.stop?.()?.catch((error) => {
+      console.warn("TMFIT arresto recupero:", error?.message || error);
+    });
   }
 
-  async function goPrevious() {
-    if (!previousExecutionStep) return;
+  function goPrevious() {
+    if (!previousExecutionStep || activeWriteRef.current) return;
 
-    await stopActiveRestTimer();
+    stopActiveRestTimer();
     setResting(false);
     persistWorkoutStateNow({
       resting: false,
@@ -21007,8 +20971,8 @@ function WorkoutPlayerModal({
     setSetIndex(previousExecutionStep.setIndex);
   }
 
-  async function goNext() {
-    await stopActiveRestTimer();
+  function goNext() {
+    stopActiveRestTimer();
     setResting(false);
 
     if (nextExecutionStep) {
@@ -21022,8 +20986,7 @@ function WorkoutPlayerModal({
       return;
     }
 
-    persistWorkoutStateNow({ resting: false, finished: true });
-    setFinished(true);
+    if (!focusPendingSeries()) showWorkoutSummary();
   }
 
   function nextActionLabel() {
@@ -21034,11 +20997,12 @@ function WorkoutPlayerModal({
 
   function primaryWorkoutActionLabel() {
     if (saving) return "Salvataggio...";
+    if (draft._pendingSave) return "Riprova salvataggio";
     return nextActionLabel();
   }
 
   async function handlePrimaryWorkoutAction() {
-    if (saving) return;
+    if (activeWriteRef.current) return;
 
     primeTmfitTimerAudio();
 
@@ -21054,16 +21018,16 @@ function WorkoutPlayerModal({
       return;
     }
 
-    await goNext();
+    goNext();
   }
 
   function applyLastSet() {
     if (!lastHistory || !draftKey) return;
 
-    handleDraftChange("load_kg", lastHistory.load_kg || "");
-    handleDraftChange("reps_done", lastHistory.reps_done || "");
-    if (showRpe) handleDraftChange("rpe", lastHistory.rpe || "");
-    if (showRir) handleDraftChange("rir", lastHistory.rir || "");
+    handleDraftChange("load_kg", lastHistory.load_kg ?? "");
+    handleDraftChange("reps_done", lastHistory.reps_done ?? "");
+    if (showRpe) handleDraftChange("rpe", lastHistory.rpe ?? "");
+    if (showRir) handleDraftChange("rir", lastHistory.rir ?? "");
   }
 
   function applyTargetSet() {
@@ -21079,7 +21043,7 @@ function WorkoutPlayerModal({
   }
 
   async function saveCurrentSet() {
-    if (!exercise || !currentSet) return;
+    if (!exercise || !currentSet || activeWriteRef.current) return;
 
     const freshestDrafts = latestDraftsRef.current || drafts || {};
     const freshestDraft = freshestDrafts[draftKey] || {};
@@ -21091,9 +21055,22 @@ function WorkoutPlayerModal({
       return;
     }
 
+    activeWriteRef.current = true;
+    setSaveError("");
     setSaving(true);
-    const saveResult = await saveSetLog(plan, day, exercise, currentSet, freshestDraft);
-    setSaving(false);
+    const pendingDraft = { ...freshestDraft, _pendingSave: true };
+    latestDraftsRef.current = { ...freshestDrafts, [draftKey]: pendingDraft };
+    updateDraft(draftKey, pendingDraft);
+    persistWorkoutStateNow();
+    let saveResult;
+    try {
+      saveResult = await saveSetLog(plan, day, exercise, currentSet, pendingDraft);
+    } catch (error) {
+      setSaveError(workoutWriteError(error));
+    } finally {
+      activeWriteRef.current = false;
+      setSaving(false);
+    }
 
     if (saveResult) {
       const savedDraft =
@@ -21157,28 +21134,27 @@ function WorkoutPlayerModal({
     }
   }
 
-  async function requestCloseWorkout() {
+  function requestCloseWorkout() {
+    if (activeWriteRef.current) return;
     persistWorkoutStateNow();
 
-    if (finished) {
-      await closeCompletedWorkout();
-      return;
-    }
-
-    if (completedCount === 0 || typeof window === "undefined") {
-      await stopActiveRestTimer();
+    const hasDraft = completedCount > 0 || Object.values(latestDraftsRef.current).some((item) =>
+      item?._logRequestId || hasValue(item?.load_kg) || hasValue(item?.reps_done)
+    );
+    if (!hasDraft || typeof window === "undefined") {
+      stopActiveRestTimer();
       setResting(false);
-      if (onClearPersistedWorkout) onClearPersistedWorkout();
+      if (onClearPersistedWorkout) onClearPersistedWorkout(resumeState);
       onClose();
       return;
     }
 
     const confirmed = window.confirm(
-      "Vuoi uscire da Allenati? Le serie già salvate restano registrate e potrai riprendere manualmente dalla scheda."
+      "Vuoi uscire da Allenati? Puoi riprendere la seduta e i valori inseriti dalla scheda."
     );
 
     if (confirmed) {
-      await stopActiveRestTimer();
+      stopActiveRestTimer();
       persistWorkoutStateNow({
         resting: false,
         resumeOnLaunch: false,
@@ -21189,42 +21165,86 @@ function WorkoutPlayerModal({
     }
   }
 
+  function focusPendingSeries() {
+    const pendingStep = executionSteps.find((step) => {
+      const item = exercises[step.exerciseIndex];
+      const set = plannedSetsForExercise(item)[step.setIndex];
+      return latestDraftsRef.current[setKeyFor(item, set)]?._pendingSave;
+    });
+    if (!pendingStep) return false;
+
+    stopActiveRestTimer();
+    setResting(false);
+    setExerciseIndex(pendingStep.exerciseIndex);
+    setSetIndex(pendingStep.setIndex);
+    setSaveError("Una serie è ancora da confermare. Riprova a salvare prima di terminare.");
+    return true;
+  }
+
   function requestFinishWorkout() {
+    if (activeWriteRef.current || focusPendingSeries()) return;
+    if (completedCount === 0) {
+      setSaveError("Salva almeno una serie prima di terminare l’allenamento.");
+      return;
+    }
+    setSaveError("");
     persistWorkoutStateNow();
     setFinishConfirmOpen(true);
   }
 
-  async function confirmFinishWorkout() {
+  function showWorkoutSummary() {
     setFinishConfirmOpen(false);
-    await stopActiveRestTimer();
-    persistWorkoutStateNow({ finished: true, resting: false });
+    stopActiveRestTimer();
+    const duration = Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000));
+    persistWorkoutStateNow({ finished: true, resting: false, elapsedSeconds: duration });
+    setElapsedSeconds(duration);
     setResting(false);
     setFinished(true);
   }
 
   async function closeCompletedWorkout() {
-    if (completingWorkout) return;
+    if (activeWriteRef.current) return;
+    if (focusPendingSeries()) {
+      persistWorkoutStateNow({ finished: false, resting: false });
+      setFinished(false);
+      return;
+    }
 
+    activeWriteRef.current = true;
+    setSaveError("");
     setCompletingWorkout(true);
-    await stopActiveRestTimer();
+    try {
+      stopActiveRestTimer();
+      persistWorkoutStateNow();
+      const savedIds = completedSetKeys.map((key) => latestDraftsRef.current[key]?._logId).filter(Boolean);
+      await onCompleteWorkout({
+        plan,
+        day,
+        completedSets: completedCount,
+        savedIds,
+        plannedSets: totalPlannedSets,
+        durationSeconds: elapsedSeconds,
+        feedback,
+        onSubmit: () => {
+          setCompletionSubmitted(true);
+          persistWorkoutStateNow({ completionSubmitted: true });
+        }
+      });
+      onClearPersistedWorkout?.(resumeState);
+      onClose();
+      onWorkoutSaved?.();
+    } catch (error) {
+      setSaveError(error?.workoutMessage || workoutWriteError(error));
+    } finally {
+      setCompletingWorkout(false);
+      activeWriteRef.current = false;
+    }
+  }
 
-    const completed = onCompleteWorkout
-      ? await onCompleteWorkout({
-          plan,
-          day,
-          completedSets: completedCount,
-          plannedSets: totalPlannedSets,
-          durationSeconds: elapsedSeconds,
-          feedback
-        })
-      : true;
-
-    setCompletingWorkout(false);
-    if (!completed) return;
-
-    if (onClearPersistedWorkout) onClearPersistedWorkout();
-    if (onWorkoutSaved) await onWorkoutSaved();
-    onClose();
+  function returnToWorkout() {
+    setSaveError("");
+    persistWorkoutStateNow({ finished: false, resting: false });
+    setFinished(false);
   }
 
   function openVideo() {
@@ -21250,6 +21270,7 @@ function WorkoutPlayerModal({
             <button
               type="button"
               onClick={requestCloseWorkout}
+              disabled={saving || completingWorkout}
               className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-white active:scale-[.96]"
               aria-label="Chiudi allenamento"
             >
@@ -21285,6 +21306,11 @@ function WorkoutPlayerModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4">
+          {draftStorageWarning && (
+            <p role="alert" className="mb-4 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
+              {draftStorageWarning}
+            </p>
+          )}
           {finished ? (
             <WorkoutCompletionPanel
               completedCount={completedCount}
@@ -21294,6 +21320,9 @@ function WorkoutPlayerModal({
               feedback={feedback}
               setFeedback={setFeedback}
               onConfirm={closeCompletedWorkout}
+              onBack={completionSubmitted ? null : returnToWorkout}
+              feedbackLocked={completionSubmitted}
+              saveError={saveError}
               busy={completingWorkout}
             />
           ) : !exercise ? (
@@ -21430,9 +21459,7 @@ function WorkoutPlayerModal({
                     prominent
                     userId={userId}
                     clientId={clientId}
-                    timerKey={`${plan?.id || "plan"}-${day?.id || "day"}-${
-                      draftKey || `${exerciseIndex}-${setIndex}`
-                    }`}
+                    timerKey={workoutRestTimerKey(exerciseIndex, setIndex)}
                     controllerRef={restTimerControllerRef}
                     exerciseName={
                       nextExecutionStep
@@ -21486,8 +21513,10 @@ function WorkoutPlayerModal({
                     <button
                       key={set.id || set.temp_id || index}
                       type="button"
-                      onClick={async () => {
-                        await stopActiveRestTimer();
+                      disabled={saving}
+                      onClick={() => {
+                        if (activeWriteRef.current) return;
+                        stopActiveRestTimer();
                         setSetIndex(index);
                         setResting(false);
                       }}
@@ -21516,7 +21545,7 @@ function WorkoutPlayerModal({
                     <div className="mt-4 grid grid-cols-2 gap-3">
                       <div className="rounded-2xl bg-white p-4 text-center">
                         <p className="text-2xl font-black text-slate-950">
-                          {draft.load_kg || "—"}
+                          {draft.load_kg ?? "—"}
                         </p>
                         <p className="text-[10px] font-black uppercase text-slate-400">
                           Kg eseguiti
@@ -21524,7 +21553,7 @@ function WorkoutPlayerModal({
                       </div>
                       <div className="rounded-2xl bg-white p-4 text-center">
                         <p className="text-2xl font-black text-slate-950">
-                          {draft.reps_done || "—"}
+                          {draft.reps_done ?? "—"}
                         </p>
                         <p className="text-[10px] font-black uppercase text-slate-400">
                           Reps eseguite
@@ -21559,7 +21588,8 @@ function WorkoutPlayerModal({
                       <Label title="Peso kg *">
                         <Input
                           inputMode="decimal"
-                          value={draft.load_kg || ""}
+                          value={draft.load_kg ?? ""}
+                          disabled={saving}
                           onChange={(event) => handleDraftChange("load_kg", event.target.value)}
                           placeholder="80"
                           className="h-14 text-center text-xl font-black"
@@ -21569,7 +21599,8 @@ function WorkoutPlayerModal({
                       <Label title="Ripetizioni *">
                         <Input
                           inputMode="numeric"
-                          value={draft.reps_done || ""}
+                          value={draft.reps_done ?? ""}
+                          disabled={saving}
                           onChange={(event) => handleDraftChange("reps_done", event.target.value)}
                           placeholder="10"
                           className="h-14 text-center text-xl font-black"
@@ -21612,7 +21643,7 @@ function WorkoutPlayerModal({
                     <button
                       type="button"
                       onClick={applyLastSet}
-                      disabled={!lastHistory}
+                          disabled={!lastHistory || saving}
                       className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
                     >
                       Usa ultimo
@@ -21628,7 +21659,7 @@ function WorkoutPlayerModal({
                     <button
                       type="button"
                       onClick={applyTargetSet}
-                      disabled={!currentSet}
+                      disabled={!currentSet || saving}
                       className="col-span-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:opacity-40"
                     >
                       Usa target
@@ -21661,7 +21692,7 @@ function WorkoutPlayerModal({
                       : nextExecutionStep
                       ? "Premi Prossimo esercizio: salvi i valori e parte il recupero prima del cambio esercizio."
                       : "Premi Riepilogo per salvare l’ultima serie."
-                    : "Compila peso kg e ripetizioni: senza questi dati non puoi proseguire."}
+                    : "Inserisci un peso valido e un numero intero di ripetizioni."}
                 </div>
               </Card>
             </div>
@@ -21842,7 +21873,7 @@ function WorkoutPlayerModal({
                 </button>
                 <button
                   type="button"
-                  onClick={confirmFinishWorkout}
+                  onClick={showWorkoutSummary}
                   className="rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white active:scale-[.98]"
                 >
                   Sì, termina
@@ -21854,6 +21885,11 @@ function WorkoutPlayerModal({
 
         {!finished && exercise && (
           <div className="shrink-0 bg-slate-50/95 px-4 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-2">
+            {seriesMessage && (
+              <p role="status" className="mb-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">
+                {seriesMessage}
+              </p>
+            )}
             <div className="grid grid-cols-[0.82fr_0.72fr_1.46fr] gap-2 rounded-[1.35rem] border border-slate-200 bg-white/95 p-2 shadow-[0_-10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl">
               <button
                 type="button"
@@ -23186,26 +23222,23 @@ function WorkoutDayPreviewModal({
   );
 }
 
-function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
+function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [], sessionsLoading, sessionsError, onRetrySessions }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState("");
   const [selectedDateLogs, setSelectedDateLogs] = useState({});
   const [selectedDateLogsLoading, setSelectedDateLogsLoading] = useState(false);
   const [selectedDateLogsError, setSelectedDateLogsError] = useState("");
   const selectedDateRequestRef = useRef(0);
+  const selectedDaySessionIds = useMemo(() => sessions
+    .filter((item) => String(item.session_date || item.created_at || "").slice(0, 10) === selectedDateKey)
+    .map((item) => item.id).filter(Boolean).sort().join(","), [sessions, selectedDateKey]);
 
   // Fetch the requested day's sets directly. Loading all six months at once
   // was truncated by the PostgREST row cap and hid recent, already saved loads.
-  async function openWorkoutDate(dateKey) {
+  async function loadWorkoutDate(daySessionIds) {
     const requestId = ++selectedDateRequestRef.current;
-    setSelectedDateKey(dateKey);
     setSelectedDateLogs({});
     setSelectedDateLogsError("");
-
-    const daySessionIds = (sessions || [])
-      .filter((item) => String(item.session_date || item.created_at || "").slice(0, 10) === dateKey)
-      .map((item) => item.id)
-      .filter(Boolean);
 
     if (!daySessionIds.length) {
       setSelectedDateLogsLoading(false);
@@ -23214,25 +23247,12 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
 
     setSelectedDateLogsLoading(true);
     try {
-      const allLogs = [];
-      const pageSize = 250;
-      for (let offset = 0; offset < 5000; offset += pageSize) {
-        const { data, error } = await supabase
+      const allLogs = await readWorkoutPages(() => supabase
           .from("workout_set_logs")
           .select("*, workout_exercises(exercise_name)")
           .in("session_id", daySessionIds)
           .order("created_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(offset, offset + pageSize - 1);
-
-        if (error) throw error;
-        const page = data || [];
-        allLogs.push(...page);
-        if (page.length < pageSize) break;
-      }
-      if (allLogs.length >= 5000) {
-        throw new Error("Lo storico del giorno supera il limite di sicurezza della lettura.");
-      }
+          .order("id", { ascending: true }));
       if (requestId !== selectedDateRequestRef.current) return;
 
       const grouped = Object.fromEntries(daySessionIds.map((id) => [String(id), []]));
@@ -23252,6 +23272,12 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
       }
     }
   }
+
+  useEffect(() => {
+    if (!selectedDateKey) return;
+    void loadWorkoutDate(selectedDaySessionIds ? selectedDaySessionIds.split(",") : []);
+    return () => { selectedDateRequestRef.current += 1; };
+  }, [selectedDateKey, selectedDaySessionIds]);
 
   function localDateKey(value) {
     const date = value instanceof Date ? value : new Date(value);
@@ -23434,7 +23460,10 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
                 key={key}
                 type="button"
                 disabled={outsideRange}
-                onClick={() => openWorkoutDate(key)}
+                onClick={() => {
+                  setSelectedDateLogsLoading(true);
+                  setSelectedDateKey(key);
+                }}
                 className="flex min-w-0 flex-col items-center rounded-2xl px-1 py-2 disabled:opacity-30"
               >
                 <span className="text-[10px] font-black uppercase text-slate-400">
@@ -23489,6 +23518,8 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
                 <p className="mt-1 text-xs font-bold text-slate-500">
                   {selectedSessions.length
                     ? `${selectedSessions.length} allenamento${selectedSessions.length === 1 ? "" : "i"} registrato${selectedSessions.length === 1 ? "" : "i"}`
+                    : sessionsError ? "Storico da aggiornare"
+                    : sessionsLoading ? "Caricamento sedute..."
                     : "Nessun allenamento registrato"}
                 </p>
               </div>
@@ -23507,8 +23538,14 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
               {selectedSessions.length === 0 && (
                 <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
                   <p className="text-sm font-black text-slate-700">
-                    Nessuna seduta in questa data.
+                    {sessionsError || (sessionsLoading ? "Recupero delle sedute..." : "Nessuna seduta in questa data.")}
                   </p>
+                  {sessionsError && (
+                    <button type="button" onClick={onRetrySessions}
+                      className="mt-2 rounded-xl bg-white px-3 py-2 text-xs font-bold text-amber-800">
+                      Riprova
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -23547,7 +23584,7 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
                       {selectedDateLogsError && (
                         <button
                           type="button"
-                          onClick={() => openWorkoutDate(selectedDateKey)}
+                          onClick={() => loadWorkoutDate(selectedDaySessionIds ? selectedDaySessionIds.split(",") : [])}
                           className="w-full rounded-2xl bg-white p-3 text-left text-sm font-semibold text-rose-700"
                         >
                           {selectedDateLogsError} Tocca per riprovare.
@@ -23647,6 +23684,9 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [client, setClient] = useState(null);
   const [plans, setPlans] = useState([]);
+  const [workoutPlansError, setWorkoutPlansError] = useState("");
+  const [workoutPlansLoading, setWorkoutPlansLoading] = useState(true);
+  const [clientWorkoutAreaError, setClientWorkoutAreaError] = useState("");
   const [diets, setDiets] = useState([]);
   const [supplements, setSupplements] = useState([]);
   const [supplementIntakeLogs, setSupplementIntakeLogs] = useState([]);
@@ -23655,24 +23695,43 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   const [checkins, setCheckins] = useState([]);
   const [photos, setPhotos] = useState([]);
   const [loadHistory, setLoadHistory] = useState([]);
-  const [loadHistoryLoaded, setLoadHistoryLoaded] = useState(false);
+  const workoutHistoryRequest = useRef(null);
   const [workoutCalendarSessions, setWorkoutCalendarSessions] = useState([]);
+  const [workoutSessionsError, setWorkoutSessionsError] = useState("");
+  const [workoutSessionsLoading, setWorkoutSessionsLoading] = useState(true);
   const [workoutCalendarLogs, setWorkoutCalendarLogs] = useState([]);
   const [workoutCalendarPlans, setWorkoutCalendarPlans] = useState([]);
   const [drafts, setDrafts] = useState({});
-  const [sessionCache, setSessionCache] = useState({});
+  const [workoutStorageWarning, setWorkoutStorageWarning] = useState("");
+  const workoutSessionsRequest = useRef(0);
   const [workoutPlayer, setWorkoutPlayer] = useState({
     open: false,
     plan: null,
     day: null,
-    selectedWeek: null,
     resumeState: null
   });
   const [, setWorkoutRecoveryNotice] = useState("");
   const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
   const [workoutDayPreview, setWorkoutDayPreview] = useState(null);
   const [lastSeenPostsAt, setLastSeenPostsAt] = useState("");
-  const workoutLiveDraftKey = clientWorkoutDraftKey(session?.user?.id);
+  const workoutUserId = session?.user?.id;
+  const workoutDraftStore = useMemo(() => {
+    const key = `tmfit_client_workout_drafts_${workoutUserId}`;
+    return createWorkoutDraftStore({
+      read: () => safeReadLocalJson(key, null),
+      write: (value) => safeWriteLocalJson(key, value),
+      readLegacy: () => {
+        const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+        for (const date of [today(), yesterday]) {
+          const legacy = safeReadLocalJson(`tmfit_client_workout_live_${workoutUserId}_${date}`, null);
+          if (legacy?.planId && legacy?.dayId && isRecentWorkoutDraft(legacy)) {
+            return { ...legacy, sessionDate: date, legacyTimer: true };
+          }
+        }
+        return null;
+      }
+    });
+  }, [workoutUserId]);
   const workoutWeekSelectionKey = `tmfit_client_workout_weeks_${session?.user?.id || "guest"}`;
   const checkinDraftKey = `tmfit_client_checkin_draft_${session?.user?.id || "guest"}`;
   const postsSeenKey = `tmfit_client_posts_seen_${session?.user?.id || "guest"}`;
@@ -23822,7 +23881,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     }
 
     if (advanceAfterRest) {
-      setPendingRestAdvance(true);
+      setPendingRestAdvance({ jobId: params.get("tmfit_rest_job") || "" });
     }
 
     if (openTraining || advanceAfterRest) {
@@ -23872,50 +23931,29 @@ function ClientDashboard({ session, userProfile, onLogout }) {
   }
 
   async function loadClientArea() {
-    const { data: clientData, error: clientError } = await supabase
-      .from("clients")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .maybeSingle();
-
-    if (clientError) {
-      console.warn(clientError.message);
+    let clientData;
+    try {
+      const { data, error } = await workoutRequest(supabase.from("clients")
+        .select("*").eq("user_id", session.user.id).maybeSingle());
+      if (error) throw error;
+      clientData = data;
+    } catch (error) {
+      console.warn("TMFIT area cliente:", error?.message || error);
+      setClientWorkoutAreaError("Impossibile caricare l’area allenamento.");
       return;
     }
 
+    setClientWorkoutAreaError("");
     setClient(clientData);
-
-    if (!clientData) return;
+    if (!clientData) {
+      setWorkoutPlansLoading(false);
+      setWorkoutSessionsLoading(false);
+      return;
+    }
 
     const numericClientId = Number(clientData.id);
 
-    const { data: planData } = await supabase
-      .from("workout_plans")
-      .select(
-        `
-        *,
-        workout_weeks (
-          *,
-          workout_days (
-            *,
-            workout_blocks (
-              *,
-              workout_exercises (
-                *,
-                exercise_media_library (*),
-                workout_exercise_sets (*),
-                workout_exercise_progressions (*)
-              )
-            )
-          )
-        )
-      `
-      )
-      .eq("client_id", numericClientId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false });
-
-    setPlans(normalizePlans(planData || []));
+    void refreshWorkoutPlans(numericClientId);
 
     await refreshClientActiveDiet(numericClientId);
 
@@ -23970,26 +24008,49 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       .order("photo_date", { ascending: false });
 
     setPhotos(photoData || []);
+  }
 
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    const sixMonthsDate = `${sixMonthsAgo.getFullYear()}-${String(
-      sixMonthsAgo.getMonth() + 1
-    ).padStart(2, "0")}-${String(sixMonthsAgo.getDate()).padStart(2, "0")}`;
+  async function refreshWorkoutPlans(clientId = client?.id) {
+    if (!clientId) return;
+    setWorkoutPlansLoading(true);
+    try {
+      const { data: planData, error } = await workoutRequest(supabase
+        .from("workout_plans")
+        .select(`
+          *,
+          workout_weeks (
+            *,
+            workout_days (
+              *,
+              workout_blocks (
+                *,
+                workout_exercises (
+                  *,
+                  exercise_media_library (*),
+                  workout_exercise_sets (*),
+                  workout_exercise_progressions (*)
+                )
+              )
+            )
+          )
+        `)
+        .eq("client_id", Number(clientId))
+        .eq("status", "active")
+        .order("created_at", { ascending: false }));
+      if (error) throw error;
+      setPlans(normalizePlans(planData || []));
+      setWorkoutPlansError("");
+    } catch (error) {
+      console.warn("TMFIT scheda allenamento:", error?.message || error);
+      setWorkoutPlansError("Impossibile caricare la scheda di allenamento.");
+    } finally {
+      setWorkoutPlansLoading(false);
+    }
 
-    const [calendarSessionsResult, calendarPlansResult] =
-      await Promise.all([
-        supabase
-          .from("workout_sessions")
-          .select("*")
-          .eq("client_id", numericClientId)
-          .gte("session_date", sixMonthsDate)
-          .order("session_date", { ascending: false })
-          .limit(500),
-        supabase
-          .from("workout_plans")
-          .select(
-            `
+    try {
+      const { data, error } = await workoutRequest(supabase
+        .from("workout_plans")
+        .select(`
             id,
             title,
             status,
@@ -24001,23 +24062,59 @@ function ClientDashboard({ session, userProfile, onLogout }) {
                 title
               )
             )
-          `
-          )
-          .eq("client_id", numericClientId)
-      ]);
-
-    if (calendarSessionsResult.error) {
-      console.warn(calendarSessionsResult.error.message);
+          `)
+        .eq("client_id", Number(clientId)));
+      if (error) throw error;
+      setWorkoutCalendarPlans(normalizePlans(data || []));
+    } catch (error) {
+      console.warn("TMFIT schede del diario:", error?.message || error);
     }
-    if (calendarPlansResult.error) {
-      console.warn(calendarPlansResult.error.message);
-    }
-
-    setWorkoutCalendarSessions(calendarSessionsResult.data || []);
-    setWorkoutCalendarPlans(
-      normalizePlans(calendarPlansResult.data || planData || [])
-    );
   }
+
+  async function refreshWorkoutSessions(clientId = client?.id) {
+    if (!clientId) return;
+    const date = new Date();
+    date.setMonth(date.getMonth() - 6);
+    const request = ++workoutSessionsRequest.current;
+    setWorkoutSessionsLoading(true);
+    try {
+      const sessions = await readWorkoutPages(() => supabase
+        .from("workout_sessions")
+        .select("*")
+        .eq("client_id", Number(clientId))
+        .gte("session_date", tmfitLocalDateKey(date))
+        .order("session_date", { ascending: false })
+        .order("id", { ascending: false }));
+      if (request === workoutSessionsRequest.current) {
+        setWorkoutCalendarSessions(sessions);
+        setWorkoutSessionsError("");
+      }
+    } catch (error) {
+      if (request === workoutSessionsRequest.current) {
+        setWorkoutSessionsError("Impossibile aggiornare le sedute.");
+      }
+      console.warn("TMFIT aggiornamento sedute:", error?.message || error);
+    } finally {
+      if (request === workoutSessionsRequest.current) setWorkoutSessionsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (client?.id) void refreshWorkoutSessions(client.id);
+  }, [client?.id]);
+
+  useEffect(() => {
+    const retry = () => {
+      if (clientWorkoutAreaError) {
+        void loadClientArea();
+      } else if (client?.id) {
+        void refreshWorkoutSessions(client.id);
+        if (workoutPlansError) void refreshWorkoutPlans(client.id);
+      }
+    };
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [client?.id, clientWorkoutAreaError, workoutPlansError]);
 
   function findWorkoutPlanDay(planList = [], planId, dayId) {
     for (const planItem of planList) {
@@ -24038,13 +24135,12 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     if (
       !pendingRestAdvance ||
       !client ||
-      !workoutLiveDraftKey ||
       plans.length === 0
     ) {
       return;
     }
 
-    const saved = safeReadLocalJson(workoutLiveDraftKey, null);
+    const saved = workoutDraftStore.latest();
     const matchingWorkout =
       saved?.planId &&
       saved?.dayId &&
@@ -24052,7 +24148,10 @@ function ClientDashboard({ session, userProfile, onLogout }) {
         ? findWorkoutPlanDay(plans, saved.planId, saved.dayId)
         : null;
 
-    if (!matchingWorkout || !saved?.resting) {
+    const restTimer = safeReadLocalJson(`tmfit_rest_timer_v3_${workoutUserId}_${saved?.restTimerKey || ""}`, null);
+    const notificationMatches = !saved?.restTimerKey ||
+      (pendingRestAdvance.jobId && restTimer?.pushJobId === pendingRestAdvance.jobId);
+    if (!matchingWorkout || !saved?.resting || !notificationMatches) {
       setWorkoutRecoveryNotice(
         "Recupero terminato. Apri Allenati per continuare dalla sessione salvata."
       );
@@ -24066,60 +24165,42 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       saved
     );
 
-    safeWriteLocalJson(workoutLiveDraftKey, advancedState);
-    setDrafts(advancedState.drafts || {});
-    setWorkoutPlayer({
-      open: true,
-      plan: matchingWorkout.plan,
-      day: matchingWorkout.day,
-      selectedWeek:
-        Number(advancedState.selectedWeek) || currentWeekNumber(matchingWorkout.plan),
-      resumeState: advancedState
-    });
+    openWorkoutPlayer(matchingWorkout.plan, matchingWorkout.day, advancedState.selectedWeek, advancedState);
     setWorkoutRecoveryNotice(
       advancedState.finished
         ? "Recupero terminato: allenamento completato."
         : "Recupero terminato: aperta direttamente la prossima serie."
     );
     setPendingRestAdvance(false);
-  }, [pendingRestAdvance, client?.id, plans, workoutLiveDraftKey]);
+  }, [pendingRestAdvance, client?.id, plans, workoutDraftStore, workoutUserId]);
 
-  function persistWorkoutLiveState(snapshot) {
-    if (!workoutLiveDraftKey || !snapshot?.planId || !snapshot?.dayId) return;
+  const persistWorkoutLiveState = useCallback((snapshot) => {
+    workoutDraftStore.update(snapshot);
+    setWorkoutStorageWarning(workoutDraftStore.isWritable() ? "" :
+      "La memoria del dispositivo non è disponibile. Tieni aperto l’allenamento fino al salvataggio.");
+  }, [workoutDraftStore]);
 
-    const previous = safeReadLocalJson(workoutLiveDraftKey, {});
-    safeWriteLocalJson(workoutLiveDraftKey, {
-      ...previous,
-      ...snapshot,
-      sessionId: snapshot.sessionId || previous.sessionId || null,
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  function clearWorkoutLiveState() {
-    safeRemoveLocal(workoutLiveDraftKey);
+  function clearWorkoutLiveState(snapshot) {
+    workoutDraftStore.clear(snapshot);
     setWorkoutRecoveryNotice("");
     setDrafts({});
-    setSessionCache({});
   }
 
   useEffect(() => {
     if (
       pendingRestAdvance ||
-      !workoutLiveDraftKey ||
       plans.length === 0 ||
       workoutPlayer.open
     ) {
       return;
     }
 
-    const saved = safeReadLocalJson(workoutLiveDraftKey, null);
+    const saved = workoutDraftStore.latest();
     if (
       !saved?.planId ||
       !saved?.dayId ||
       !isRecentWorkoutDraft(saved) ||
-      saved.resumeOnLaunch === false ||
-      saved.finished
+      saved.resumeOnLaunch === false
     ) {
       return;
     }
@@ -24127,16 +24208,9 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     const found = findWorkoutPlanDay(plans, saved.planId, saved.dayId);
     if (!found) return;
 
-    setDrafts(saved.drafts || {});
-    setWorkoutPlayer({
-      open: true,
-      plan: found.plan,
-      day: found.day,
-      selectedWeek: Number(saved.selectedWeek) || currentWeekNumber(found.plan),
-      resumeState: saved
-    });
+    openWorkoutPlayer(found.plan, found.day, saved.selectedWeek, saved);
     setWorkoutRecoveryNotice("Allenamento recuperato automaticamente");
-  }, [pendingRestAdvance, workoutLiveDraftKey, plans.length]);
+  }, [pendingRestAdvance, workoutDraftStore, plans]);
 
   function automaticWeekNumber(plan) {
     return tmfitWorkoutWeekForPlan(plan);
@@ -24231,32 +24305,37 @@ function getExerciseHistory(exercise) {
     .slice(0, 12);
 }
 
-  async function loadWorkoutHistoryIfNeeded() {
-    if (!client || loadHistoryLoaded) return true;
+  async function loadWorkoutHistory() {
+    if (!client || workoutHistoryRequest.current) return;
 
-    const { data: historyData, error: historyError } = await supabase
+    const request = workoutRequest(supabase
       .from("workout_set_logs")
       .select(
         "*, workout_exercises(exercise_name), workout_sessions!inner(client_id, session_date)"
       )
       .eq("workout_sessions.client_id", Number(client.id))
       .order("created_at", { ascending: false })
-      .limit(250);
-
-    if (historyError) {
-      console.warn(historyError.message);
-      return false;
+      .limit(250));
+    workoutHistoryRequest.current = request;
+    try {
+      const { data, error } = await request;
+      if (error) throw error;
+      setLoadHistory((prev) => {
+        const byId = new Map((data || []).map((item) => [item.id, item]));
+        prev.forEach((item) => byId.set(item.id, item));
+        return [...byId.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 250);
+      });
+    } catch (error) {
+      console.warn("TMFIT storico carichi:", error?.message || error);
+    } finally {
+      workoutHistoryRequest.current = null;
     }
-
-    setLoadHistory(historyData || []);
-    setLoadHistoryLoaded(true);
-    return true;
   }
 
   async function openWorkoutDayPreview(plan, week, day, dayIndex, currentWeek) {
     if (!day) return;
 
-    await loadWorkoutHistoryIfNeeded();
+    void loadWorkoutHistory();
     setWorkoutDayPreview({
       plan,
       week,
@@ -24266,431 +24345,208 @@ function getExerciseHistory(exercise) {
     });
   }
 
-  async function requireWorkoutNotifications() {
-    if (typeof window === "undefined") return false;
+  function openWorkoutPlayerWithNotifications(plan, day, requestedWeek = null) {
+    if (!day || workoutPlayer.open) return;
 
-    // Il click su “Inizia” è il gesto esplicito usato sia per sbloccare Web
-    // Audio sia, quando necessario, per mostrare il prompt del browser.
     primeTmfitTimerAudio();
+    openWorkoutPlayer(plan, day, requestedWeek);
 
-    if (!tmfitPushIsSupported()) {
-      window.alert(
-        "Per utilizzare Allenati serve un browser compatibile con le notifiche push. Apri TMFIT con Safari su iPhone oppure Chrome/Edge su Android e computer."
-      );
-      return false;
-    }
+    if (!tmfitPushIsSupported() || (tmfitIsIosDevice() && !tmfitIsStandalonePwa()) ||
+        Notification.permission === "denied" || !TMFIT_VAPID_PUBLIC_KEY) return;
 
-    if (tmfitIsIosDevice() && !tmfitIsStandalonePwa()) {
-      window.alert(
-        "Per utilizzare Allenati su iPhone devi prima installare TMFIT: apri Condividi → Aggiungi alla schermata Home, poi avvia l’app dalla nuova icona."
-      );
-      return false;
-    }
-
-    if (Notification.permission === "denied") {
-      window.alert(
-        "Le notifiche TMFIT sono bloccate. Riattivale dalle impostazioni del browser o della webapp; senza notifiche non è possibile avviare Allenati."
-      );
-      return false;
-    }
-
-    try {
+    void (async () => {
       if (Notification.permission === "granted") {
-        const existingSubscription = await currentTmfitPushSubscription();
-
-        if (existingSubscription) {
-          const persisted = await persistTmfitPushSubscription(
-            existingSubscription,
-            session?.user?.id,
-            client?.id
-          );
-
-          if (persisted) return true;
-        }
+        const subscription = await currentTmfitPushSubscription();
+        if (await persistTmfitPushSubscription(subscription, workoutUserId, client?.id)) return;
       }
-
-      const result = await enableTmfitPushNotifications(
-        session?.user?.id,
-        client?.id
-      );
-
-      if (result.ok) return true;
-
-      const message =
-        result.status === "install_required"
-          ? "Installa TMFIT sulla schermata Home e riaprila dalla nuova icona."
-          : result.status === "denied"
-          ? "Hai negato le notifiche. Riattivale nelle impostazioni del browser o della webapp TMFIT."
-          : result.status === "configuration_missing"
-          ? "La configurazione delle notifiche non è completa. Contatta il coach."
-          : result.status === "unsupported"
-          ? "Questo browser non supporta le notifiche richieste da Allenati."
-          : "Non è stato possibile attivare le notifiche. Riprova prima di avviare Allenati.";
-
-      window.alert(`${message} Senza notifiche Allenati resta bloccato.`);
-      return false;
-    } catch (error) {
-      console.warn(
-        "TMFIT verifica notifiche Allenati non riuscita",
-        error?.message || error
-      );
-      window.alert(
-        "Non è stato possibile verificare le notifiche. Controlla la connessione e riprova."
-      );
-      return false;
-    }
+      await enableTmfitPushNotifications(workoutUserId, client?.id);
+    })().catch((error) => console.warn("TMFIT notifiche Allenati:", error?.message || error));
   }
 
-  async function openWorkoutPlayerWithNotifications(plan, day, requestedWeek = null) {
-    if (!day) return;
+  function openWorkoutPlayer(plan, day, requestedWeek = null, recoverySnapshot = null) {
+    if (!plan || !day) return;
+    const selectedWeek = tmfitWorkoutResolveWeek(plan, Number(requestedWeek) || currentWeekNumber(plan));
+    const stored = recoverySnapshot || workoutDraftStore.get(plan.id, day.id, selectedWeek);
+    const resume = stored && isRecentWorkoutDraft(stored) ? stored : null;
 
-    const notificationsReady = await requireWorkoutNotifications();
-    if (!notificationsReady) return;
-
-    await openWorkoutPlayer(plan, day, requestedWeek);
-  }
-
-  async function openWorkoutPlayer(plan, day, requestedWeek = null) {
-    if (!day) return;
-
-    await loadWorkoutHistoryIfNeeded();
-
-    const selectedWeek = Number(requestedWeek) || currentWeekNumber(plan);
-    const saved = safeReadLocalJson(workoutLiveDraftKey, null);
-    const savedWeek = Number(saved?.selectedWeek) || selectedWeek;
-    const canResume =
-      saved?.planId &&
-      saved?.dayId &&
-      String(saved.planId) === String(plan.id) &&
-      String(saved.dayId) === String(day.id) &&
-      savedWeek === selectedWeek &&
-      isRecentWorkoutDraft(saved);
-
-    if (canResume) {
-      setDrafts(saved.drafts || {});
-    } else {
-      safeRemoveLocal(workoutLiveDraftKey);
-      setDrafts({});
-    }
-
-    setWorkoutPlayer({
-      open: true,
-      plan,
-      day,
+    if (stored && !resume) workoutDraftStore.clear(stored);
+    const snapshot = workoutDraftStore.open({
+      ...resume,
+      planId: plan.id,
+      dayId: day.id,
       selectedWeek,
-      resumeState: canResume ? saved : null
+      sessionStartedAt: Number(resume?.sessionStartedAt) || Date.now(),
+      sessionDate: resume?.sessionDate || tmfitLocalDateKey(),
+      resumeOnLaunch: true
     });
+
+    setDrafts(snapshot.drafts || {});
+    setWorkoutStorageWarning(workoutDraftStore.isWritable() ? "" :
+      "La memoria del dispositivo non è disponibile. Tieni aperto l’allenamento fino al salvataggio.");
+    setWorkoutPlayer({ open: true, plan, day, resumeState: snapshot });
+    void loadWorkoutHistory();
   }
 
-  function updateDraft(key, fieldOrPatch, value) {
-    setDrafts((prev) => {
-      const patch =
-        fieldOrPatch && typeof fieldOrPatch === "object" && !Array.isArray(fieldOrPatch)
-          ? fieldOrPatch
-          : { [fieldOrPatch]: value };
-
-      const nextDrafts = {
-        ...prev,
-        [key]: {
-          ...(prev[key] || {}),
-          ...patch
-        }
-      };
-
-      if (workoutPlayer.open && workoutLiveDraftKey) {
-        const saved = safeReadLocalJson(workoutLiveDraftKey, {});
-        safeWriteLocalJson(workoutLiveDraftKey, {
-          ...saved,
-          planId: workoutPlayer.plan?.id || saved.planId,
-          dayId: workoutPlayer.day?.id || saved.dayId,
-          selectedWeek:
-            Number(workoutPlayer.selectedWeek) || Number(saved.selectedWeek) || 1,
-          drafts: nextDrafts,
-          updatedAt: new Date().toISOString()
-        });
-      }
-
-      return nextDrafts;
-    });
+  function updateDraft(key, patch) {
+    setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
 
-  async function getOrCreateWorkoutSession(planId, dayId) {
-    if (!client) return null;
+  function workoutSessionScope(snapshot, id) {
+    return {
+      id,
+      client_id: Number(client.id),
+      user_id: workoutUserId,
+      plan_id: snapshot.planId,
+      day_id: snapshot.dayId
+    };
+  }
 
-    const key = `${dayId}-${today()}`;
-    if (sessionCache[key]) return sessionCache[key];
+  function activeWorkoutDraft(plan, day) {
+    const playerDraft = workoutPlayer.resumeState;
+    const draft = workoutDraftStore.get(plan.id, day.id, playerDraft?.selectedWeek);
+    if (!client || !workoutUserId || !draft || draft.draftId !== playerDraft?.draftId) {
+      throw new Error("La bozza di allenamento non è più attiva.");
+    }
+    return draft;
+  }
 
-    const persistedWorkout = workoutLiveDraftKey
-      ? safeReadLocalJson(workoutLiveDraftKey, null)
-      : null;
-    const isSamePersistedWorkout =
-      persistedWorkout?.planId &&
-      persistedWorkout?.dayId &&
-      String(persistedWorkout.planId) === String(planId) &&
-      String(persistedWorkout.dayId) === String(dayId) &&
-      isRecentWorkoutDraft(persistedWorkout);
+  async function getOrCreateWorkoutSession(snapshot) {
+    if (snapshot.sessionId) return workoutSessionScope(snapshot, snapshot.sessionId);
 
-    if (isSamePersistedWorkout && persistedWorkout.sessionId) {
-      setSessionCache((prev) => ({
-        ...prev,
-        [key]: persistedWorkout.sessionId
-      }));
-      return persistedWorkout.sessionId;
+    // Recover the session chosen by the old app if it persisted series but no session ID.
+    const savedLogIds = Object.values(snapshot.drafts || {}).map((draft) => draft?._logId).filter(Boolean);
+    if (!snapshot.sessionRequestId && savedLogIds.length) {
+      const { data: log, error } = await workoutRequest(supabase.from("workout_set_logs")
+        .select("session_id").eq("id", savedLogIds[0]).maybeSingle());
+      if (error) throw error;
+      if (!log?.session_id) throw new Error("La seduta delle serie salvate non è disponibile.");
+      const scope = workoutSessionScope(snapshot, log.session_id);
+      const existing = await readWorkoutSession(supabase, scope);
+      if (existing.error || !existing.data) throw existing.error || new Error("Seduta non disponibile.");
+      persistWorkoutLiveState({ ...snapshot, sessionId: existing.data.id });
+      return scope;
     }
 
-    const hasPersistedExecution =
-      isSamePersistedWorkout &&
-      ((persistedWorkout.completedSetKeys || []).length > 0 ||
-        Object.values(persistedWorkout.drafts || {}).some((item) => item?._logId));
+    const id = snapshot.sessionRequestId || snapshot.draftId;
+    const scope = workoutSessionScope(snapshot, id);
+    // Reserve the same ID locally before sending the write. A retry after an
+    // interrupted response finds the original row via its existing primary key.
+    persistWorkoutLiveState({ ...snapshot, sessionRequestId: id });
+    const { data, error } = await insertWorkoutSessionOnce(supabase, {
+      ...scope,
+      session_date: snapshot.sessionDate,
+      status: "in_progress",
+      started_at: new Date(snapshot.sessionStartedAt).toISOString()
+    });
+    if (error || !data) throw error || new Error("Creazione della seduta da confermare.");
 
-    if (hasPersistedExecution) {
-      const { data: existing } = await supabase
-        .from("workout_sessions")
-        .select("*")
-        .eq("client_id", Number(client.id))
-        .eq("day_id", dayId)
-        .eq("session_date", today())
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existing?.id) {
-        setSessionCache((prev) => ({ ...prev, [key]: existing.id }));
-        if (workoutLiveDraftKey) {
-          safeWriteLocalJson(workoutLiveDraftKey, {
-            ...(persistedWorkout || {}),
-            sessionId: existing.id,
-            updatedAt: new Date().toISOString()
-          });
-        }
-        return existing.id;
-      }
-    }
-
-    const { data, error } = await supabase
-      .from("workout_sessions")
-      .insert({
-        client_id: Number(client.id),
-        user_id: session.user.id,
-        plan_id: planId,
-        day_id: dayId,
-        session_date: today(),
-        status: "in_progress",
-        started_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (error) {
-      alert(error.message);
-      return null;
-    }
-
-    setSessionCache((prev) => ({ ...prev, [key]: data.id }));
-
-    if (workoutLiveDraftKey) {
-      safeWriteLocalJson(workoutLiveDraftKey, {
-        ...(persistedWorkout || {}),
-        planId,
-        dayId,
-        sessionId: data.id,
-        updatedAt: new Date().toISOString()
-      });
-    }
-
-    return data.id;
+    persistWorkoutLiveState({ ...snapshot, sessionRequestId: id, sessionId: data.id });
+    setWorkoutCalendarSessions((prev) => prev.some((item) => item.id === data.id) ? prev : [data, ...prev]);
+    return scope;
   }
 
   async function completeWorkoutSession({
-    plan,
-    day,
-    completedSets,
-    plannedSets,
-    durationSeconds,
-    feedback
+    plan, day, completedSets, savedIds, plannedSets, durationSeconds, feedback, onSubmit
   }) {
-    const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
-    if (!sessionId) return false;
-
-    // Confirm persisted sets from Supabase before considering a workout completed.
-    const { data: savedSeries, error: savedSeriesError } = await supabase
-      .from("workout_set_logs")
-      .select("id, load_kg, reps_done, completed")
-      .eq("session_id", sessionId)
-      .eq("completed", true);
-
-    if (savedSeriesError) {
-      alert("Impossibile verificare i carichi salvati. Controlla la connessione e riprova.");
-      return false;
-    }
-
-    const confirmedSets = (savedSeries || []).filter((item) =>
-      item.load_kg !== null && item.reps_done !== null
-    ).length;
-    if (confirmedSets === 0 || confirmedSets < Math.max(0, Number(completedSets) || 0)) {
-      alert("Alcune serie non risultano salvate. Riapri l'allenamento e riprova prima di completarlo.");
-      return false;
-    }
-
-    const { data, error } = await supabase.rpc(
-      "tmfit_complete_workout_session",
-      {
-        p_session_id: String(sessionId),
-        p_duration_seconds: Math.max(0, Number(durationSeconds) || 0),
-        p_completed_sets: confirmedSets,
-        p_planned_sets: Math.max(confirmedSets, Number(plannedSets) || 0),
-        p_session_rpe: numberOrNull(feedback?.session_rpe),
-        p_session_feeling: feedback?.feeling || null,
-        p_client_notes: feedback?.notes || null
-      }
-    );
-
-    if (error || data !== true) {
-      alert(error?.message || "Non è stato possibile salvare il riepilogo dell’allenamento.");
-      return false;
-    }
-
-    return true;
-  }
-
-  async function saveSetLog(plan, day, exercise, set, draftOverride = null) {
-  const setToken = set.id || set.temp_id || `virtual-${set.set_number}`;
-  const key = `${exercise.id}-${setToken}`;
-  const savedWorkoutDraft = workoutLiveDraftKey
-    ? safeReadLocalJson(workoutLiveDraftKey, {})
-    : {};
-  const persistedDraft = savedWorkoutDraft?.drafts?.[key] || {};
-  const stateDraft = drafts[key] || {};
-  const draft = {
-    ...persistedDraft,
-    ...stateDraft,
-    ...(draftOverride || {})
-  };
-  const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
-
-  if (!sessionId) return false;
-
-  const payload = {
-    session_id: sessionId,
-    workout_exercise_id: exercise.id,
-    planned_set_id: set.id || null,
-    set_number: set.set_number,
-    load_kg: numberOrNull(draft.load_kg),
-    reps_done: numberOrNull(draft.reps_done),
-    rpe: numberOrNull(draft.rpe),
-    rir: numberOrNull(draft.rir),
-    notes: draft.notes || null,
-    completed: true
-  };
-
-  if (payload.load_kg === null || payload.reps_done === null) {
-    alert("Peso e ripetizioni non validi: correggi i valori prima di salvare la serie.");
-    return false;
-  }
-
-  let savedLog = null;
-
-  if (draft._logId) {
-    const { data, error } = await supabase
-      .from("workout_set_logs")
-      .update(payload)
-      .eq("id", draft._logId)
-      .select()
-      .single();
-
-    if (error) {
-      alert(error.message);
-      return false;
-    }
-
-    savedLog = data;
-  } else {
-    const { data, error } = await supabase
-      .from("workout_set_logs")
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      alert(error.message);
-      return false;
-    }
-
-    savedLog = data;
-  }
-
-  const immediateHistoryLog = {
-    ...(savedLog || {}),
-    workout_exercise_id: exercise.id,
-    load_kg: payload.load_kg,
-    reps_done: payload.reps_done,
-    rpe: payload.rpe,
-    rir: payload.rir,
-    completed: true,
-    created_at: savedLog?.created_at || new Date().toISOString(),
-    workout_exercises: {
-      ...(savedLog?.workout_exercises || {}),
-      exercise_name: exercise.exercise_name || "Esercizio"
-    },
-    workout_sessions: {
-      ...(savedLog?.workout_sessions || {}),
-      id: sessionId,
-      session_date: today(),
-      plan_id: plan.id,
-      day_id: day.id,
-      client_id: Number(client?.id) || null
-    }
-  };
-
-  setLoadHistory((prev) => [
-    immediateHistoryLog,
-    ...(prev || []).filter(
-      (item) => String(item?.id || "") !== String(immediateHistoryLog?.id || "")
-    )
-  ]);
-  setWorkoutCalendarLogs((prev) => [
-    ...(prev || []).filter(
-      (item) => String(item?.id || "") !== String(immediateHistoryLog?.id || "")
-    ),
-    immediateHistoryLog
-  ]);
-  setLoadHistoryLoaded(true);
-
-  const savedDraftValue = {
-    ...draft,
-    load_kg: draft.load_kg || "",
-    reps_done: draft.reps_done || "",
-    rpe: draft.rpe || "",
-    rir: draft.rir || "",
-    notes: draft.notes || "",
-    _logId: savedLog?.id || draft._logId || "",
-    _savedAt: new Date().toISOString()
-  };
-
-  setDrafts((prev) => {
-    const nextDrafts = {
-      ...prev,
-      [key]: {
-        ...(prev[key] || {}),
-        ...savedDraftValue
-      }
-    };
-
-    if (workoutLiveDraftKey) {
-      const saved = safeReadLocalJson(workoutLiveDraftKey, {});
-      safeWriteLocalJson(workoutLiveDraftKey, {
-        ...saved,
-        drafts: nextDrafts,
-        updatedAt: new Date().toISOString()
+    const snapshot = activeWorkoutDraft(plan, day);
+    if (!snapshot.sessionId && !snapshot.sessionRequestId &&
+        !Object.values(snapshot.drafts || {}).some((draft) => draft?._logId)) {
+      throw Object.assign(new Error("Seduta priva di serie"), {
+        workoutMessage: "Salva almeno una serie prima di terminare l’allenamento."
       });
     }
 
-    return nextDrafts;
-  });
+    const scope = await getOrCreateWorkoutSession(snapshot);
+    const rows = await readWorkoutPages(() => supabase.from("workout_set_logs")
+      .select("id, workout_exercise_id, set_number, load_kg, reps_done, completed")
+      .eq("session_id", scope.id).eq("completed", true).order("id", { ascending: true }));
+    const confirmed = confirmedWorkoutSets(rows, savedIds, completedSets);
+    if (confirmed === null) {
+      throw Object.assign(new Error("Serie della seduta da verificare"), {
+        workoutMessage: "Alcune serie sono ancora da confermare. Riprova quando torna la connessione."
+      });
+    }
 
-  return savedDraftValue;
-}
+    onSubmit();
+    const { data, error } = await completeWorkoutOnce(supabase, scope, {
+      status: "completed",
+      completed_at: "now",
+      duration_seconds: Math.max(0, Math.round(Number(durationSeconds) || 0)),
+      completed_sets: confirmed,
+      planned_sets: Math.max(confirmed, Number(plannedSets) || 0),
+      session_rpe: workoutNumber(feedback?.session_rpe),
+      session_feeling: feedback?.feeling?.trim() || null,
+      client_notes: feedback?.notes?.trim() || null
+    });
+    if (error || !data?.completed_at) throw error || new Error("Riepilogo da confermare.");
 
+    setWorkoutCalendarSessions((prev) => [data, ...prev.filter((item) => item.id !== data.id)]);
+  }
+
+  async function saveSetLog(plan, day, exercise, set, draft) {
+    const values = workoutSeriesValues(draft);
+    if (!values) throw new Error("Valori serie non validi.");
+
+    const setToken = set.id || set.temp_id || `virtual-${set.set_number}`;
+    const key = `${exercise.id}-${setToken}`;
+    const snapshot = activeWorkoutDraft(plan, day);
+    const previous = snapshot.drafts?.[key] || {};
+    const logId = previous._logId || draft._logId;
+    const pendingDraft = { ...previous, ...draft };
+
+    // Keep entered values and the identity of the pending series across reloads.
+    const pendingSnapshot = {
+      ...snapshot,
+      drafts: { ...snapshot.drafts, [key]: pendingDraft }
+    };
+    persistWorkoutLiveState(pendingSnapshot);
+
+    const scope = await getOrCreateWorkoutSession(pendingSnapshot);
+    const requestId = logId || previous._logRequestId ||
+      await workoutSetUuid(scope.id, exercise.id, set.set_number);
+    const payload = {
+      id: requestId,
+      session_id: scope.id,
+      workout_exercise_id: exercise.id,
+      planned_set_id: set.id || null,
+      set_number: set.set_number,
+      ...values,
+      notes: draft.notes || null,
+      completed: true
+    };
+    const { data, error } = await saveWorkoutSetOnce(supabase, payload, logId);
+    if (error || data?.id !== requestId) throw error || new Error("Serie da confermare.");
+
+    const immediateHistoryLog = {
+      ...data,
+      workout_exercises: { exercise_name: exercise.exercise_name || "Esercizio" },
+      workout_sessions: {
+        id: scope.id,
+        session_date: snapshot.sessionDate,
+        plan_id: plan.id,
+        day_id: day.id,
+        client_id: scope.client_id
+      }
+    };
+    setLoadHistory((prev) => [
+      immediateHistoryLog,
+      ...prev.filter((item) => item.id !== data.id)
+    ]);
+    setWorkoutCalendarLogs((prev) => [
+      ...prev.filter((item) => item.id !== data.id),
+      immediateHistoryLog
+    ]);
+
+    const savedDraft = {
+      ...pendingDraft,
+      _pendingSave: false,
+      _logRequestId: requestId,
+      _logId: data.id,
+      _savedAt: data.created_at || new Date().toISOString()
+    };
+    updateDraft(key, savedDraft);
+    return savedDraft;
+  }
 
   async function saveCheckin(event) {
     event?.preventDefault?.();
@@ -25045,14 +24901,16 @@ function getExerciseHistory(exercise) {
     ? tmfitWorkoutMaterializedWeekForSelection(activePlan, activePlanWeekNumber)
     : null;
   const activeWeekDays = activePlanWeek?.workout_days || [];
-  const currentWeekSessions = workoutCalendarSessions.filter((item) => {
-    const date = clientDate(item.session_date || item.created_at);
-    return date && date >= currentWeekStart && date < currentWeekEnd;
-  });
-  const completedWeekDayIds = new Set(
-    currentWeekSessions
-      .filter((item) => Boolean(item.completed_at))
-      .map((item) => String(item.day_id || item.id))
+  const calendarWeekDays = tmfitWorkoutMaterializedWeekForSelection(
+    activePlan, automaticActivePlanWeekNumber
+  )?.workout_days || [];
+  const completedWeekDayIds = completedWorkoutDays(
+    workoutCalendarSessions,
+    activePlan?.id,
+    calendarWeekDays,
+    tmfitLocalDateKey(currentWeekStart),
+    tmfitLocalDateKey(currentWeekEnd),
+    tmfitLocalDateKey
   );
   const pendingWorkoutDay = selectedWeekMatchesCalendar
     ? activeWeekDays.find(
@@ -25326,8 +25184,15 @@ function getExerciseHistory(exercise) {
               onClick: openClientPosts
             }}
             weeklySummary={{
-              completedWorkouts: Math.min(completedWeekDayIds.size, activeWeekDays.length),
-              plannedWorkouts: activeWeekDays.length,
+              completedWorkouts: completedWeekDayIds.size,
+              plannedWorkouts: calendarWeekDays.length,
+              workoutsLoading: workoutSessionsLoading,
+              workoutsError: clientWorkoutAreaError || workoutPlansError || workoutSessionsError,
+              onRetryWorkouts: () => {
+                if (clientWorkoutAreaError) return loadClientArea();
+                if (workoutPlansError) return refreshWorkoutPlans();
+                return refreshWorkoutSessions();
+              },
               checkinCompleted: checkinCompletedThisWeek,
               adherencePercent
             }}
@@ -25344,13 +25209,34 @@ function getExerciseHistory(exercise) {
 
         {activeTab === "training" && (
           <div className="space-y-5">
+            {clientWorkoutAreaError && (
+              <button type="button" onClick={loadClientArea}
+                className="w-full rounded-2xl bg-amber-50 p-3 text-left text-sm font-bold text-amber-900">
+                {clientWorkoutAreaError} Riprova.
+              </button>
+            )}
+            {workoutSessionsError && (
+              <button type="button" onClick={() => refreshWorkoutSessions()}
+                className="w-full rounded-2xl bg-amber-50 p-3 text-left text-sm font-bold text-amber-900">
+                {workoutSessionsError} Riprova.
+              </button>
+            )}
+            {workoutPlansError && (
+              <button type="button" onClick={() => refreshWorkoutPlans()} disabled={workoutPlansLoading}
+                className="w-full rounded-2xl bg-amber-50 p-3 text-left text-sm font-bold text-amber-900">
+                {workoutPlansError} Riprova.
+              </button>
+            )}
             {plans.length > 0 ? (
               <WorkoutHistoryCalendar
                 sessions={workoutCalendarSessions}
                 logs={workoutCalendarLogs}
                 plans={workoutCalendarPlans.length ? workoutCalendarPlans : plans}
+                  sessionsLoading={workoutSessionsLoading}
+                  sessionsError={workoutSessionsError}
+                  onRetrySessions={() => refreshWorkoutSessions()}
               />
-            ) : (
+            ) : !clientWorkoutAreaError && !workoutPlansError && !workoutPlansLoading && (
               <ClientUnassignedServiceCard
                 type="training"
                 included={clientNeedsTraining(client)}
@@ -26141,14 +26027,15 @@ function getExerciseHistory(exercise) {
   getExerciseHistory={getExerciseHistory}
 />
 
+{workoutPlayer.open && (
 <WorkoutPlayerModal
+  key={workoutPlayer.resumeState.draftId}
   player={workoutPlayer}
   onClose={() =>
     setWorkoutPlayer({
       open: false,
       plan: null,
       day: null,
-      selectedWeek: null,
       resumeState: null
     })
   }
@@ -26156,13 +26043,15 @@ function getExerciseHistory(exercise) {
   updateDraft={updateDraft}
   saveSetLog={saveSetLog}
   getExerciseHistory={getExerciseHistory}
-  onWorkoutSaved={loadClientArea}
+  onWorkoutSaved={() => refreshWorkoutSessions()}
   onWorkoutStateChange={persistWorkoutLiveState}
   onClearPersistedWorkout={clearWorkoutLiveState}
+  draftStorageWarning={workoutStorageWarning}
   userId={session?.user?.id}
   clientId={client?.id}
   onCompleteWorkout={completeWorkoutSession}
 />
+)}
             </main>
 
       <AppFooter role="client" />

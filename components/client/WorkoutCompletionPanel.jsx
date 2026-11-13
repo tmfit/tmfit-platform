@@ -9,8 +9,11 @@ export default function WorkoutCompletionPanel({
   durationLabel,
   feedback,
   setFeedback,
+  onBack,
   onConfirm,
-  busy
+  busy,
+  feedbackLocked,
+  saveError
 }) {
   const complete = completedCount >= totalPlannedSets;
 
@@ -24,7 +27,7 @@ export default function WorkoutCompletionPanel({
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
           <Check size={28} />
         </div>
-        <h3 className="mt-4 text-2xl font-black">Allenamento completato</h3>
+        <h3 className="mt-4 text-2xl font-black">Riepilogo allenamento</h3>
         <p className="mt-2 text-sm font-semibold text-slate-300">
           {complete
             ? "Hai completato tutte le serie programmate."
@@ -50,7 +53,7 @@ export default function WorkoutCompletionPanel({
         </div>
       </div>
 
-      <section className="space-y-5 rounded-[1.8rem] border border-slate-200 bg-white p-4 shadow-sm">
+      <fieldset disabled={busy || feedbackLocked} className="min-w-0 space-y-5 rounded-[1.8rem] border border-slate-200 bg-white p-4 shadow-sm">
         <div>
           <p className="text-sm font-black text-slate-800">RPE della sessione</p>
           <p className="mt-1 text-xs font-semibold text-slate-500">Quanto è stato impegnativo l’allenamento nel complesso?</p>
@@ -110,16 +113,31 @@ export default function WorkoutCompletionPanel({
             className="mt-2 min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900"
           />
         </label>
-      </section>
+      </fieldset>
 
+      {saveError && (
+        <p role="alert" className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
+          {saveError}
+        </p>
+      )}
       <button
         type="button"
         onClick={onConfirm}
         disabled={busy}
         className="w-full rounded-2xl bg-[#07111f] px-4 py-4 text-base font-black text-white shadow-sm disabled:opacity-50"
       >
-        {busy ? "Salvataggio riepilogo..." : "Salva e termina"}
+        {busy ? "Salvataggio riepilogo..." : feedbackLocked ? "Riprova salvataggio" : "Salva e termina"}
       </button>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={busy}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-50"
+        >
+          Torna alle serie
+        </button>
+      )}
     </div>
   );
 }
