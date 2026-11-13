@@ -23189,6 +23189,69 @@ function WorkoutDayPreviewModal({
 function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState("");
+  const [selectedDateLogs, setSelectedDateLogs] = useState({});
+  const [selectedDateLogsLoading, setSelectedDateLogsLoading] = useState(false);
+  const [selectedDateLogsError, setSelectedDateLogsError] = useState("");
+  const selectedDateRequestRef = useRef(0);
+
+  // Fetch the requested day's sets directly. Loading all six months at once
+  // was truncated by the PostgREST row cap and hid recent, already saved loads.
+  async function openWorkoutDate(dateKey) {
+    const requestId = ++selectedDateRequestRef.current;
+    setSelectedDateKey(dateKey);
+    setSelectedDateLogs({});
+    setSelectedDateLogsError("");
+
+    const daySessionIds = (sessions || [])
+      .filter((item) => String(item.session_date || item.created_at || "").slice(0, 10) === dateKey)
+      .map((item) => item.id)
+      .filter(Boolean);
+
+    if (!daySessionIds.length) {
+      setSelectedDateLogsLoading(false);
+      return;
+    }
+
+    setSelectedDateLogsLoading(true);
+    try {
+      const allLogs = [];
+      const pageSize = 250;
+      for (let offset = 0; offset < 5000; offset += pageSize) {
+        const { data, error } = await supabase
+          .from("workout_set_logs")
+          .select("*, workout_exercises(exercise_name)")
+          .in("session_id", daySessionIds)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+
+        if (error) throw error;
+        const page = data || [];
+        allLogs.push(...page);
+        if (page.length < pageSize) break;
+      }
+      if (allLogs.length >= 5000) {
+        throw new Error("Lo storico del giorno supera il limite di sicurezza della lettura.");
+      }
+      if (requestId !== selectedDateRequestRef.current) return;
+
+      const grouped = Object.fromEntries(daySessionIds.map((id) => [String(id), []]));
+      allLogs.forEach((log) => {
+        const key = String(log.session_id || "");
+        if (grouped[key]) grouped[key].push(log);
+      });
+      setSelectedDateLogs(grouped);
+    } catch (error) {
+      if (requestId === selectedDateRequestRef.current) {
+        console.warn("TMFIT caricamento serie per giornata:", error?.message || error);
+        setSelectedDateLogsError("Impossibile caricare i carichi. Riprova: i dati salvati non sono stati cancellati.");
+      }
+    } finally {
+      if (requestId === selectedDateRequestRef.current) {
+        setSelectedDateLogsLoading(false);
+      }
+    }
+  }
 
   function localDateKey(value) {
     const date = value instanceof Date ? value : new Date(value);
@@ -23295,7 +23358,10 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
   }
 
   function exerciseGroupsForSession(sessionItem) {
-    const sessionLogs = logsBySession.get(String(sessionItem.id)) || [];
+    const sessionId = String(sessionItem.id);
+    const sessionLogs = Object.prototype.hasOwnProperty.call(selectedDateLogs, sessionId)
+      ? selectedDateLogs[sessionId]
+      : (logsBySession.get(sessionId) || []);
     const groups = new Map();
 
     sessionLogs.forEach((log) => {
@@ -23368,7 +23434,7 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
                 key={key}
                 type="button"
                 disabled={outsideRange}
-                onClick={() => setSelectedDateKey(key)}
+                onClick={() => openWorkoutDate(key)}
                 className="flex min-w-0 flex-col items-center rounded-2xl px-1 py-2 disabled:opacity-30"
               >
                 <span className="text-[10px] font-black uppercase text-slate-400">
@@ -23468,14 +23534,28 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [] }) {
                         </h4>
                       </div>
                       <Pill className="bg-white text-slate-700">
-                        {totalSets} serie
+                        {selectedDateLogsLoading ? "Caricamento..." : selectedDateLogsError ? "Da ricaricare" : `${totalSets} serie`}
                       </Pill>
                     </div>
 
                     <div className="mt-4 space-y-3">
-                      {exerciseGroups.length === 0 && (
+                      {selectedDateLogsLoading && (
                         <p className="rounded-2xl bg-white p-3 text-sm font-semibold text-slate-500">
-                          Seduta registrata, ma senza carichi salvati.
+                          Recupero delle serie salvate...
+                        </p>
+                      )}
+                      {selectedDateLogsError && (
+                        <button
+                          type="button"
+                          onClick={() => openWorkoutDate(selectedDateKey)}
+                          className="w-full rounded-2xl bg-white p-3 text-left text-sm font-semibold text-rose-700"
+                        >
+                          {selectedDateLogsError} Tocca per riprovare.
+                        </button>
+                      )}
+                      {exerciseGroups.length === 0 && !selectedDateLogsLoading && !selectedDateLogsError && (
+                        <p className="rounded-2xl bg-white p-3 text-sm font-semibold text-slate-500">
+                          Nessuna serie salvata per questa seduta.
                         </p>
                       )}
 
@@ -23897,7 +23977,7 @@ function ClientDashboard({ session, userProfile, onLogout }) {
       sixMonthsAgo.getMonth() + 1
     ).padStart(2, "0")}-${String(sixMonthsAgo.getDate()).padStart(2, "0")}`;
 
-    const [calendarSessionsResult, calendarLogsResult, calendarPlansResult] =
+    const [calendarSessionsResult, calendarPlansResult] =
       await Promise.all([
         supabase
           .from("workout_sessions")
@@ -23906,15 +23986,6 @@ function ClientDashboard({ session, userProfile, onLogout }) {
           .gte("session_date", sixMonthsDate)
           .order("session_date", { ascending: false })
           .limit(500),
-        supabase
-          .from("workout_set_logs")
-          .select(
-            "*, workout_exercises(exercise_name), workout_sessions!inner(id, client_id, session_date, plan_id, day_id, status)"
-          )
-          .eq("workout_sessions.client_id", numericClientId)
-          .gte("workout_sessions.session_date", sixMonthsDate)
-          .order("created_at", { ascending: true })
-          .limit(3000),
         supabase
           .from("workout_plans")
           .select(
@@ -23938,15 +24009,11 @@ function ClientDashboard({ session, userProfile, onLogout }) {
     if (calendarSessionsResult.error) {
       console.warn(calendarSessionsResult.error.message);
     }
-    if (calendarLogsResult.error) {
-      console.warn(calendarLogsResult.error.message);
-    }
     if (calendarPlansResult.error) {
       console.warn(calendarPlansResult.error.message);
     }
 
     setWorkoutCalendarSessions(calendarSessionsResult.data || []);
-    setWorkoutCalendarLogs(calendarLogsResult.data || []);
     setWorkoutCalendarPlans(
       normalizePlans(calendarPlansResult.data || planData || [])
     );
@@ -24408,7 +24475,7 @@ function getExerciseHistory(exercise) {
         plan_id: planId,
         day_id: dayId,
         session_date: today(),
-        status: "completed",
+        status: "in_progress",
         started_at: new Date().toISOString()
       })
       .select()
@@ -24445,13 +24512,33 @@ function getExerciseHistory(exercise) {
     const sessionId = await getOrCreateWorkoutSession(plan.id, day.id);
     if (!sessionId) return false;
 
+    // Confirm persisted sets from Supabase before considering a workout completed.
+    const { data: savedSeries, error: savedSeriesError } = await supabase
+      .from("workout_set_logs")
+      .select("id, load_kg, reps_done, completed")
+      .eq("session_id", sessionId)
+      .eq("completed", true);
+
+    if (savedSeriesError) {
+      alert("Impossibile verificare i carichi salvati. Controlla la connessione e riprova.");
+      return false;
+    }
+
+    const confirmedSets = (savedSeries || []).filter((item) =>
+      item.load_kg !== null && item.reps_done !== null
+    ).length;
+    if (confirmedSets === 0 || confirmedSets < Math.max(0, Number(completedSets) || 0)) {
+      alert("Alcune serie non risultano salvate. Riapri l'allenamento e riprova prima di completarlo.");
+      return false;
+    }
+
     const { data, error } = await supabase.rpc(
       "tmfit_complete_workout_session",
       {
         p_session_id: String(sessionId),
         p_duration_seconds: Math.max(0, Number(durationSeconds) || 0),
-        p_completed_sets: Math.max(0, Number(completedSets) || 0),
-        p_planned_sets: Math.max(0, Number(plannedSets) || 0),
+        p_completed_sets: confirmedSets,
+        p_planned_sets: Math.max(confirmedSets, Number(plannedSets) || 0),
         p_session_rpe: numberOrNull(feedback?.session_rpe),
         p_session_feeling: feedback?.feeling || null,
         p_client_notes: feedback?.notes || null
@@ -24495,6 +24582,11 @@ function getExerciseHistory(exercise) {
     notes: draft.notes || null,
     completed: true
   };
+
+  if (payload.load_kg === null || payload.reps_done === null) {
+    alert("Peso e ripetizioni non validi: correggi i valori prima di salvare la serie.");
+    return false;
+  }
 
   let savedLog = null;
 
