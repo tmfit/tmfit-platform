@@ -1,4 +1,4 @@
-const TMFIT_SW_VERSION = "5.4";
+const TMFIT_SW_VERSION = "5.5";
 const WORKOUT_SHELL = "tmfit-workout-shell-v1";
 const shellUrl = new URL("/", self.location.origin).href;
 let preparingShell;
@@ -10,52 +10,61 @@ function isShellAsset(path) {
   return path.startsWith("/_next/static/") || path === "/tmfit-logo.png";
 }
 
-async function fetchWithDeadline(request, duration) {
+async function fetchWithDeadline(request, duration, consume = (response) => response) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), duration);
+  let timeout;
+  const deadline = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("Workout resource timed out"));
+    }, duration);
+  });
   try {
-    return await fetch(request, { signal: controller.signal });
+    return await Promise.race([fetch(request, { signal: controller.signal }).then(consume), deadline]);
   } finally {
     clearTimeout(timeout);
   }
 }
 
 function assetsForShell(html) {
-  return [...new Set(Array.from(html.matchAll(/(?:src|href)="(\/_next\/static\/[^"<>]+)"/g),
-    (match) => match[1])), "/tmfit-logo.png"];
+  const urls = Array.from(html.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"'<>]+)["']/g),
+    ([, path]) => new URL(path.replace(/&amp;/g, "&"), shellUrl).href);
+  return [...new Set(urls)];
 }
 
 async function prepareShell() {
   const cache = await caches.open(WORKOUT_SHELL);
   const previous = await cache.match(shellUrl);
   try {
-    const response = await fetchWithDeadline(new Request(shellUrl, { cache: "reload" }), 5_000);
-    if (!response.ok) throw new Error("Workout shell unavailable");
-    const html = await response.clone().text();
+    const { response, html } = await fetchWithDeadline(
+      new Request(shellUrl, { cache: "reload", redirect: "error" }), 5_000, async (response) => {
+        if (!response.ok) throw new Error("Workout shell unavailable");
+        return { response, html: await response.clone().text() };
+      }
+    );
     const assets = assetsForShell(html);
-    if (!html.includes('name="tmfit-offline-shell"') || assets.length < 2) {
+    if (!html.includes('name="tmfit-offline-shell"') || assets.length === 0) {
       throw new Error("Workout shell could not be identified");
     }
-    await Promise.all(assets.map(async (path) => {
-      const url = new URL(path, shellUrl).href;
+    await Promise.all(assets.map(async (url) => {
       if (await cache.match(url)) return;
-      const asset = await fetchWithDeadline(url, 8_000);
-      if (!asset.ok) throw new Error("Workout asset unavailable");
-      await cache.put(url, asset);
+      await fetchWithDeadline(new Request(url, { cache: "force-cache", redirect: "error" }), 8_000, async (asset) => {
+        if (!asset.ok) throw new Error("Workout asset unavailable");
+        await cache.put(url, asset);
+      });
     }));
-    await cache.put(shellUrl, response);
 
-    // Retain the previous shell's chunks during a deployment transition.
-    const keep = new Set(["/", ...assets, ...assetsForShell(previous ? await previous.text() : "")]);
+    // Retain the previous shell's chunks, including any deployment query parameters.
+    const keep = new Set([shellUrl, ...assets, ...assetsForShell(previous ? await previous.clone().text() : "")]);
+    await cache.put(shellUrl, response);
     await Promise.all((await cache.keys()).map((request) => {
-      if (!keep.has(new URL(request.url).pathname)) return cache.delete(request);
+      if (isShellAsset(new URL(request.url).pathname) && !keep.has(request.url)) return cache.delete(request);
     }));
-    return true;
+    return (await Promise.all(assets.map((url) => cache.match(url)))).every(Boolean);
   } catch {
     if (!previous) return false;
     const assets = assetsForShell(await previous.text().catch(() => ""));
-    const cachedAssets = await Promise.all(assets.map((path) => cache.match(new URL(path, shellUrl).href)));
-    return assets.length > 1 && cachedAssets.every(Boolean);
+    return assets.length > 0 && (await Promise.all(assets.map((url) => cache.match(url)))).every(Boolean);
   }
 }
 
