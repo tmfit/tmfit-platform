@@ -8518,122 +8518,114 @@ async function downloadSavedProgramExcel(program, clientName = "Cliente") {
   if (!program) throw new Error("Programma non disponibile.");
 
   const XLSX = await loadWorkoutExcelLibrary();
-  const configuredWeekNumbers = tmfitWorkoutConfiguredWeekNumbers(program);
-  const durationWeeks = configuredWeekNumbers.length
-    ? Math.max(...configuredWeekNumbers)
-    : Math.max(1, Math.min(12, Number(program.duration_weeks) || 4));
-  const exportWeekCount = Math.max(4, durationWeeks);
   const days = savedProgramWorkoutDays(program);
+  if (!days.length) throw new Error("La scheda non contiene allenamenti da esportare.");
 
-  if (days.length === 0) {
-    throw new Error("La scheda salvata non contiene allenamenti esportabili.");
-  }
+  // Use the TMFIT workbook as a base, retaining the other worksheets.
+  // SCHEDA follows the user-provided FINAL layout: A-I and week columns.
+  const response = await fetch("/tmfit-workout-template.xlsx", { cache: "no-store" });
+  if (!response.ok) throw new Error("Modello Excel TMFIT non disponibile.");
+  const workbook = XLSX.read(await response.arrayBuffer(), {
+    type: "array",
+    cellStyles: true
+  });
+  const source = workbook.Sheets?.SCHEDA;
+  if (!source) throw new Error("Il modello Excel non contiene il foglio SCHEDA.");
 
-  const workbook = XLSX.utils.book_new();
-  const currentYear = new Date().getFullYear();
-  const safeClientName = String(clientName || "Cliente").trim() || "Cliente";
-  const configRows = [
-    ["CONFIGURAZIONE PIANO ALLENAMENTO", "", "", ""],
-    ["", "", "", ""],
-    ["Nome e Cognome", safeClientName, "", "ISTRUZIONI"],
-    ["Durata", `${durationWeeks} settimane`, "", "1. Il file è stato ricreato dalla scheda salvata in TMFIT."],
-    ["Obiettivo", program.goal || "", "", "2. Le colonne SETT. riportano la progressione salvata nell'app."],
-    ["Numero allenamenti", days.length, "", "3. Se non c'è progressione viene compilata SERIE/RIP FISSE."],
-    ["Note generali", program.notes || "", "", "4. Superset e triset mantengono il gruppo salvato nella scheda."],
-    ["Anno / Codice", `${currentYear} / WO`, "", "5. Il file può essere modificato e reimportato nel builder TMFIT."],
-    ["", "", "", "6. La banca dati esercizi è disponibile nel foglio BANCA DATI."],
-    ["", "", "", "7. Le schede salvate nel database non vengono modificate dal download."]
-  ];
-
-  const configSheet = XLSX.utils.aoa_to_sheet(configRows);
-  configSheet["!cols"] = [
-    { wch: 24 },
-    { wch: 30 },
-    { wch: 4 },
-    { wch: 72 }
-  ];
-  configSheet["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }
-  ];
-  XLSX.utils.book_append_sheet(workbook, configSheet, "CONFIG");
-
+  const weeks = tmfitWorkoutConfiguredWeekNumbers(program);
+  const weekCount = Math.max(4, weeks.length, Number(program.duration_weeks) || 4);
+  const client = String(clientName || "Cliente").trim() || "Cliente";
+  const allExercises = days.flatMap((day) =>
+    sortByOrder((day?.workout_blocks || []).flatMap((block) => block.workout_exercises || []))
+  );
   const header = [
-    "ESERCIZIO",
-    "SERIE/RIP FISSE",
-    "RECUPERO",
-    "MODALITÀ ESECUZIONE",
-    "SUPERSET",
-    ...Array.from({ length: exportWeekCount }).map((_, index) => `SETT. ${index + 1}`)
+    "ESERCIZIO", "SERIE/RIP", "RECUPERO", "MODALITÀ ESECUZIONE",
+    "SUPERSET/TRISET",
+    ...Array.from({ length: weekCount }, (_, index) => `SETT. ${index + 1}`)
   ];
-  const sheetRows = [];
-  const mergeRows = [];
-  const titleLastColumn = header.length - 1;
+  const blank = () => Array(header.length).fill("");
+  const rows = [
+    ["TMFIT · SCHEDA ALLENAMENTO — ESPORTAZIONE BUILDER"],
+    ["Scheda compilata automaticamente da TMFIT. Ogni riga contiene un esercizio; le settimane riportano le progressioni salvate."],
+    ["Cliente", "", "Durata", "", "Obiettivo", "", "Frequenza", "", "Totale esercizi"],
+    ["", client, "", `${weekCount} settimane`, "", program.goal || "", "", `${days.length} giorni`, allExercises.length],
+    blank(),
+    header
+  ];
+  const rowKinds = ["title", "description", "metadata", "metadata", "blank", "columns"];
+  const numberOfDays = Math.max(3, days.length);
 
-  sheetRows.push([
-    `${currentYear} / WO – ${durationWeeks} settimane – ${safeClientName}`,
-    ...Array.from({ length: titleLastColumn }).map(() => "")
-  ]);
-  mergeRows.push({ s: { r: 0, c: 0 }, e: { r: 0, c: titleLastColumn } });
-  sheetRows.push([]);
-  sheetRows.push(["Nome", safeClientName]);
-  sheetRows.push(["Durata", `${durationWeeks} settimane`]);
-  sheetRows.push(["Obiettivo", program.goal || ""]);
-  sheetRows.push(["N. allenamenti", days.length]);
-  sheetRows.push([]);
-
-  days.forEach((day, dayIndex) => {
-    const headingRowIndex = sheetRows.length;
-    sheetRows.push([
-      workoutExcelDayHeading(day, dayIndex),
-      ...Array.from({ length: titleLastColumn }).map(() => "")
+  for (let dayIndex = 0; dayIndex < numberOfDays; dayIndex += 1) {
+    const day = days[dayIndex];
+    const exercises = day
+      ? sortByOrder((day.workout_blocks || []).flatMap((block) => block.workout_exercises || []))
+      : [];
+    rows.push([
+      `ALLENAMENTO ${String.fromCharCode(65 + dayIndex)}`,
+      `${exercises.length} esercizi`,
+      day?.title || (day ? "" : "Nessun esercizio")
     ]);
-    mergeRows.push({
-      s: { r: headingRowIndex, c: 0 },
-      e: { r: headingRowIndex, c: titleLastColumn }
-    });
-    sheetRows.push(header);
-
-    const exercises = sortByOrder(
-      (day?.workout_blocks || []).flatMap((block) => block.workout_exercises || [])
-    );
+    rowKinds.push("day");
 
     exercises.forEach((exercise) => {
-      const recovery = String(exercise.recovery_seconds || "").trim();
+      const base = workoutSetsRepsDisplay(exercise.sets || "", exercise.reps || "", "");
       const row = [
         exercise.exercise_name || "",
-        workoutExcelFixedPrescription(exercise),
-        recovery ? compactWorkoutRecoveryLabel(recovery) : "",
+        base,
+        compactWorkoutRecoveryLabel(exercise.recovery_seconds || ""),
         workoutExcelExecutionText(exercise),
         workoutExcelGroupText(exercise)
       ];
-
-      for (let weekNumber = 1; weekNumber <= exportWeekCount; weekNumber += 1) {
+      for (let weekNumber = 1; weekNumber <= weekCount; weekNumber += 1) {
         row.push(
-          weekNumber <= durationWeeks
-            ? workoutExcelProgressionPrescription(exercise, weekNumber)
-            : ""
+          workoutExcelProgressionPrescription(exercise, weekNumber) ||
+            (exercise.has_weekly_progression && weekNumber === 1 ? base : "")
         );
       }
-
-      sheetRows.push(row);
+      rows.push(row);
+      rowKinds.push("exercise");
     });
+    // Preserve 21 rows per day from the user's model; expand when necessary.
+    for (let i = exercises.length; i < 21; i += 1) {
+      rows.push(blank());
+      rowKinds.push("exercise");
+    }
+  }
 
-    sheetRows.push([]);
+  rows.push([
+    "REGOLE IMPORTANTI: un esercizio per riga; il foglio SCHEDA contiene esercizi, modalità, superset/triset e progressioni."
+  ]);
+  rowKinds.push("footer");
+
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  const styleRowByKind = {
+    title: 0, description: 1, metadata: 3, blank: 4,
+    columns: 5, day: 6, exercise: 7, footer: 72
+  };
+  rows.forEach((row, rowIndex) => {
+    const sourceRow = styleRowByKind[rowKinds[rowIndex]];
+    for (let colIndex = 0; colIndex < header.length; colIndex += 1) {
+      const addr = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+      const refAddr = XLSX.utils.encode_cell({ r: sourceRow, c: Math.min(colIndex, 8) });
+      const sourceCell = source[refAddr];
+      if (!sourceCell || sourceCell.s === undefined) continue;
+      if (!sheet[addr]) sheet[addr] = { t: "z" };
+      sheet[addr].s = sourceCell.s;
+    }
   });
-
-  const scheduleSheet = XLSX.utils.aoa_to_sheet(sheetRows);
-  scheduleSheet["!merges"] = mergeRows;
-  applyWorkoutExcelSheetSizing(scheduleSheet, exportWeekCount);
-  scheduleSheet["!rows"] = sheetRows.map((row, index) => ({
-    hpt: index === 0 ? 24 : row?.[0]?.startsWith?.("ALLENAMENTO") ? 22 : 18
+  sheet["!cols"] = [
+    { wch: 32 }, { wch: 19 }, { wch: 15 }, { wch: 37 },
+    { wch: 17 }, ...Array.from({ length: weekCount }, () => ({ wch: 22 }))
+  ];
+  sheet["!rows"] = rowKinds.map((kind) => ({
+    hpt: kind === "title" ? 30 : kind === "day" ? 25 : kind === "description" ? 25 : 22
   }));
-  XLSX.utils.book_append_sheet(workbook, scheduleSheet, "SCHEDA");
-  await appendWorkoutExerciseBankFromTemplate(XLSX, workbook);
-
-  const timestamp = new Date().toISOString().slice(0, 10);
-  const filename = `TMFIT-${safeWorkoutExcelFilePart(safeClientName, "cliente")}-${safeWorkoutExcelFilePart(program.title || "scheda", "scheda")}-${timestamp}.xlsx`;
-
-  XLSX.writeFile(workbook, filename, { compression: true });
+  workbook.Sheets.SCHEDA = sheet;
+  XLSX.writeFile(
+    workbook,
+    `TMFIT-${safeWorkoutExcelFilePart(client, "cliente")}-${safeWorkoutExcelFilePart(program.title || "scheda", "scheda")}.xlsx`,
+    { compression: true, cellStyles: true }
+  );
 }
 
 function dietExtractToNotesBlock(extractedDiet) {
@@ -19791,14 +19783,21 @@ function PlansList({
   const draftCount = plans.filter(isProgramDraft).length;
   const hiddenCount = plans.filter(isProgramRemoved).length;
   const [compactProgramId, setCompactProgramId] = useState("");
-  function openCompleteWorkoutExcel() {
-    // One canonical workbook: SCHEDA + exercise bank distributed with the app.
-    const link = document.createElement("a");
-    link.href = "/tmfit-workout-template.xlsx";
-    link.download = "tmfit-workout-template.xlsx";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+  const [exportingProgramId, setExportingProgramId] = useState("");
+
+  async function exportProgramExcel(plan) {
+    if (!plan) return;
+    setExportingProgramId(String(plan.id));
+    try {
+      await downloadSavedProgramExcel(
+        plan,
+        selectedClient ? fullName(selectedClient) : "Cliente"
+      );
+    } catch (error) {
+      alert(error?.message || "Impossibile compilare il modello Excel della scheda.");
+    } finally {
+      setExportingProgramId("");
+    }
   }
 
   return (
@@ -19932,11 +19931,12 @@ function PlansList({
                   </Button>
 
                   <Button
-                    onClick={openCompleteWorkoutExcel}
-                    title="Scarica il modello Excel unico TMFIT con banca esercizi"
+                    onClick={() => exportProgramExcel(plan)}
+                    disabled={String(exportingProgramId) === String(plan.id)}
+                    title="Esporta la scheda compilata del cliente nel modello Excel TMFIT"
                     className="border border-emerald-200 bg-emerald-50 text-emerald-800"
                   >
-                    Excel
+                    {String(exportingProgramId) === String(plan.id) ? "Compilazione..." : "Excel"}
                   </Button>
 
                   <Button
