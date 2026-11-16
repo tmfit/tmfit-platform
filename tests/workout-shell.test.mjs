@@ -5,15 +5,21 @@ import { runInNewContext } from "node:vm";
 
 const origin = "https://tmfit.example";
 const script = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
-const appChunk = "/_next/static/chunks/app/page-12.js";
-const style = "/_next/static/css/base-34.css";
+const appChunk = "/_next/static/chunks/app/page-1234567890abcdef.js";
+const style = "/_next/static/css/0123456789abcdef.css";
 
 function serviceWorker(shell, serve = () => new Response("asset")) {
   const listeners = {};
   const requests = [];
   const files = new Map();
   const cache = {
-    match(url) { return files.get(String(url))?.clone(); },
+    match(request, { ignoreSearch = false } = {}) {
+      const url = new URL(request.url || request);
+      const key = ignoreSearch
+        ? [...files.keys()].find((candidate) => candidate.split("?")[0] === url.origin + url.pathname)
+        : url.href;
+      return files.get(key)?.clone();
+    },
     async put(url, response) {
       const body = await response.arrayBuffer();
       files.set(String(url), new Response(body, { headers: response.headers }));
@@ -29,11 +35,11 @@ function serviceWorker(shell, serve = () => new Response("asset")) {
     URL, Request, AbortController,
     setTimeout: (callback, milliseconds) => setTimeout(callback, Math.min(milliseconds, 80)),
     clearTimeout,
-    caches: { open: async () => cache },
+    caches: { open: async () => cache, match: async (request, options) => cache.match(request, options) },
     fetch: async (request, options) => {
       const path = new URL(request.url || request).pathname;
       requests.push(path);
-      return path === "/" ? new Response(shell) : serve(path, options.signal);
+      return path === "/" ? new Response(shell) : serve(path, options?.signal);
     }
   });
 
@@ -47,11 +53,18 @@ function serviceWorker(shell, serve = () => new Response("asset")) {
     });
   }
 
-  return { prepare, requests, files };
+  function requestAsset(path) {
+    return new Promise((resolve) => listeners.fetch({
+      request: new Request(origin + path),
+      respondWith: resolve
+    }));
+  }
+
+  return { prepare, requestAsset, requests, files };
 }
 
-function shell(chunk = appChunk) {
-  return `<meta name="tmfit-offline-shell" content="1"><script src="${chunk}"></script><link href="${style}" rel="stylesheet">`;
+function shell(chunk = appChunk, stylesheet = style) {
+  return `<meta name="tmfit-offline-shell" content="1"><script src="${chunk}"></script><link href="${stylesheet}" rel="stylesheet">`;
 }
 
 test("the cached shell retains the complete URL of a versioned Next.js asset", async () => {
@@ -59,6 +72,19 @@ test("the cached shell retains the complete URL of a versioned Next.js asset", a
   const worker = serviceWorker(shell(chunk));
   assert.equal(await worker.prepare(), true);
   assert.equal(worker.files.has(`${origin}${chunk}`), true);
+});
+
+test("runtime requests without the deployment query reuse cached content-hashed assets", async () => {
+  let online = true;
+  const worker = serviceWorker(shell(`${appChunk}?dpl=dpl_test`, `${style}?dpl=dpl_test`), (path) => {
+    if (!online) throw new Error("offline");
+    return new Response(path);
+  });
+  assert.equal(await worker.prepare(), true);
+  online = false;
+  assert.equal(await (await worker.requestAsset(appChunk)).text(), appChunk);
+  assert.equal(await (await worker.requestAsset(style)).text(), style);
+  await assert.rejects(worker.requestAsset(`${appChunk}?dpl=dpl_other`), /offline/);
 });
 
 test("preparing a workout does not depend on downloading the logo", async () => {

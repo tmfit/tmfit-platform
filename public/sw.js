@@ -1,4 +1,4 @@
-const TMFIT_SW_VERSION = "5.5";
+const TMFIT_SW_VERSION = "5.6";
 const WORKOUT_SHELL = "tmfit-workout-shell-v1";
 const shellUrl = new URL("/", self.location.origin).href;
 let preparingShell;
@@ -91,7 +91,12 @@ self.addEventListener("fetch", (event) => {
     })());
   } else if (isShellAsset(url.pathname)) {
     event.respondWith((async () => {
-      const cached = await caches.match(request, { cacheName: WORKOUT_SHELL }).catch(() => undefined);
+      const options = { cacheName: WORKOUT_SHELL };
+      let cached = await caches.match(request, options).catch(() => undefined);
+      // The runtime can request the same content-hashed asset without Vercel's deployment query.
+      if (!cached && !url.search && /^\/_next\/static\/(?:chunks\/.*-|css\/)[a-f0-9]{8,}\.(?:js|css)$/.test(url.pathname)) {
+        cached = await caches.match(request, { ...options, ignoreSearch: true }).catch(() => undefined);
+      }
       return cached || fetch(request);
     })());
   }
