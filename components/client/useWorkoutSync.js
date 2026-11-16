@@ -18,6 +18,7 @@ function syncErrorKind(error) {
 export default function useWorkoutSync(database, userId, canSync, sessionExpiresAt) {
   const [records, setRecords] = useState([]);
   const [syncErrors, setSyncErrors] = useState({});
+  const [activeUpload, setActiveUpload] = useState(null);
   const refresh = useRef(() => {});
   const retry = useRef(() => {});
 
@@ -38,7 +39,8 @@ export default function useWorkoutSync(database, userId, canSync, sessionExpires
     }
 
     function report(record, error) {
-      if (!stopped) setSyncErrors((current) => ({ ...current, [record.sessionId]: error }));
+      if (!stopped) setSyncErrors((current) =>
+        (current[record.sessionId] || null) === error ? current : { ...current, [record.sessionId]: error });
     }
 
     async function run() {
@@ -57,14 +59,17 @@ export default function useWorkoutSync(database, userId, canSync, sessionExpires
           if (stopped || navigator.onLine === false) break;
           if (record.revision <= record.syncedRevision || paused.get(record.sessionId) === record.revision) continue;
           try {
+            report(record, null);
+            setActiveUpload({ sessionId: record.sessionId, revision: record.revision });
             const receipt = await syncWorkout(database, record);
             await acknowledgeWorkout(record, receipt);
-            report(record, null);
           } catch (error) {
             const kind = syncErrorKind(error);
             report(record, kind);
             if (kind === "network") retryLater = true;
             else paused.set(record.sessionId, record.revision);
+          } finally {
+            if (!stopped) setActiveUpload(null);
           }
         }
       } catch {
@@ -100,6 +105,7 @@ export default function useWorkoutSync(database, userId, canSync, sessionExpires
     window.addEventListener("pageshow", resume);
     document.addEventListener("visibilitychange", onVisible);
     setSyncErrors({});
+    setActiveUpload(null);
     void run();
     return () => {
       stopped = true;
@@ -111,5 +117,5 @@ export default function useWorkoutSync(database, userId, canSync, sessionExpires
     };
   }, [database, userId, canSync, sessionExpiresAt]);
 
-  return { records, syncErrors, refresh, retry };
+  return { records, syncErrors, activeUpload, refresh, retry };
 }

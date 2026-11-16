@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  completedWorkoutDays, syncWorkout, workoutSeries, workoutWeekAtDate
+  completedWorkoutDays, syncWorkout, workoutSeries, workoutUploadLabel, workoutWeekAtDate
 } from "../lib/workout-offline.mjs";
 
 const plan = {
@@ -33,6 +33,15 @@ test("series parsing accepts zero and Italian decimal input without truncating r
   assert.equal(workoutSeries(exercise, set, { load_kg: "25,5", reps_done: "8" }).load_kg, 25.5);
   assert.equal(workoutSeries(exercise, set, { load_kg: "25", reps_done: "8,5" }), null);
   assert.equal(workoutSeries(exercise, set, { load_kg: "25 kg", reps_done: "8" }), null);
+});
+
+test("the upload label tracks the current revision and only confirms an acknowledged save", () => {
+  const record = { sessionId: "first", revision: 3, syncedRevision: 2 };
+  const current = { sessionId: "first", revision: 3 };
+  assert.equal(workoutUploadLabel(record, current, true), "Caricamento al database in background…");
+  assert.equal(workoutUploadLabel(record, current, false), "In attesa di sincronizzazione");
+  assert.equal(workoutUploadLabel(record, { ...current, revision: 2 }, true), "In attesa di sincronizzazione");
+  assert.equal(workoutUploadLabel({ ...record, syncedRevision: 3 }, current, true), "Sincronizzato");
 });
 
 test("replaying a completed snapshot uses the same id and revision and requires a server confirmation", async () => {

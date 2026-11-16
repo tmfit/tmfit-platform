@@ -25,6 +25,7 @@ import {
   workoutRequest,
   workoutSeries,
   workoutSeriesKey,
+  workoutUploadLabel,
   workoutUuid,
   workoutWeekAtDate,
   writeWorkout
@@ -20538,7 +20539,7 @@ function ExerciseHistoryBox({ history = [] }) {
   );
 }
 
-function WorkoutPlayerModal({ record, syncedRecord, syncError, onClose, onReload, onRepeat,
+function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onClose, onReload, onRepeat,
   onRetrySync, onReauthenticate, getExerciseHistory, offlineReady, online, canSync }) {
   const plan = record.plan;
   const day = record.day;
@@ -20569,7 +20570,12 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, onClose, onReload
   const latestSnapshot = useRef(resume);
   const storedSummary = local.saved.summary || syncedRecord?.summary;
   const synced = Boolean(syncedRecord?.receipt?.session?.completed_at || record.receipt?.session?.completed_at);
-  const pending = Math.max(local.saved.revision, syncedRecord?.revision || 0) > (syncedRecord?.syncedRevision ?? record.syncedRevision);
+  const uploadState = {
+    sessionId: record.sessionId,
+    revision: Math.max(local.saved.revision, syncedRecord?.revision || 0),
+    syncedRevision: syncedRecord?.syncedRevision ?? record.syncedRevision
+  };
+  const pending = uploadState.revision > uploadState.syncedRevision;
   const conflicting = local.error instanceof WorkoutChangedError;
   const sessionStartedAt = record.startedAt;
 
@@ -21214,8 +21220,8 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, onClose, onReload
                   {conflicting ? "Ricarica seduta" : "Riprova"}
                 </button>
               </p>
-            ) : local.writing ? <p>Salvataggio sul dispositivo…</p> : <p>Salvato sul dispositivo</p>}
-            {!local.error && (pending || synced || local.saved.revision > 0) && <p>{pending ? "In attesa di sincronizzazione" : "Sincronizzato"}</p>}
+            ) : local.writing ? <p>Salvataggio sul dispositivo…</p> : (!storedSummary && !synced && <p>Salvato sul dispositivo</p>)}
+            {!local.error && (pending || synced || local.saved.revision > 0) && <p>{workoutUploadLabel(uploadState, activeUpload, online)}</p>}
             {pending && (syncError === "login" || (online && !canSync)) && <button className="underline" type="button" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
             {pending && syncError === "changed" && <p>La scheda è cambiata. Le serie restano su questo dispositivo.</p>}
             {pending && syncError === "migration" && <p>Salvataggio online momentaneamente non disponibile.</p>}
@@ -21224,7 +21230,7 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, onClose, onReload
           {validationError && <p role="alert" className="mb-3 text-sm font-bold text-red-700">{validationError}</p>}
           {storedSummary || synced ? (
             <Card className="space-y-3 p-4">
-              <h3 className="text-lg font-black">{synced ? "Allenamento confermato" : "Seduta salvata sul dispositivo"}</h3>
+              <h3 className="text-lg font-black">{synced ? "Allenamento confermato" : "Seduta salvata sul telefono"}</h3>
               <p className="text-sm text-slate-600">{storedSummary?.completed_sets ?? syncedRecord?.receipt?.session?.completed_sets ?? record.receipt?.session?.completed_sets} serie registrate.</p>
               {pending && <ul className="space-y-2 text-sm text-slate-700">
                 {Object.values((syncedRecord?.summary ? syncedRecord : local.saved).series).map((entry) => (
@@ -23627,8 +23633,12 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
   const offlinePreparation = useRef(null);
   const [pendingRestAdvance, setPendingRestAdvance] = useState(false);
   const [workoutDayPreview, setWorkoutDayPreview] = useState(null);
-  const { records, syncErrors, refresh: refreshWorkouts, retry: retrySync } = useWorkoutSync(supabase, userId, canSync, session.expires_at);
+  const { records, syncErrors, activeUpload, refresh: refreshWorkouts, retry: retrySync } = useWorkoutSync(supabase, userId, canSync, session.expires_at);
   const workoutRecords = useMemo(() => records.filter((record) => String(record.clientId) === String(client?.id)), [records, client?.id]);
+  const workoutActivity = useMemo(() => [...workoutRecords]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((record, index) => index === 0 || !record.receipt?.session?.completed_at || record.revision > record.syncedRevision),
+  [workoutRecords]);
   const { workoutCalendarSessions, workoutCalendarLogs } = useMemo(() => {
     const sessions = new Map(remoteWorkoutSessions.map((item) => [item.id, item]));
     const logs = [];
@@ -24854,19 +24864,28 @@ function getExerciseHistory(exercise) {
               {failedWorkoutOpen.current && <button type="button" className="font-bold underline" onClick={() => openWorkoutPlayer(...failedWorkoutOpen.current)}>Riprova</button>}
             </p>}
             {localOnly && online && <button type="button" className="font-bold underline" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
-            {workoutRecords.filter((record) => !record.receipt?.session?.completed_at || record.revision > record.syncedRevision)
-              .sort((a, b) => b.updatedAt - a.updatedAt).map((record) => (
-                <div key={record.key} className="flex flex-wrap items-center justify-between gap-2">
-                  <p>{record.day.title || "Seduta"} · {record.revision > record.syncedRevision ? "In attesa di sincronizzazione" : "Salvato sul dispositivo"}</p>
+            {workoutActivity.map((record) => {
+              const pending = record.revision > record.syncedRevision;
+              const confirmed = !pending && Boolean(record.receipt?.session?.completed_at);
+              const syncError = syncErrors[record.sessionId];
+              return (
+                <div key={record.key} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                  <div aria-live="polite">
+                    <p className="font-bold">{record.day.title || "Seduta"}</p>
+                    <p>{confirmed ? "Sincronizzato · Nello storico" : record.summary ? "Seduta salvata sul telefono" : "Bozza salvata sul telefono"}</p>
+                    {pending && <p>{workoutUploadLabel(record, activeUpload, online)}</p>}
+                    {pending && syncError === "migration" && <p>Salvataggio online momentaneamente non disponibile.</p>}
+                  </div>
                   <button type="button" className="font-bold underline" onClick={async () => {
                     try {
                       const latest = await readWorkout(record.key);
                       if (latest) showWorkout(await resumeWorkout(latest));
                     } catch { setWorkoutOpenError("Impossibile leggere la seduta sul dispositivo. Riprova."); }
-                  }}>{record.summary ? "Apri riepilogo" : "Riprendi seduta"}</button>
-                  {online && syncErrors[record.sessionId] === "login" && <button type="button" className="font-bold underline" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
+                  }}>{record.summary || confirmed ? "Apri riepilogo" : "Riprendi seduta"}</button>
+                  {pending && online && syncError === "login" && !localOnly && <button type="button" className="font-bold underline" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
                 </div>
-              ))}
+              );
+            })}
           </div>
         )}
 
@@ -25749,6 +25768,7 @@ function getExerciseHistory(exercise) {
   record={workoutPlayer}
   syncedRecord={workoutRecords.find((item) => item.sessionId === workoutPlayer.sessionId)}
   syncError={syncErrors[workoutPlayer.sessionId]}
+  activeUpload={activeUpload}
   onClose={closeWorkoutPlayer}
   onReload={reloadWorkout}
   onRepeat={() => openWorkoutPlayer(workoutPlayer.plan, workoutPlayer.day, workoutPlayer.selectedWeek, workoutPlayer.sessionId)}
