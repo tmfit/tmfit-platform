@@ -8,7 +8,7 @@ const script = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8")
 const appChunk = "/_next/static/chunks/app/page-1234567890abcdef.js";
 const style = "/_next/static/css/0123456789abcdef.css";
 
-function serviceWorker(shell, serve = () => new Response("asset")) {
+function serviceWorker(shell, serve = () => new Response("asset"), openCache = () => {}) {
   const listeners = {};
   const requests = [];
   const files = new Map();
@@ -35,7 +35,10 @@ function serviceWorker(shell, serve = () => new Response("asset")) {
     URL, Request, AbortController,
     setTimeout: (callback, milliseconds) => setTimeout(callback, Math.min(milliseconds, 80)),
     clearTimeout,
-    caches: { open: async () => cache, match: async (request, options) => cache.match(request, options) },
+    caches: {
+      open: async () => { await openCache(); return cache; },
+      match: async (request, options) => cache.match(request, options)
+    },
     fetch: async (request, options) => {
       const path = new URL(request.url || request).pathname;
       requests.push(path);
@@ -43,10 +46,10 @@ function serviceWorker(shell, serve = () => new Response("asset")) {
     }
   });
 
-  function prepare() {
+  function prepare(download = true) {
     return new Promise((resolve) => {
       listeners.message({
-        data: { type: "TMFIT_PREPARE_WORKOUT" },
+        data: { type: "TMFIT_PREPARE_WORKOUT", download },
         ports: [{ postMessage: ({ ready }) => resolve(ready) }],
         waitUntil() {}
       });
@@ -95,6 +98,16 @@ test("preparing a workout does not depend on downloading the logo", async () => 
   assert.equal(worker.requests.includes("/tmfit-logo.png"), false);
 });
 
+test("checking an offline workout uses the verified cache without making a new request", async () => {
+  const worker = serviceWorker(shell());
+  assert.equal(await worker.prepare(false), false);
+  assert.equal(worker.requests.length, 0);
+  assert.equal(await worker.prepare(), true);
+  const networkRequests = worker.requests.length;
+  assert.equal(await worker.prepare(false), true);
+  assert.equal(worker.requests.length, networkRequests);
+});
+
 test("a stalled asset body times out and the next preparation can retry", async () => {
   let stall = true;
   const worker = serviceWorker(shell(), (path, signal) => {
@@ -111,4 +124,12 @@ test("a stalled asset body times out and the next preparation can retry", async 
   } finally {
     clearTimeout(keepAlive);
   }
+});
+
+test("a stalled cache open does not block later preparation attempts", async () => {
+  let blocked = true;
+  const worker = serviceWorker(shell(), undefined, () => blocked ? new Promise(() => {}) : undefined);
+  assert.equal(await worker.prepare(), false);
+  blocked = false;
+  assert.equal(await worker.prepare(), true);
 });

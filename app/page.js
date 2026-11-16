@@ -23461,6 +23461,7 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
   const [offlineStorageError, setOfflineStorageError] = useState(false);
   const [shellReady, setShellReady] = useState(false);
   const [preparingOffline, setPreparingOffline] = useState(false);
+  const [offlinePreparationIssue, setOfflinePreparationIssue] = useState("");
   const openingWorkout = useRef(false);
   const recoveryChecked = useRef(false);
   const offlinePreparation = useRef(null);
@@ -23562,24 +23563,31 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
     if (canSync && online) void loadClientArea();
   }, [userId, canSync, online]);
 
-  async function prepareOffline() {
+  function prepareOffline() {
     if (offlinePreparation.current) return offlinePreparation.current;
-    setPreparingOffline(true);
-    const preparation = prepareWorkoutShell().then(setShellReady).catch(() => setShellReady(false)).finally(() => {
-      offlinePreparation.current = null;
-      setPreparingOffline(false);
-    });
+    setPreparingOffline(online);
+    setOfflinePreparationIssue("");
+    const preparation = prepareWorkoutShell(online)
+      .catch(() => "browser")
+      .then((result) => {
+        setShellReady(result === "ready");
+        setOfflinePreparationIssue(online && result !== "ready" ? result : "");
+      })
+      .finally(() => {
+        offlinePreparation.current = null;
+        setPreparingOffline(false);
+      });
     offlinePreparation.current = preparation;
     return preparation;
   }
 
   useEffect(() => {
-    if (!canSync && !offlineAccount) return;
+    if (!offlineAccount) return;
     const prepare = () => { void prepareOffline(); };
     navigator.serviceWorker?.addEventListener("controllerchange", prepare);
     prepare();
     return () => navigator.serviceWorker?.removeEventListener("controllerchange", prepare);
-  }, [canSync, Boolean(offlineAccount), online]);
+  }, [Boolean(offlineAccount), online]);
 
   // V5.3: la dieta attiva viene ricontrollata quando la PWA torna in primo piano
   // e in tempo reale quando cambia il record su Supabase. In questo modo una
@@ -24686,8 +24694,14 @@ function getExerciseHistory(exercise) {
           <div className="space-y-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
             <p role="status" className="font-bold">
               {offlineReady ? "Scheda pronta offline" : offlineStorageError ? "Salvataggio sul dispositivo non riuscito"
-                : preparingOffline ? "Preparazione offline in corso…" : "Scheda da scaricare per l’uso offline"}
+                : preparingOffline ? "Preparazione offline in corso…" : offlinePreparationIssue ? "Scheda non pronta offline"
+                : "Scheda da scaricare per l’uso offline"}
             </p>
+            {!offlineReady && !localOnly && offlinePreparationIssue && (
+              <p>{offlinePreparationIssue === "browser" ? "Apri TMFIT direttamente in Safari o Chrome e riprova."
+                : offlinePreparationIssue === "storage" ? "Il browser non ha salvato i file per l’uso offline."
+                : "Il download per l’uso offline non è riuscito. Puoi comunque iniziare la seduta online."}</p>
+            )}
             {!offlineReady && localOnly && <p>Collegati a Internet e apri Allenamento per preparare la scheda.</p>}
             {!offlineReady && !localOnly && !preparingOffline && <button type="button" className="font-bold underline" onClick={() => {
               if (offlineStorageError || !offlineAccount?.plans?.length) void loadClientArea();

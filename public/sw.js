@@ -1,4 +1,4 @@
-const TMFIT_SW_VERSION = "5.6";
+const TMFIT_SW_VERSION = "5.7";
 const WORKOUT_SHELL = "tmfit-workout-shell-v1";
 const shellUrl = new URL("/", self.location.origin).href;
 let preparingShell;
@@ -10,35 +10,56 @@ function isShellAsset(path) {
   return path.startsWith("/_next/static/") || path === "/tmfit-logo.png";
 }
 
-async function fetchWithDeadline(request, duration, consume = (response) => response) {
+async function withDeadline(run, duration) {
   const controller = new AbortController();
   let timeout;
   const deadline = new Promise((_, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
-      reject(new Error("Workout resource timed out"));
+      const error = new Error("Workout resource timed out");
+      error.name = "TimeoutError";
+      reject(error);
     }, duration);
   });
   try {
-    return await Promise.race([fetch(request, { signal: controller.signal }).then(consume), deadline]);
+    return await Promise.race([run(controller.signal), deadline]);
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function assetsForShell(html) {
-  const urls = Array.from(html.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"'<>]+)["']/g),
-    ([, path]) => new URL(path.replace(/&amp;/g, "&"), shellUrl).href);
-  return [...new Set(urls)];
+function fetchWithDeadline(request, duration, consume = (response) => response) {
+  return withDeadline((signal) => fetch(request, { signal }).then(consume), duration);
 }
 
-async function prepareShell() {
+function assetsForShell(html) {
+  const urls = Array.from(html.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"'<>]+)["']/g),
+    ([, path]) => new URL(path.replace(/&amp;/g, "&"), shellUrl));
+  return [...new Set(urls.filter((url) => /\.(?:js|css)$/.test(url.pathname)).map((url) => url.href))];
+}
+
+async function cachedShellReady(cache, response) {
+  if (!response) return false;
+  const html = await response.text();
+  const assets = assetsForShell(html);
+  return html.includes('name="tmfit-offline-shell"') && assets.length > 0 &&
+    (await Promise.all(assets.map((url) => cache.match(url)))).every(Boolean);
+}
+
+async function prepareShell(download, signal) {
   const cache = await caches.open(WORKOUT_SHELL);
   const previous = await cache.match(shellUrl);
+  if (!download || signal.aborted) return cachedShellReady(cache, previous);
   try {
-    const { response, html } = await fetchWithDeadline(
-      new Request(shellUrl, { cache: "reload", redirect: "error" }), 5_000, async (response) => {
-        if (!response.ok) throw new Error("Workout shell unavailable");
+    const { response, html } = await fetchWithDeadline(new Request(shellUrl, {
+      cache: "reload",
+      credentials: "same-origin",
+      headers: { Accept: "text/html" }
+    }), 4_000, async (response) => {
+        const url = new URL(response.url || shellUrl);
+        if (!response.ok || url.origin !== self.location.origin || url.pathname !== "/") {
+          throw new Error("Workout shell unavailable");
+        }
         return { response, html: await response.clone().text() };
       }
     );
@@ -46,32 +67,48 @@ async function prepareShell() {
     if (!html.includes('name="tmfit-offline-shell"') || assets.length === 0) {
       throw new Error("Workout shell could not be identified");
     }
+    if (signal.aborted) return false;
     await Promise.all(assets.map(async (url) => {
-      if (await cache.match(url)) return;
-      await fetchWithDeadline(new Request(url, { cache: "force-cache", redirect: "error" }), 8_000, async (asset) => {
-        if (!asset.ok) throw new Error("Workout asset unavailable");
-        await cache.put(url, asset);
+      if (await cache.match(url) || signal.aborted) return;
+      await fetchWithDeadline(new Request(url, { cache: "force-cache", credentials: "same-origin" }), 6_000, async (asset) => {
+        if (!asset.ok || new URL(asset.url || url).origin !== self.location.origin ||
+          asset.headers.get("Content-Type")?.includes("text/html")) throw new Error("Workout asset unavailable");
+        if (!signal.aborted) await cache.put(url, asset);
       });
     }));
 
+    // Store the app document under the entry URL even if the preview redirected to it.
+    const document = response.redirected ? new Response(response.body, {
+      status: response.status,
+      headers: response.headers
+    }) : response;
     // Retain the previous shell's chunks, including any deployment query parameters.
     const keep = new Set([shellUrl, ...assets, ...assetsForShell(previous ? await previous.clone().text() : "")]);
-    await cache.put(shellUrl, response);
+    if (signal.aborted) return false;
+    await cache.put(shellUrl, document);
     await Promise.all((await cache.keys()).map((request) => {
-      if (isShellAsset(new URL(request.url).pathname) && !keep.has(request.url)) return cache.delete(request);
+      if (!signal.aborted && isShellAsset(new URL(request.url).pathname) && !keep.has(request.url)) return cache.delete(request);
     }));
     return (await Promise.all(assets.map((url) => cache.match(url)))).every(Boolean);
   } catch {
-    if (!previous) return false;
-    const assets = assetsForShell(await previous.text().catch(() => ""));
-    return assets.length > 0 && (await Promise.all(assets.map((url) => cache.match(url)))).every(Boolean);
+    return cachedShellReady(cache, previous);
   }
 }
 
 self.addEventListener("message", (event) => {
   if (event.data?.type !== "TMFIT_PREPARE_WORKOUT" || !event.ports[0]) return;
-  preparingShell ||= prepareShell().catch(() => false).finally(() => { preparingShell = null; });
-  event.waitUntil(preparingShell.then((ready) => event.ports[0].postMessage({ ready })));
+  let check;
+  if (event.data.download === false) {
+    check = withDeadline((signal) => prepareShell(false, signal), 2_500);
+  } else {
+    preparingShell ||= withDeadline((signal) => prepareShell(true, signal), 11_000)
+      .finally(() => { preparingShell = null; });
+    check = preparingShell;
+  }
+  event.waitUntil(check.then((ready) => ({ ready }), (error) => ({
+    ready: false, issue: error.name === "TimeoutError" ? "timeout" : "storage"
+  }))
+    .then((result) => event.ports[0].postMessage(result)));
 });
 
 self.addEventListener("fetch", (event) => {
