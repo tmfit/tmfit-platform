@@ -478,7 +478,7 @@ function cleanWorkoutNotes(value) {
 
 // Editor notes are the source of truth; imported execution_mode is a legacy fallback.
 function workoutExerciseExecutionText(exercise) {
-  const notes = cleanWorkoutNotes(exercise?.notes || "");
+  const notes = cleanWorkoutNotes(exercise?.notes || exercise?.smart_notes || "");
   return notes || String(exercise?.execution_mode || "").trim();
 }
 
@@ -3296,7 +3296,6 @@ function defaultExerciseRow() {
     recovery_seconds: 90,
     target_rpe: "",
     target_rir: "",
-    execution_mode: "",
     video_url: "",
     image_url: "",
     notes: "",
@@ -6984,7 +6983,6 @@ function parseWorkoutExerciseSegment(segment = [], durationWeeks = 4) {
     recovery_seconds: recoverySeconds,
     target_rpe: parsedBase.target_rpe,
     target_rir: parsedBase.target_rir,
-    execution_mode: executionMode,
     video_url: "",
     image_url: "",
     notes: executionMode,
@@ -7194,7 +7192,6 @@ function parseWorkoutExerciseRows(rowSegment = [], titleRowIndex = 0, durationWe
     recovery_seconds: recoverySeconds,
     target_rpe: parsedBase.target_rpe,
     target_rir: parsedBase.target_rir,
-    execution_mode: executionMode,
     video_url: "",
     image_url: "",
     notes: executionMode,
@@ -8033,7 +8030,6 @@ function parseWorkoutExcelExerciseRow(
     recovery_seconds: recoverySeconds,
     target_rpe: baseParsed.target_rpe,
     target_rir: baseParsed.target_rir,
-    execution_mode: execution,
     video_url: "",
     image_url: "",
     notes: execution,
@@ -8061,10 +8057,9 @@ function mergeWorkoutExcelContinuation(
   if (!hasContinuation) return false;
 
   if (execution) {
-    exercise.execution_mode = cleanWorkoutPdfLine(
-      [exercise.execution_mode, execution].filter(Boolean).join(" · ")
+    exercise.notes = cleanWorkoutPdfLine(
+      [exercise.notes, execution].filter(Boolean).join(" · ")
     );
-    exercise.notes = exercise.execution_mode;
   }
 
   if (recovery && recovery !== "—" && recovery !== "-") {
@@ -11882,8 +11877,6 @@ function updateExerciseField(dayIndex, exerciseIndex, field, value) {
   updateBuilder((next) => {
     const exercise = next.days[dayIndex].exercises[exerciseIndex];
     exercise[field] = value;
-    // The editor exposes one instruction field: never keep stale imported text.
-    if (field === "notes") exercise.execution_mode = value;
   });
 }
 
@@ -12459,10 +12452,9 @@ function programToBuilderSnapshot(program, options = {}) {
               recovery_seconds: exercise.recovery_seconds || 90,
               target_rpe: exercise.target_rpe || "",
               target_rir: exercise.target_rir || "",
-              execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: cleanWorkoutNotes(exercise.notes || ""),
+              notes: workoutExerciseExecutionText(exercise),
               group_type: workoutGroupMetaForExercise(exercise).type,
               group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
@@ -12552,10 +12544,9 @@ function duplicateProgramToBuilder(program) {
               recovery_seconds: exercise.recovery_seconds || 90,
               target_rpe: exercise.target_rpe || "",
               target_rir: exercise.target_rir || "",
-              execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: cleanWorkoutNotes(exercise.notes || ""),
+              notes: workoutExerciseExecutionText(exercise),
               group_type: workoutGroupMetaForExercise(exercise).type,
               group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
@@ -12619,10 +12610,9 @@ function duplicateProgramToBuilder(program) {
               recovery_seconds: exercise.recovery_seconds || 90,
               target_rpe: exercise.target_rpe || "",
               target_rir: exercise.target_rir || "",
-              execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: cleanWorkoutNotes(exercise.notes || ""),
+              notes: workoutExerciseExecutionText(exercise),
               group_type: workoutGroupMetaForExercise(exercise).type,
               group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
@@ -12732,10 +12722,9 @@ function cancelProgramEditing() {
                   recovery_seconds: exercise.recovery_seconds || 90,
                   target_rpe: exercise.target_rpe || "",
                   target_rir: exercise.target_rir || "",
-                  execution_mode: exercise.execution_mode || "",
                   video_url: exercise.video_url || "",
                   image_url: exercise.image_url || "",
-                  notes: cleanWorkoutNotes(exercise.notes || ""),
+                  notes: workoutExerciseExecutionText(exercise),
                   group_type: workoutGroupMetaForExercise(exercise).type || normalizeWorkoutGroupType(exercise.group_type),
                   group_label: workoutGroupMetaForExercise(exercise).label || exercise.group_label || "",
                   has_weekly_progression: !!exercise.has_weekly_progression,
@@ -16476,12 +16465,14 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                   <div className="border-t border-slate-100 p-4">
                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                                       <Label title="Note esecuzione" className="md:col-span-2 xl:col-span-2">
-                                        <Input
+                                        <Textarea
+                                          rows={2}
+                                          className="min-h-[74px] resize-y rounded-xl"
                                           value={exercise.notes || ""}
                                           onChange={(event) =>
                                             updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
                                           }
-                                          placeholder="Cue tecnici, range, varianti..."
+                                          placeholder="Indicazioni tecniche visualizzate dal cliente"
                                         />
                                       </Label>
 
@@ -21401,7 +21392,7 @@ function WorkoutPlayerModal({
                       {exerciseExecutionNotes && (
                         <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
                           <span className="font-black">Esecuzione: </span>
-                           {exerciseExecutionNotes}
+                          {exerciseExecutionNotes}
                         </div>
                       )}
                       {videoUrl && (
@@ -21769,13 +21760,9 @@ function WorkoutPlayerModal({
               </div>
 
               {nextExerciseExecutionNotes && (
-                <div className="mt-4 space-y-2">
-                  {nextExerciseExecutionNotes && (
-                    <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-                      <span className="font-black">Esecuzione: </span>
-                       {nextExerciseExecutionNotes}
-                    </div>
-                  )}
+                <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+                  <span className="font-black">Esecuzione: </span>
+                  {nextExerciseExecutionNotes}
                 </div>
               )}
 
