@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  completedWorkoutDays, syncWorkout, workoutSeries, workoutUploadLabel, workoutWeekAtDate
+  completedWorkoutDays, prepareWorkoutShell, syncWorkout, workoutSeries, workoutUploadLabel, workoutWeekAtDate
 } from "../lib/workout-offline.mjs";
 
 const plan = {
@@ -61,4 +61,32 @@ test("replaying a completed snapshot uses the same id and revision and requires 
   assert.deepEqual(calls[0], calls[1]);
   receipt = { ...receipt, session: { id: "stable-id" } };
   await assert.rejects(syncWorkout(database, record), /did not match/);
+});
+
+test("offline preparation follows the new worker while a previous release is still controlling the page", { timeout: 1500 }, async (t) => {
+  const workers = new EventTarget();
+  const messages = [];
+  const next = { postMessage(message, [port]) {
+    messages.push(message);
+    port.postMessage({ ready: true });
+    port.close();
+  } };
+  workers.controller = { postMessage(message, [port]) {
+    messages.push(message);
+    port.close();
+    queueMicrotask(() => {
+      workers.controller = next;
+      workers.dispatchEvent(new Event("controllerchange"));
+    });
+  } };
+
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { serviceWorker: workers } });
+  t.after(() => {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else delete globalThis.navigator;
+  });
+
+  assert.equal(await prepareWorkoutShell(), "ready");
+  assert.deepEqual(messages, Array.from({ length: 2 }, () => ({ type: "TMFIT_PREPARE_WORKOUT", download: true })));
 });
