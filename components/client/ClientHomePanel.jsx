@@ -265,7 +265,9 @@ export default function ClientHomePanel({
         <div className="mt-4 space-y-3">
           <div>
             <div className="flex items-center justify-between text-sm">
-              <span className="font-bold text-slate-600">Allenamenti</span>
+              <span className="font-bold text-slate-600">
+                Sedute confermate{weeklySummary?.trainingWeek ? ` · Sett. ${weeklySummary.trainingWeek}` : ""}
+              </span>
               <span className="font-black text-slate-950">
                 {completed}/{planned || "—"}
               </span>
