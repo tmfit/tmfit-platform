@@ -1,6 +1,6 @@
 # TMFIT · Rilascio di Allenati offline
 
-Il ramo `fix/workout-offline-session` parte da `003d03c`. Su GitHub, il deploy `Production` associato a quel commit è riuscito il 13 novembre 2026. Il JavaScript servito da `app.tmfit.it` contiene la verifica delle serie e la chiamata al vecchio RPC di completamento, compatibili con quel deploy.
+Il ramo `fix/workout-offline-session` include la patch di verifica delle serie (`003d03c`) e gli aggiornamenti al builder e all’esportazione Excel dell’ultima versione di produzione verificata su Vercel (`f786b5c`). La seduta salva prima sul telefono, anche online. La sincronizzazione invia a Supabase le modifiche in background.
 
 Su Supabase sono presenti `clients.service_type`, le tabelle del PDF Composer e `workout_sessions` nella pubblicazione `supabase_realtime`. Corrispondono allo schema previsto da Operativo V2 e dalle versioni successive. La migrazione `supabase/migrations/20261116154511_workout_offline_sync.sql` è stata applicata a `TMFIT Platformi` il 16 novembre 2026 e risulta nel registro con versione `20261116154511`.
 
@@ -12,14 +12,14 @@ Su Supabase sono presenti `clients.service_type`, le tabelle del PDF Composer e 
 4. Tocca **Salva e termina** offline. Controlla **In attesa di sincronizzazione**, quindi torna online e riapri l’app. Nella Home verifica **Sedute confermate · Sett. 1** da `0/4` a `1/4`. In **Allenamento → Diario allenamenti** tocca il giorno e controlla che ci sia una sola seduta con tutte le serie. Il numero sul selettore Allenamenti indica la posizione della scheda. I pulsanti Settimana selezionano la settimana di programma.
 5. Ripeti con rete instabile intorno alla conferma, doppio tocco e due schede sullo stesso browser. Controlla che la seconda scheda ricarichi la bozza se trova una revisione più recente. Prova la ripresa dopo un nuovo accesso. Verifica inoltre apertura e download del PDF, area **Update**, accesso coach e comparsa della seduta nel suo storico.
 
-Per verificare la sincronizzazione con l’account di prova Utente Matteo su `TMFIT Platformi`, riapri sul telefono lo stesso indirizzo Preview in cui hai avviato la seduta e torna in Allenamento con Internet attivo. La seduta salvata sul telefono riprende l’invio in background.
+Per verificare la sincronizzazione con un account di prova su `TMFIT Platformi`, riapri sul telefono lo stesso indirizzo Preview in cui hai avviato la seduta e torna in Allenamento con Internet attivo. La seduta salvata sul telefono riprende l’invio in background. I salvataggi locali appartengono all’indirizzo da cui è stata aperta l’app.
 
-I test del contatore, degli input numerici e della conferma con lo stesso identificativo si eseguono dal checkout con `node --test tests/workout-offline.test.mjs`.
+I test del contatore, degli input numerici, della conferma con lo stesso identificativo e della cache offline si eseguono dal checkout con `node --test tests/*.test.mjs`.
 
 ## Produzione
 
 1. Annota la distribuzione `Production` attiva in Vercel. In GitHub apri una pull request con base `main` e sorgente `fix/workout-offline-session`. Tienila aperta per la prova Preview.
-2. In Supabase verifica che `TMFIT Platformi` riporti la versione `20261116154511` nel registro delle migrazioni. Puoi verificare la funzione direttamente dal **SQL Editor** del progetto `mmxtgesmjbzcmyftehls`.
+2. La migrazione di `TMFIT Platformi` è già applicata. Prima del merge verifica che la versione `20261116154511` compaia nel registro delle migrazioni oppure esegui la verifica della funzione dal **SQL Editor** del progetto `mmxtgesmjbzcmyftehls`.
 
    ```sql
    select to_regprocedure(

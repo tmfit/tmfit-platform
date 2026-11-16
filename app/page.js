@@ -500,6 +500,12 @@ function cleanWorkoutNotes(value) {
     .trim();
 }
 
+// Editor notes are the source of truth; imported execution_mode is a legacy fallback.
+function workoutExerciseExecutionText(exercise) {
+  const notes = cleanWorkoutNotes(exercise?.notes || exercise?.smart_notes || "");
+  return notes || String(exercise?.execution_mode || "").trim();
+}
+
 function parseWorkoutGroupFromNotes(value) {
   const match = String(value || "").match(WORKOUT_GROUP_META_REGEX);
 
@@ -3354,7 +3360,6 @@ function defaultExerciseRow() {
     recovery_seconds: 90,
     target_rpe: "",
     target_rir: "",
-    execution_mode: "",
     video_url: "",
     image_url: "",
     notes: "",
@@ -3837,9 +3842,7 @@ function buildTmfitTrainingPlanPdfBytes({
     const metrics = workoutMetricValues(exercise);
     const groupLabel = workoutGroupLabel(exercise);
     const exerciseTitle = String(exercise?.exercise_name || "Esercizio").trim();
-    const execution = String(
-      exercise?.execution_mode || cleanWorkoutNotes(exercise?.notes || "")
-    ).replace(/\s+/g, " ").trim();
+    const execution = workoutExerciseExecutionText(exercise).replace(/\s+/g, " ").trim();
 
     const titleMaxWidth = groupLabel ? 300 : 405;
     const titleLines = tmfitWrapWorkoutPdfText(exerciseTitle, 9.6, titleMaxWidth);
@@ -7044,7 +7047,6 @@ function parseWorkoutExerciseSegment(segment = [], durationWeeks = 4) {
     recovery_seconds: recoverySeconds,
     target_rpe: parsedBase.target_rpe,
     target_rir: parsedBase.target_rir,
-    execution_mode: executionMode,
     video_url: "",
     image_url: "",
     notes: executionMode,
@@ -7254,7 +7256,6 @@ function parseWorkoutExerciseRows(rowSegment = [], titleRowIndex = 0, durationWe
     recovery_seconds: recoverySeconds,
     target_rpe: parsedBase.target_rpe,
     target_rir: parsedBase.target_rir,
-    execution_mode: executionMode,
     video_url: "",
     image_url: "",
     notes: executionMode,
@@ -8093,7 +8094,6 @@ function parseWorkoutExcelExerciseRow(
     recovery_seconds: recoverySeconds,
     target_rpe: baseParsed.target_rpe,
     target_rir: baseParsed.target_rir,
-    execution_mode: execution,
     video_url: "",
     image_url: "",
     notes: execution,
@@ -8121,10 +8121,9 @@ function mergeWorkoutExcelContinuation(
   if (!hasContinuation) return false;
 
   if (execution) {
-    exercise.execution_mode = cleanWorkoutPdfLine(
-      [exercise.execution_mode, execution].filter(Boolean).join(" · ")
+    exercise.notes = cleanWorkoutPdfLine(
+      [exercise.notes, execution].filter(Boolean).join(" · ")
     );
-    exercise.notes = exercise.execution_mode;
   }
 
   if (recovery && recovery !== "—" && recovery !== "-") {
@@ -8478,13 +8477,7 @@ function workoutExcelProgressionPrescription(exercise, weekNumber) {
 }
 
 function workoutExcelExecutionText(exercise) {
-  const execution = String(exercise?.execution_mode || "").trim();
-  const notes = cleanWorkoutNotes(exercise?.notes || "");
-  const values = [execution, notes]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  return Array.from(new Set(values)).join(" · ");
+  return workoutExerciseExecutionText(exercise);
 }
 
 function workoutExcelGroupText(exercise) {
@@ -8589,122 +8582,118 @@ async function downloadSavedProgramExcel(program, clientName = "Cliente") {
   if (!program) throw new Error("Programma non disponibile.");
 
   const XLSX = await loadWorkoutExcelLibrary();
-  const configuredWeekNumbers = tmfitWorkoutConfiguredWeekNumbers(program);
-  const durationWeeks = configuredWeekNumbers.length
-    ? Math.max(...configuredWeekNumbers)
-    : Math.max(1, Math.min(12, Number(program.duration_weeks) || 4));
-  const exportWeekCount = Math.max(4, durationWeeks);
   const days = savedProgramWorkoutDays(program);
+  if (!days.length) throw new Error("La scheda non contiene allenamenti da esportare.");
 
-  if (days.length === 0) {
-    throw new Error("La scheda salvata non contiene allenamenti esportabili.");
+  // Use the TMFIT workbook as a base, retaining the other worksheets.
+  // SCHEDA follows the user-provided FINAL layout: A-I and week columns.
+  const response = await fetch("/tmfit-workout-finale-template.b64", { cache: "no-store" });
+  if (!response.ok) throw new Error("Modello Excel originale non disponibile.");
+  const base64Template = (await response.text()).replace(/\s+/g, "");
+  if (base64Template.length !== 16368 || !base64Template.startsWith("UEsDB")) {
+    throw new Error("Il modello Excel originale è incompleto o non valido.");
   }
+  const workbook = XLSX.read(base64Template, {
+    type: "base64",
+    cellStyles: true
+  });
+  const source = workbook.Sheets?.SCHEDA;
+  if (!source) throw new Error("Il modello Excel non contiene il foglio SCHEDA.");
 
-  const workbook = XLSX.utils.book_new();
-  const currentYear = new Date().getFullYear();
-  const safeClientName = String(clientName || "Cliente").trim() || "Cliente";
-  const configRows = [
-    ["CONFIGURAZIONE PIANO ALLENAMENTO", "", "", ""],
-    ["", "", "", ""],
-    ["Nome e Cognome", safeClientName, "", "ISTRUZIONI"],
-    ["Durata", `${durationWeeks} settimane`, "", "1. Il file è stato ricreato dalla scheda salvata in TMFIT."],
-    ["Obiettivo", program.goal || "", "", "2. Le colonne SETT. riportano la progressione salvata nell'app."],
-    ["Numero allenamenti", days.length, "", "3. Se non c'è progressione viene compilata SERIE/RIP FISSE."],
-    ["Note generali", program.notes || "", "", "4. Superset e triset mantengono il gruppo salvato nella scheda."],
-    ["Anno / Codice", `${currentYear} / WO`, "", "5. Il file può essere modificato e reimportato nel builder TMFIT."],
-    ["", "", "", "6. La banca dati esercizi è disponibile nel foglio BANCA DATI."],
-    ["", "", "", "7. Le schede salvate nel database non vengono modificate dal download."]
-  ];
-
-  const configSheet = XLSX.utils.aoa_to_sheet(configRows);
-  configSheet["!cols"] = [
-    { wch: 24 },
-    { wch: 30 },
-    { wch: 4 },
-    { wch: 72 }
-  ];
-  configSheet["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }
-  ];
-  XLSX.utils.book_append_sheet(workbook, configSheet, "CONFIG");
-
+  const weeks = tmfitWorkoutConfiguredWeekNumbers(program);
+  const weekCount = Math.max(4, weeks.length, Number(program.duration_weeks) || 4);
+  const client = String(clientName || "Cliente").trim() || "Cliente";
+  const allExercises = days.flatMap((day) =>
+    sortByOrder((day?.workout_blocks || []).flatMap((block) => block.workout_exercises || []))
+  );
   const header = [
-    "ESERCIZIO",
-    "SERIE/RIP FISSE",
-    "RECUPERO",
-    "MODALITÀ ESECUZIONE",
-    "SUPERSET",
-    ...Array.from({ length: exportWeekCount }).map((_, index) => `SETT. ${index + 1}`)
+    "ESERCIZIO", "SERIE/RIP", "RECUPERO", "MODALITÀ ESECUZIONE",
+    "SUPERSET/TRISET",
+    ...Array.from({ length: weekCount }, (_, index) => `SETT. ${index + 1}`)
   ];
-  const sheetRows = [];
-  const mergeRows = [];
-  const titleLastColumn = header.length - 1;
+  const blank = () => Array(header.length).fill("");
+  const rows = [
+    ["TMFIT · SCHEDA ALLENAMENTO — ESPORTAZIONE BUILDER"],
+    ["Scheda compilata automaticamente da TMFIT. Ogni riga contiene un esercizio; le settimane riportano le progressioni salvate."],
+    ["Cliente", "", "Durata", "", "Obiettivo", "", "Frequenza", "", "Totale esercizi"],
+    ["", client, "", `${weekCount} settimane`, "", program.goal || "", "", `${days.length} giorni`, allExercises.length],
+    blank(),
+    header
+  ];
+  const rowKinds = ["title", "description", "metadata", "metadata", "blank", "columns"];
+  const numberOfDays = Math.max(3, days.length);
 
-  sheetRows.push([
-    `${currentYear} / WO – ${durationWeeks} settimane – ${safeClientName}`,
-    ...Array.from({ length: titleLastColumn }).map(() => "")
-  ]);
-  mergeRows.push({ s: { r: 0, c: 0 }, e: { r: 0, c: titleLastColumn } });
-  sheetRows.push([]);
-  sheetRows.push(["Nome", safeClientName]);
-  sheetRows.push(["Durata", `${durationWeeks} settimane`]);
-  sheetRows.push(["Obiettivo", program.goal || ""]);
-  sheetRows.push(["N. allenamenti", days.length]);
-  sheetRows.push([]);
-
-  days.forEach((day, dayIndex) => {
-    const headingRowIndex = sheetRows.length;
-    sheetRows.push([
-      workoutExcelDayHeading(day, dayIndex),
-      ...Array.from({ length: titleLastColumn }).map(() => "")
+  for (let dayIndex = 0; dayIndex < numberOfDays; dayIndex += 1) {
+    const day = days[dayIndex];
+    const exercises = day
+      ? sortByOrder((day.workout_blocks || []).flatMap((block) => block.workout_exercises || []))
+      : [];
+    rows.push([
+      `ALLENAMENTO ${String.fromCharCode(65 + dayIndex)}`,
+      `${exercises.length} esercizi`,
+      day?.title || (day ? "" : "Nessun esercizio")
     ]);
-    mergeRows.push({
-      s: { r: headingRowIndex, c: 0 },
-      e: { r: headingRowIndex, c: titleLastColumn }
-    });
-    sheetRows.push(header);
-
-    const exercises = sortByOrder(
-      (day?.workout_blocks || []).flatMap((block) => block.workout_exercises || [])
-    );
+    rowKinds.push("day");
 
     exercises.forEach((exercise) => {
-      const recovery = String(exercise.recovery_seconds || "").trim();
+      const base = workoutSetsRepsDisplay(exercise.sets || "", exercise.reps || "", "");
       const row = [
         exercise.exercise_name || "",
-        workoutExcelFixedPrescription(exercise),
-        recovery ? compactWorkoutRecoveryLabel(recovery) : "",
+        base,
+        compactWorkoutRecoveryLabel(exercise.recovery_seconds || ""),
         workoutExcelExecutionText(exercise),
         workoutExcelGroupText(exercise)
       ];
-
-      for (let weekNumber = 1; weekNumber <= exportWeekCount; weekNumber += 1) {
+      for (let weekNumber = 1; weekNumber <= weekCount; weekNumber += 1) {
         row.push(
-          weekNumber <= durationWeeks
-            ? workoutExcelProgressionPrescription(exercise, weekNumber)
-            : ""
+          workoutExcelProgressionPrescription(exercise, weekNumber) ||
+            (exercise.has_weekly_progression && weekNumber === 1 ? base : "")
         );
       }
-
-      sheetRows.push(row);
+      rows.push(row);
+      rowKinds.push("exercise");
     });
+    // Preserve 21 rows per day from the user's model; expand when necessary.
+    for (let i = exercises.length; i < 21; i += 1) {
+      rows.push(blank());
+      rowKinds.push("exercise");
+    }
+  }
 
-    sheetRows.push([]);
+  rows.push([
+    "REGOLE IMPORTANTI: un esercizio per riga; il foglio SCHEDA contiene esercizi, modalità, superset/triset e progressioni."
+  ]);
+  rowKinds.push("footer");
+
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  const styleRowByKind = {
+    title: 0, description: 1, metadata: 3, blank: 4,
+    columns: 5, day: 6, exercise: 7, footer: 72
+  };
+  rows.forEach((row, rowIndex) => {
+    const sourceRow = styleRowByKind[rowKinds[rowIndex]];
+    for (let colIndex = 0; colIndex < header.length; colIndex += 1) {
+      const addr = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+      const refAddr = XLSX.utils.encode_cell({ r: sourceRow, c: Math.min(colIndex, 8) });
+      const sourceCell = source[refAddr];
+      if (!sourceCell || sourceCell.s === undefined) continue;
+      if (!sheet[addr]) sheet[addr] = { t: "z" };
+      sheet[addr].s = sourceCell.s;
+    }
   });
-
-  const scheduleSheet = XLSX.utils.aoa_to_sheet(sheetRows);
-  scheduleSheet["!merges"] = mergeRows;
-  applyWorkoutExcelSheetSizing(scheduleSheet, exportWeekCount);
-  scheduleSheet["!rows"] = sheetRows.map((row, index) => ({
-    hpt: index === 0 ? 24 : row?.[0]?.startsWith?.("ALLENAMENTO") ? 22 : 18
+  sheet["!cols"] = [
+    { wch: 32 }, { wch: 19 }, { wch: 15 }, { wch: 37 },
+    { wch: 17 }, ...Array.from({ length: weekCount }, () => ({ wch: 22 }))
+  ];
+  sheet["!rows"] = rowKinds.map((kind) => ({
+    hpt: kind === "title" ? 30 : kind === "day" ? 25 : kind === "description" ? 25 : 22
   }));
-  XLSX.utils.book_append_sheet(workbook, scheduleSheet, "SCHEDA");
-  await appendWorkoutExerciseBankFromTemplate(XLSX, workbook);
-
-  const timestamp = new Date().toISOString().slice(0, 10);
-  const filename = `TMFIT-${safeWorkoutExcelFilePart(safeClientName, "cliente")}-${safeWorkoutExcelFilePart(program.title || "scheda", "scheda")}-${timestamp}.xlsx`;
-
-  XLSX.writeFile(workbook, filename, { compression: true });
+  workbook.Sheets.SCHEDA = sheet;
+  XLSX.writeFile(
+    workbook,
+    `TMFIT-${safeWorkoutExcelFilePart(client, "cliente")}-${safeWorkoutExcelFilePart(program.title || "scheda", "scheda")}.xlsx`,
+    { compression: true, cellStyles: true }
+  );
 }
 
 function dietExtractToNotesBlock(extractedDiet) {
@@ -11638,10 +11627,6 @@ function getBuilderQualityReport() {
     (exercise) => !Number(exercise.recovery_seconds)
   );
 
-  const exercisesWithoutIntensity = filledExercises.filter(
-    (exercise) => !String(exercise.target_rpe || "").trim() && !String(exercise.target_rir || "").trim()
-  );
-
   const progressionExercises = filledExercises.filter(
     (exercise) => exercise.has_weekly_progression
   );
@@ -11679,10 +11664,6 @@ function getBuilderQualityReport() {
 
   if (exercisesWithoutRecovery.length > 0) {
     suggestions.push("Completa i recuperi: aiutano il cliente nella modalità Allenati.");
-  }
-
-  if (exercisesWithoutIntensity.length > 0) {
-    suggestions.push("Aggiungi RPE o RIR almeno sugli esercizi principali.");
   }
 
   if (Number(builder.duration_weeks) >= 4 && progressionExercises.length === 0) {
@@ -12031,7 +12012,8 @@ function moveExerciseRow(dayIndex, exerciseIndex, direction) {
   }
 function updateExerciseField(dayIndex, exerciseIndex, field, value) {
   updateBuilder((next) => {
-    next.days[dayIndex].exercises[exerciseIndex][field] = value;
+    const exercise = next.days[dayIndex].exercises[exerciseIndex];
+    exercise[field] = value;
   });
 }
 
@@ -12607,10 +12589,9 @@ function programToBuilderSnapshot(program, options = {}) {
               recovery_seconds: exercise.recovery_seconds || 90,
               target_rpe: exercise.target_rpe || "",
               target_rir: exercise.target_rir || "",
-              execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: cleanWorkoutNotes(exercise.notes || ""),
+              notes: workoutExerciseExecutionText(exercise),
               group_type: workoutGroupMetaForExercise(exercise).type,
               group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
@@ -12700,10 +12681,9 @@ function duplicateProgramToBuilder(program) {
               recovery_seconds: exercise.recovery_seconds || 90,
               target_rpe: exercise.target_rpe || "",
               target_rir: exercise.target_rir || "",
-              execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: cleanWorkoutNotes(exercise.notes || ""),
+              notes: workoutExerciseExecutionText(exercise),
               group_type: workoutGroupMetaForExercise(exercise).type,
               group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
@@ -12767,10 +12747,9 @@ function duplicateProgramToBuilder(program) {
               recovery_seconds: exercise.recovery_seconds || 90,
               target_rpe: exercise.target_rpe || "",
               target_rir: exercise.target_rir || "",
-              execution_mode: exercise.execution_mode || "",
               video_url: exercise.video_url || "",
               image_url: exercise.image_url || "",
-              notes: cleanWorkoutNotes(exercise.notes || ""),
+              notes: workoutExerciseExecutionText(exercise),
               group_type: workoutGroupMetaForExercise(exercise).type,
               group_label: workoutGroupMetaForExercise(exercise).label,
               has_weekly_progression: !!exercise.has_weekly_progression,
@@ -12880,10 +12859,9 @@ function cancelProgramEditing() {
                   recovery_seconds: exercise.recovery_seconds || 90,
                   target_rpe: exercise.target_rpe || "",
                   target_rir: exercise.target_rir || "",
-                  execution_mode: exercise.execution_mode || "",
                   video_url: exercise.video_url || "",
                   image_url: exercise.image_url || "",
-                  notes: cleanWorkoutNotes(exercise.notes || ""),
+                  notes: workoutExerciseExecutionText(exercise),
                   group_type: workoutGroupMetaForExercise(exercise).type || normalizeWorkoutGroupType(exercise.group_type),
                   group_label: workoutGroupMetaForExercise(exercise).label || exercise.group_label || "",
                   has_weekly_progression: !!exercise.has_weekly_progression,
@@ -13135,11 +13113,12 @@ try {
             exercise.exercise_media_id || matchedMedia?.id || null;
           const exerciseGroupType = normalizeWorkoutGroupType(exercise.group_type);
           const exerciseGroupLabel = String(exercise.group_label || "").trim();
-          const storedExerciseNotes = encodeWorkoutNotes(
-            exercise.notes,
-            exerciseGroupType,
-            exerciseGroupLabel
-          );
+          const exerciseInstructions = workoutExerciseExecutionText(exercise);
+           const storedExerciseNotes = encodeWorkoutNotes(
+             exerciseInstructions,
+             exerciseGroupType,
+             exerciseGroupLabel
+           );
 
           const { data: exerciseRow, error: exerciseError } = await supabase
             .from("workout_exercises")
@@ -13151,7 +13130,7 @@ try {
               sets: exercise.sets || null,
               reps: exercise.reps || null,
               recovery_seconds: Number(exercise.recovery_seconds) || 90,
-              execution_mode: exercise.execution_mode || null,
+              execution_mode: exerciseInstructions || null,
               target_rpe: exercise.target_rpe || null,
               target_rir: exercise.target_rir || null,
               video_url: exercise.video_url || null,
@@ -16515,7 +16494,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               <div className="p-3">
                                 <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50/90 p-2.5 ring-1 ring-white">
                                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-12">
-                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-3">
+                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-4">
                                       <Input
                                         placeholder="Panca piana, Squat, Lat machine..."
                                         value={exercise.exercise_name}
@@ -16542,7 +16521,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                       />
                                     </Label>
 
-                                    <Label title="Rec." className="lg:col-span-1">
+                                    <Label title="Rec." className="lg:col-span-2">
                                       <Input
                                         value={exercise.recovery_seconds || ""}
                                         onChange={(event) =>
@@ -16554,28 +16533,6 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                           )
                                         }
                                         placeholder="90"
-                                        className="h-10 bg-white py-2 text-center text-sm"
-                                      />
-                                    </Label>
-
-                                    <Label title="RPE" className="lg:col-span-1">
-                                      <Input
-                                        value={exercise.target_rpe || ""}
-                                        onChange={(event) =>
-                                          updateExerciseField(dayIndex, exerciseIndex, "target_rpe", event.target.value)
-                                        }
-                                        placeholder="8"
-                                        className="h-10 bg-white py-2 text-center text-sm"
-                                      />
-                                    </Label>
-
-                                    <Label title="RIR" className="lg:col-span-1">
-                                      <Input
-                                        value={exercise.target_rir || ""}
-                                        onChange={(event) =>
-                                          updateExerciseField(dayIndex, exerciseIndex, "target_rir", event.target.value)
-                                        }
-                                        placeholder="1-2"
                                         className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
@@ -16612,180 +16569,75 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                   </div>
                                 </div>
 
-                                <details className="mt-2 rounded-[1.1rem] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.03)]">
-                                  <summary className="flex cursor-pointer flex-col gap-2 px-3 py-2.5 text-sm font-black text-slate-800 sm:flex-row sm:items-center sm:justify-between">
-                                    <span>Dettagli opzionali</span>
-                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                      Video · Note · Progressione
-                                    </span>
-                                  </summary>
-
-                                  <div className="border-t border-slate-100 p-4">
-                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                      <Label title="Note esecuzione" className="md:col-span-2 xl:col-span-2">
-                                        <Input
-                                          value={exercise.notes || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
-                                          }
-                                          placeholder="Cue tecnici, range, varianti..."
-                                        />
-                                      </Label>
-
-                                      <Label title="Video URL">
-                                        <Input
-                                          value={exercise.video_url || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(dayIndex, exerciseIndex, "video_url", event.target.value)
-                                          }
-                                          placeholder="Link video"
-                                        />
-                                      </Label>
-
-                                      <Label title="Immagine URL">
-                                        <Input
-                                          value={exercise.image_url || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(dayIndex, exerciseIndex, "image_url", event.target.value)
-                                          }
-                                          placeholder="Link immagine"
-                                        />
-                                      </Label>
-
-                                      <Label title="Media esercizio" className="md:col-span-2">
-                                        <Select
-                                          value={exercise.exercise_media_id || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "exercise_media_id",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                        >
-                                          <option value="">Immagine auto/opzionale</option>
-                                          {exerciseMedia.map((media) => (
-                                            <option key={media.id} value={media.id}>
-                                              {media.name}
-                                            </option>
-                                          ))}
-                                        </Select>
-                                      </Label>
-
-                                      <label className="flex items-center gap-3 rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800 md:col-span-2">
-                                        <input
-                                          type="checkbox"
-                                          checked={Boolean(exercise.has_weekly_progression)}
-                                          onChange={(event) =>
-                                            toggleExerciseProgression(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              event.target.checked
-                                            )
-                                          }
-                                        />
-                                        Progressione settimanale su questo esercizio
-                                      </label>
-                                    </div>
-
-                                    {exercise.has_weekly_progression && (
-                                      <div className="mt-4 rounded-3xl border border-teal-200 bg-teal-50 p-3 shadow-inner">
-                                        <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-                                          <div>
-                                            <p className="text-sm font-black text-slate-900">
-                                              Progressione settimanale
-                                            </p>
-                                            <p className="text-xs font-bold text-slate-500">
-                                              Compila solo i valori che cambiano rispetto alla base.
-                                            </p>
-                                          </div>
-                                          <Pill className="bg-teal-300 text-slate-950">
-                                            {exercise.progressions?.length || 0} settimane
-                                          </Pill>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                          {(exercise.progressions || []).map((progression, progressionIndex) => (
-                                            <div
-                                              key={progression.temp_id || progressionIndex}
-                                              className="rounded-2xl border border-teal-200 bg-white p-3 shadow-sm"
-                                            >
-                                              <div className="mb-3 flex items-center justify-between gap-3">
-                                                <Pill className="bg-teal-300 text-slate-950">
-                                                  W{progression.week_number || progressionIndex + 1}
-                                                </Pill>
-                                                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                                                  Target settimana
-                                                </p>
-                                              </div>
-
-                                              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
-                                                <Label title="Prescrizione" className="lg:col-span-3">
-                                                  <Input
-                                                    value={workoutSetsRepsDisplay(
-                                                      progression.target_sets,
-                                                      progression.target_reps,
-                                                      ""
-                                                    )}
-                                                    onChange={(event) =>
-                                                      updateProgressionPrescription(
-                                                        dayIndex,
-                                                        exerciseIndex,
-                                                        progressionIndex,
-                                                        event.target.value
-                                                      )
-                                                    }
-                                                    placeholder="3x8-10 oppure 1x5 + 3x8"
-                                                    className="text-center"
-                                                  />
-                                                </Label>
-
-                                                {[
-                                                  ["target_load_text", "Kg/target", "lg:col-span-2"],
-                                                  ["target_rpe", "RPE", "lg:col-span-1"],
-                                                  ["target_rir", "RIR", "lg:col-span-1"],
-                                                  ["recovery_seconds", "Recupero", "lg:col-span-2"]
-                                                ].map(([field, label, fieldClassName]) => (
-                                                  <Label key={field} title={label} className={fieldClassName}>
-                                                    <Input
-                                                      value={progression[field] || ""}
-                                                      onChange={(event) =>
-                                                        updateProgressionField(
-                                                          dayIndex,
-                                                          exerciseIndex,
-                                                          progressionIndex,
-                                                          field,
-                                                          event.target.value
-                                                        )
-                                                      }
-                                                      className="text-center"
-                                                    />
-                                                  </Label>
-                                                ))}
-
-                                                <Label title="Note" className="sm:col-span-2 lg:col-span-3">
-                                                  <Input
-                                                    value={progression.notes || ""}
-                                                    onChange={(event) =>
-                                                      updateProgressionField(
-                                                        dayIndex,
-                                                        exerciseIndex,
-                                                        progressionIndex,
-                                                        "notes",
-                                                        event.target.value
-                                                      )
-                                                    }
-                                                  />
-                                                </Label>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
+                                <div className="mt-2 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
+                                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(205px,auto)] lg:items-end">
+                                    <Label title="Note esecuzione" className="min-w-0">
+                                      <Textarea
+                                        rows={2}
+                                        className="min-h-[72px] resize-y rounded-xl"
+                                        value={exercise.notes || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
+                                        }
+                                        placeholder="Indicazioni da mostrare al cliente"
+                                      />
+                                    </Label>
+                                    <label className="flex min-h-[72px] items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-black text-teal-800">
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(exercise.has_weekly_progression)}
+                                        onChange={(event) =>
+                                          toggleExerciseProgression(
+                                            dayIndex,
+                                            exerciseIndex,
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Progressione settimanale
+                                    </label>
                                   </div>
-                                </details>
+
+                                  {exercise.has_weekly_progression && (
+                                    <div className="mt-3 rounded-2xl border border-teal-200 bg-teal-50/70 p-3">
+                                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                        <p className="text-sm font-black text-slate-900">
+                                          Progressione settimanale
+                                        </p>
+                                        <p className="text-xs font-bold text-slate-500">
+                                          Una prescrizione per settimana (es. 3x10)
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-2 overflow-x-auto pb-2">
+                                        {(exercise.progressions || []).map((progression, progressionIndex) => (
+                                          <Label
+                                            key={progression.temp_id || progressionIndex}
+                                            title={`W${progression.week_number || progressionIndex + 1}`}
+                                            className="min-w-[142px] flex-1"
+                                          >
+                                            <Input
+                                              value={workoutSetsRepsDisplay(
+                                                progression.target_sets,
+                                                progression.target_reps,
+                                                ""
+                                              )}
+                                              onChange={(event) =>
+                                                updateProgressionPrescription(
+                                                  dayIndex,
+                                                  exerciseIndex,
+                                                  progressionIndex,
+                                                  event.target.value
+                                                )
+                                              }
+                                              placeholder="3x10"
+                                              className="h-11 rounded-xl px-3 py-2 text-center text-sm"
+                                            />
+                                          </Label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -18849,7 +18701,7 @@ function ClientProgramPreviewPanel({
                   {day.exercises.map((exercise, exerciseIndex) => {
                     const groupLabel = workoutGroupLabel(exercise);
                     const progressions = meaningfulProgressions(exercise);
-                    const cleanNotes = cleanWorkoutNotes(exercise.notes || "");
+                    const executionText = workoutExerciseExecutionText(exercise);
 
                     return (
                       <div
@@ -18903,13 +18755,13 @@ function ClientProgramPreviewPanel({
                               </div>
                             </div>
 
-                            {(exercise.execution_mode || cleanNotes) && (
+                            {executionText && (
                               <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
                                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                                   Modalità esecuzione
                                 </p>
                                 <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
-                                  {exercise.execution_mode || cleanNotes}
+                                  {executionText}
                                 </p>
                               </div>
                             )}
@@ -20088,7 +19940,6 @@ function PlansList({
 
   async function exportProgramExcel(plan) {
     if (!plan) return;
-
     setExportingProgramId(String(plan.id));
     try {
       await downloadSavedProgramExcel(
@@ -20096,7 +19947,7 @@ function PlansList({
         selectedClient ? fullName(selectedClient) : "Cliente"
       );
     } catch (error) {
-      alert(error?.message || "Non è stato possibile ricreare il file Excel della scheda.");
+      alert(error?.message || "Impossibile compilare il modello Excel della scheda.");
     } finally {
       setExportingProgramId("");
     }
@@ -20235,9 +20086,10 @@ function PlansList({
                   <Button
                     onClick={() => exportProgramExcel(plan)}
                     disabled={String(exportingProgramId) === String(plan.id)}
+                    title="Esporta la scheda compilata del cliente nel modello Excel TMFIT"
                     className="border border-emerald-200 bg-emerald-50 text-emerald-800"
                   >
-                    {String(exportingProgramId) === String(plan.id) ? "Excel..." : "Excel"}
+                    {String(exportingProgramId) === String(plan.id) ? "Compilazione..." : "Excel"}
                   </Button>
 
                   <Button
@@ -20663,7 +20515,7 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
   const exercise = exercises[exerciseIndex] || null;
   const exerciseGroupMeta = exercise ? workoutGroupMetaForExercise(exercise) : { type: "", label: "" };
   const exerciseGroupText = workoutGroupLabel(exerciseGroupMeta);
-  const exerciseCoachNotes = cleanWorkoutNotes(exercise?.notes || "");
+  const exerciseExecutionNotes = workoutExerciseExecutionText(exercise);
   const plannedSets = exercise ? plannedSetsForExercise(exercise) : [];
   const currentSet = plannedSets[setIndex] || null;
   const totalPlannedSets = useMemo(() => Array.from(setsByExercise.values())
@@ -20753,7 +20605,7 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
     nextExercise?.recovery_seconds ||
     nextExercise?.rest_seconds ||
     90;
-  const nextExerciseCoachNotes = cleanWorkoutNotes(nextExercise?.notes || "");
+  const nextExerciseExecutionNotes = workoutExerciseExecutionText(nextExercise);
   const nextExerciseGroupText = nextExercise
     ? workoutGroupLabel(workoutGroupMetaForExercise(nextExercise))
     : "";
@@ -21353,18 +21205,12 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
                     </button>
                   )}
 
-                  {(exerciseCoachNotes || exercise.execution_mode || videoUrl) && (
+                  {(exerciseExecutionNotes || videoUrl) && (
                     <div className="mt-4 grid gap-2">
-                      {exerciseCoachNotes && (
+                      {exerciseExecutionNotes && (
                         <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-                          <span className="font-black">Note coach: </span>
-                          {exerciseCoachNotes}
-                        </div>
-                      )}
-                      {exercise.execution_mode && (
-                        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-700">
                           <span className="font-black">Esecuzione: </span>
-                          {exercise.execution_mode}
+                          {exerciseExecutionNotes}
                         </div>
                       )}
                       {videoUrl && (
@@ -21735,20 +21581,10 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
                 </p>
               </div>
 
-              {(nextExerciseCoachNotes || nextExercise.execution_mode) && (
-                <div className="mt-4 space-y-2">
-                  {nextExerciseCoachNotes && (
-                    <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-                      <span className="font-black">Note coach: </span>
-                      {nextExerciseCoachNotes}
-                    </div>
-                  )}
-                  {nextExercise.execution_mode && (
-                    <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-700">
-                      <span className="font-black">Esecuzione: </span>
-                      {nextExercise.execution_mode}
-                    </div>
-                  )}
+              {nextExerciseExecutionNotes && (
+                <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+                  <span className="font-black">Esecuzione: </span>
+                  {nextExerciseExecutionNotes}
                 </div>
               )}
 
@@ -22964,10 +22800,7 @@ function WorkoutDayPreviewModal({
                         .map((value) => String(value || "").trim())
                         .filter(Boolean);
                       const groupLabel = workoutGroupLabel(exercise);
-                      const execution = String(
-                        exercise.execution_mode ||
-                          cleanWorkoutNotes(exercise.notes || "")
-                      ).trim();
+                      const execution = workoutExerciseExecutionText(exercise);
                       const exerciseHistory = getExerciseHistory?.(exercise) || [];
                       const exerciseHistoryId =
                         exercise.id || `exercise-${blockIndex}-${exerciseIndex}`;
