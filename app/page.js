@@ -11482,10 +11482,6 @@ function getBuilderQualityReport() {
     (exercise) => !Number(exercise.recovery_seconds)
   );
 
-  const exercisesWithoutIntensity = filledExercises.filter(
-    (exercise) => !String(exercise.target_rpe || "").trim() && !String(exercise.target_rir || "").trim()
-  );
-
   const progressionExercises = filledExercises.filter(
     (exercise) => exercise.has_weekly_progression
   );
@@ -11523,10 +11519,6 @@ function getBuilderQualityReport() {
 
   if (exercisesWithoutRecovery.length > 0) {
     suggestions.push("Completa i recuperi: aiutano il cliente nella modalità Allenati.");
-  }
-
-  if (exercisesWithoutIntensity.length > 0) {
-    suggestions.push("Aggiungi RPE o RIR almeno sugli esercizi principali.");
   }
 
   if (Number(builder.duration_weeks) >= 4 && progressionExercises.length === 0) {
@@ -16357,7 +16349,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                               <div className="p-3">
                                 <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50/90 p-2.5 ring-1 ring-white">
                                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-12">
-                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-3">
+                                    <Label title="Nome esercizio" className="sm:col-span-2 lg:col-span-4">
                                       <Input
                                         placeholder="Panca piana, Squat, Lat machine..."
                                         value={exercise.exercise_name}
@@ -16384,7 +16376,7 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                       />
                                     </Label>
 
-                                    <Label title="Rec." className="lg:col-span-1">
+                                    <Label title="Rec." className="lg:col-span-2">
                                       <Input
                                         value={exercise.recovery_seconds || ""}
                                         onChange={(event) =>
@@ -16396,28 +16388,6 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                           )
                                         }
                                         placeholder="90"
-                                        className="h-10 bg-white py-2 text-center text-sm"
-                                      />
-                                    </Label>
-
-                                    <Label title="RPE" className="lg:col-span-1">
-                                      <Input
-                                        value={exercise.target_rpe || ""}
-                                        onChange={(event) =>
-                                          updateExerciseField(dayIndex, exerciseIndex, "target_rpe", event.target.value)
-                                        }
-                                        placeholder="8"
-                                        className="h-10 bg-white py-2 text-center text-sm"
-                                      />
-                                    </Label>
-
-                                    <Label title="RIR" className="lg:col-span-1">
-                                      <Input
-                                        value={exercise.target_rir || ""}
-                                        onChange={(event) =>
-                                          updateExerciseField(dayIndex, exerciseIndex, "target_rir", event.target.value)
-                                        }
-                                        placeholder="1-2"
                                         className="h-10 bg-white py-2 text-center text-sm"
                                       />
                                     </Label>
@@ -16454,182 +16424,75 @@ const inactiveDietCount = diets.filter((diet) => !isRecordActive(diet)).length;
                                   </div>
                                 </div>
 
-                                <details className="mt-2 rounded-[1.1rem] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.03)]">
-                                  <summary className="flex cursor-pointer flex-col gap-2 px-3 py-2.5 text-sm font-black text-slate-800 sm:flex-row sm:items-center sm:justify-between">
-                                    <span>Dettagli opzionali</span>
-                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                      Video · Note · Progressione
-                                    </span>
-                                  </summary>
-
-                                  <div className="border-t border-slate-100 p-4">
-                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                      <Label title="Note esecuzione" className="md:col-span-2 xl:col-span-2">
-                                        <Textarea
-                                          rows={2}
-                                          className="min-h-[74px] resize-y rounded-xl"
-                                          value={exercise.notes || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
-                                          }
-                                          placeholder="Indicazioni tecniche visualizzate dal cliente"
-                                        />
-                                      </Label>
-
-                                      <Label title="Video URL">
-                                        <Input
-                                          value={exercise.video_url || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(dayIndex, exerciseIndex, "video_url", event.target.value)
-                                          }
-                                          placeholder="Link video"
-                                        />
-                                      </Label>
-
-                                      <Label title="Immagine URL">
-                                        <Input
-                                          value={exercise.image_url || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(dayIndex, exerciseIndex, "image_url", event.target.value)
-                                          }
-                                          placeholder="Link immagine"
-                                        />
-                                      </Label>
-
-                                      <Label title="Media esercizio" className="md:col-span-2">
-                                        <Select
-                                          value={exercise.exercise_media_id || ""}
-                                          onChange={(event) =>
-                                            updateExerciseField(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              "exercise_media_id",
-                                              event.currentTarget.value
-                                            )
-                                          }
-                                        >
-                                          <option value="">Immagine auto/opzionale</option>
-                                          {exerciseMedia.map((media) => (
-                                            <option key={media.id} value={media.id}>
-                                              {media.name}
-                                            </option>
-                                          ))}
-                                        </Select>
-                                      </Label>
-
-                                      <label className="flex items-center gap-3 rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800 md:col-span-2">
-                                        <input
-                                          type="checkbox"
-                                          checked={Boolean(exercise.has_weekly_progression)}
-                                          onChange={(event) =>
-                                            toggleExerciseProgression(
-                                              dayIndex,
-                                              exerciseIndex,
-                                              event.target.checked
-                                            )
-                                          }
-                                        />
-                                        Progressione settimanale su questo esercizio
-                                      </label>
-                                    </div>
-
-                                    {exercise.has_weekly_progression && (
-                                      <div className="mt-4 rounded-3xl border border-teal-200 bg-teal-50 p-3 shadow-inner">
-                                        <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-                                          <div>
-                                            <p className="text-sm font-black text-slate-900">
-                                              Progressione settimanale
-                                            </p>
-                                            <p className="text-xs font-bold text-slate-500">
-                                              Compila solo i valori che cambiano rispetto alla base.
-                                            </p>
-                                          </div>
-                                          <Pill className="bg-teal-300 text-slate-950">
-                                            {exercise.progressions?.length || 0} settimane
-                                          </Pill>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                          {(exercise.progressions || []).map((progression, progressionIndex) => (
-                                            <div
-                                              key={progression.temp_id || progressionIndex}
-                                              className="rounded-2xl border border-teal-200 bg-white p-3 shadow-sm"
-                                            >
-                                              <div className="mb-3 flex items-center justify-between gap-3">
-                                                <Pill className="bg-teal-300 text-slate-950">
-                                                  W{progression.week_number || progressionIndex + 1}
-                                                </Pill>
-                                                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                                                  Target settimana
-                                                </p>
-                                              </div>
-
-                                              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
-                                                <Label title="Prescrizione" className="lg:col-span-3">
-                                                  <Input
-                                                    value={workoutSetsRepsDisplay(
-                                                      progression.target_sets,
-                                                      progression.target_reps,
-                                                      ""
-                                                    )}
-                                                    onChange={(event) =>
-                                                      updateProgressionPrescription(
-                                                        dayIndex,
-                                                        exerciseIndex,
-                                                        progressionIndex,
-                                                        event.target.value
-                                                      )
-                                                    }
-                                                    placeholder="3x8-10 oppure 1x5 + 3x8"
-                                                    className="text-center"
-                                                  />
-                                                </Label>
-
-                                                {[
-                                                  ["target_load_text", "Kg/target", "lg:col-span-2"],
-                                                  ["target_rpe", "RPE", "lg:col-span-1"],
-                                                  ["target_rir", "RIR", "lg:col-span-1"],
-                                                  ["recovery_seconds", "Recupero", "lg:col-span-2"]
-                                                ].map(([field, label, fieldClassName]) => (
-                                                  <Label key={field} title={label} className={fieldClassName}>
-                                                    <Input
-                                                      value={progression[field] || ""}
-                                                      onChange={(event) =>
-                                                        updateProgressionField(
-                                                          dayIndex,
-                                                          exerciseIndex,
-                                                          progressionIndex,
-                                                          field,
-                                                          event.target.value
-                                                        )
-                                                      }
-                                                      className="text-center"
-                                                    />
-                                                  </Label>
-                                                ))}
-
-                                                <Label title="Note" className="sm:col-span-2 lg:col-span-3">
-                                                  <Input
-                                                    value={progression.notes || ""}
-                                                    onChange={(event) =>
-                                                      updateProgressionField(
-                                                        dayIndex,
-                                                        exerciseIndex,
-                                                        progressionIndex,
-                                                        "notes",
-                                                        event.target.value
-                                                      )
-                                                    }
-                                                  />
-                                                </Label>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
+                                <div className="mt-2 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
+                                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(205px,auto)] lg:items-end">
+                                    <Label title="Note esecuzione" className="min-w-0">
+                                      <Textarea
+                                        rows={2}
+                                        className="min-h-[72px] resize-y rounded-xl"
+                                        value={exercise.notes || ""}
+                                        onChange={(event) =>
+                                          updateExerciseField(dayIndex, exerciseIndex, "notes", event.target.value)
+                                        }
+                                        placeholder="Indicazioni da mostrare al cliente"
+                                      />
+                                    </Label>
+                                    <label className="flex min-h-[72px] items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-black text-teal-800">
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(exercise.has_weekly_progression)}
+                                        onChange={(event) =>
+                                          toggleExerciseProgression(
+                                            dayIndex,
+                                            exerciseIndex,
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Progressione settimanale
+                                    </label>
                                   </div>
-                                </details>
+
+                                  {exercise.has_weekly_progression && (
+                                    <div className="mt-3 rounded-2xl border border-teal-200 bg-teal-50/70 p-3">
+                                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                        <p className="text-sm font-black text-slate-900">
+                                          Progressione settimanale
+                                        </p>
+                                        <p className="text-xs font-bold text-slate-500">
+                                          Una prescrizione per settimana (es. 3x10)
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-2 overflow-x-auto pb-2">
+                                        {(exercise.progressions || []).map((progression, progressionIndex) => (
+                                          <Label
+                                            key={progression.temp_id || progressionIndex}
+                                            title={`W${progression.week_number || progressionIndex + 1}`}
+                                            className="min-w-[142px] flex-1"
+                                          >
+                                            <Input
+                                              value={workoutSetsRepsDisplay(
+                                                progression.target_sets,
+                                                progression.target_reps,
+                                                ""
+                                              )}
+                                              onChange={(event) =>
+                                                updateProgressionPrescription(
+                                                  dayIndex,
+                                                  exerciseIndex,
+                                                  progressionIndex,
+                                                  event.target.value
+                                                )
+                                              }
+                                              placeholder="3x10"
+                                              className="h-11 rounded-xl px-3 py-2 text-center text-sm"
+                                            />
+                                          </Label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -19928,22 +19791,14 @@ function PlansList({
   const draftCount = plans.filter(isProgramDraft).length;
   const hiddenCount = plans.filter(isProgramRemoved).length;
   const [compactProgramId, setCompactProgramId] = useState("");
-  const [exportingProgramId, setExportingProgramId] = useState("");
-
-  async function exportProgramExcel(plan) {
-    if (!plan) return;
-
-    setExportingProgramId(String(plan.id));
-    try {
-      await downloadSavedProgramExcel(
-        plan,
-        selectedClient ? fullName(selectedClient) : "Cliente"
-      );
-    } catch (error) {
-      alert(error?.message || "Non è stato possibile ricreare il file Excel della scheda.");
-    } finally {
-      setExportingProgramId("");
-    }
+  function openCompleteWorkoutExcel() {
+    // One canonical workbook: SCHEDA + exercise bank distributed with the app.
+    const link = document.createElement("a");
+    link.href = "/tmfit-workout-template.xlsx";
+    link.download = "tmfit-workout-template.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   return (
@@ -20077,11 +19932,11 @@ function PlansList({
                   </Button>
 
                   <Button
-                    onClick={() => exportProgramExcel(plan)}
-                    disabled={String(exportingProgramId) === String(plan.id)}
+                    onClick={openCompleteWorkoutExcel}
+                    title="Scarica il modello Excel unico TMFIT con banca esercizi"
                     className="border border-emerald-200 bg-emerald-50 text-emerald-800"
                   >
-                    {String(exportingProgramId) === String(plan.id) ? "Excel..." : "Excel"}
+                    Excel
                   </Button>
 
                   <Button
