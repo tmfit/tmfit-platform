@@ -5,6 +5,7 @@ export const metadata = {
   description: "TMFIT Coaching Platform",
   applicationName: "TMFIT",
   manifest: "/manifest.webmanifest",
+  other: { "tmfit-offline-shell": "1" },
   appleWebApp: {
     capable: true,
     title: "TMFIT",

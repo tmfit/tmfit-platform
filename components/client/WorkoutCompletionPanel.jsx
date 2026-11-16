@@ -10,9 +10,10 @@ export default function WorkoutCompletionPanel({
   feedback,
   setFeedback,
   onConfirm,
+  onBack,
   busy
 }) {
-  const complete = completedCount >= totalPlannedSets;
+  const complete = totalPlannedSets > 0 && completedCount >= totalPlannedSets;
 
   function update(field, value) {
     setFeedback((previous) => ({ ...previous, [field]: value }));
@@ -24,7 +25,7 @@ export default function WorkoutCompletionPanel({
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
           <Check size={28} />
         </div>
-        <h3 className="mt-4 text-2xl font-black">Allenamento completato</h3>
+        <h3 className="mt-4 text-2xl font-black">Riepilogo seduta</h3>
         <p className="mt-2 text-sm font-semibold text-slate-300">
           {complete
             ? "Hai completato tutte le serie programmate."
@@ -115,10 +116,13 @@ export default function WorkoutCompletionPanel({
       <button
         type="button"
         onClick={onConfirm}
-        disabled={busy}
+        disabled={busy || completedCount === 0}
         className="w-full rounded-2xl bg-[#07111f] px-4 py-4 text-base font-black text-white shadow-sm disabled:opacity-50"
       >
         {busy ? "Salvataggio riepilogo..." : "Salva e termina"}
+      </button>
+      <button type="button" onClick={onBack} disabled={busy} className="w-full py-2 text-sm font-bold text-teal-800">
+        Torna alle serie
       </button>
     </div>
   );
