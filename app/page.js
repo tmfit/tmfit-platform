@@ -8523,10 +8523,14 @@ async function downloadSavedProgramExcel(program, clientName = "Cliente") {
 
   // Use the TMFIT workbook as a base, retaining the other worksheets.
   // SCHEDA follows the user-provided FINAL layout: A-I and week columns.
-  const response = await fetch("/tmfit-workout-template.xlsx", { cache: "no-store" });
-  if (!response.ok) throw new Error("Modello Excel TMFIT non disponibile.");
-  const workbook = XLSX.read(await response.arrayBuffer(), {
-    type: "array",
+  const response = await fetch("/tmfit-workout-finale-template.b64", { cache: "no-store" });
+  if (!response.ok) throw new Error("Modello Excel originale non disponibile.");
+  const base64Template = (await response.text()).replace(/\s+/g, "");
+  if (base64Template.length !== 16368 || !base64Template.startsWith("UEsDB")) {
+    throw new Error("Il modello Excel originale è incompleto o non valido.");
+  }
+  const workbook = XLSX.read(base64Template, {
+    type: "base64",
     cellStyles: true
   });
   const source = workbook.Sheets?.SCHEDA;
