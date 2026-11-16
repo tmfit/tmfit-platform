@@ -476,6 +476,12 @@ function cleanWorkoutNotes(value) {
     .trim();
 }
 
+// Editor notes are the source of truth; imported execution_mode is a legacy fallback.
+function workoutExerciseExecutionText(exercise) {
+  const notes = cleanWorkoutNotes(exercise?.notes || "");
+  return notes || String(exercise?.execution_mode || "").trim();
+}
+
 function parseWorkoutGroupFromNotes(value) {
   const match = String(value || "").match(WORKOUT_GROUP_META_REGEX);
 
@@ -3773,9 +3779,7 @@ function buildTmfitTrainingPlanPdfBytes({
     const metrics = workoutMetricValues(exercise);
     const groupLabel = workoutGroupLabel(exercise);
     const exerciseTitle = String(exercise?.exercise_name || "Esercizio").trim();
-    const execution = String(
-      exercise?.execution_mode || cleanWorkoutNotes(exercise?.notes || "")
-    ).replace(/\s+/g, " ").trim();
+    const execution = workoutExerciseExecutionText(exercise).replace(/\s+/g, " ").trim();
 
     const titleMaxWidth = groupLabel ? 300 : 405;
     const titleLines = tmfitWrapWorkoutPdfText(exerciseTitle, 9.6, titleMaxWidth);
@@ -8414,13 +8418,7 @@ function workoutExcelProgressionPrescription(exercise, weekNumber) {
 }
 
 function workoutExcelExecutionText(exercise) {
-  const execution = String(exercise?.execution_mode || "").trim();
-  const notes = cleanWorkoutNotes(exercise?.notes || "");
-  const values = [execution, notes]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  return Array.from(new Set(values)).join(" · ");
+  return workoutExerciseExecutionText(exercise);
 }
 
 function workoutExcelGroupText(exercise) {
@@ -11882,7 +11880,10 @@ function moveExerciseRow(dayIndex, exerciseIndex, direction) {
   }
 function updateExerciseField(dayIndex, exerciseIndex, field, value) {
   updateBuilder((next) => {
-    next.days[dayIndex].exercises[exerciseIndex][field] = value;
+    const exercise = next.days[dayIndex].exercises[exerciseIndex];
+    exercise[field] = value;
+    // The editor exposes one instruction field: never keep stale imported text.
+    if (field === "notes") exercise.execution_mode = value;
   });
 }
 
@@ -12986,11 +12987,12 @@ try {
             exercise.exercise_media_id || matchedMedia?.id || null;
           const exerciseGroupType = normalizeWorkoutGroupType(exercise.group_type);
           const exerciseGroupLabel = String(exercise.group_label || "").trim();
-          const storedExerciseNotes = encodeWorkoutNotes(
-            exercise.notes,
-            exerciseGroupType,
-            exerciseGroupLabel
-          );
+          const exerciseInstructions = workoutExerciseExecutionText(exercise);
+           const storedExerciseNotes = encodeWorkoutNotes(
+             exerciseInstructions,
+             exerciseGroupType,
+             exerciseGroupLabel
+           );
 
           const { data: exerciseRow, error: exerciseError } = await supabase
             .from("workout_exercises")
@@ -13002,7 +13004,7 @@ try {
               sets: exercise.sets || null,
               reps: exercise.reps || null,
               recovery_seconds: Number(exercise.recovery_seconds) || 90,
-              execution_mode: exercise.execution_mode || null,
+              execution_mode: exerciseInstructions || null,
               target_rpe: exercise.target_rpe || null,
               target_rir: exercise.target_rir || null,
               video_url: exercise.video_url || null,
@@ -18700,7 +18702,7 @@ function ClientProgramPreviewPanel({
                   {day.exercises.map((exercise, exerciseIndex) => {
                     const groupLabel = workoutGroupLabel(exercise);
                     const progressions = meaningfulProgressions(exercise);
-                    const cleanNotes = cleanWorkoutNotes(exercise.notes || "");
+                    const executionText = workoutExerciseExecutionText(exercise);
 
                     return (
                       <div
@@ -18754,13 +18756,13 @@ function ClientProgramPreviewPanel({
                               </div>
                             </div>
 
-                            {(exercise.execution_mode || cleanNotes) && (
+                            {executionText && (
                               <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
                                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                                   Modalità esecuzione
                                 </p>
                                 <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
-                                  {exercise.execution_mode || cleanNotes}
+                                  {executionText}
                                 </p>
                               </div>
                             )}
@@ -20638,7 +20640,7 @@ function WorkoutPlayerModal({
   const exercise = exercises[exerciseIndex] || null;
   const exerciseGroupMeta = exercise ? workoutGroupMetaForExercise(exercise) : { type: "", label: "" };
   const exerciseGroupText = workoutGroupLabel(exerciseGroupMeta);
-  const exerciseCoachNotes = cleanWorkoutNotes(exercise?.notes || "");
+  const exerciseExecutionNotes = workoutExerciseExecutionText(exercise);
   const plannedSets = exercise ? plannedSetsForExercise(exercise) : [];
   const currentSet = plannedSets[setIndex] || null;
   const totalPlannedSets = exercises.reduce(
@@ -20730,7 +20732,7 @@ function WorkoutPlayerModal({
     nextExercise?.recovery_seconds ||
     nextExercise?.rest_seconds ||
     90;
-  const nextExerciseCoachNotes = cleanWorkoutNotes(nextExercise?.notes || "");
+  const nextExerciseExecutionNotes = workoutExerciseExecutionText(nextExercise);
   const nextExerciseGroupText = nextExercise
     ? workoutGroupLabel(workoutGroupMetaForExercise(nextExercise))
     : "";
@@ -21394,18 +21396,12 @@ function WorkoutPlayerModal({
                     </button>
                   )}
 
-                  {(exerciseCoachNotes || exercise.execution_mode || videoUrl) && (
+                  {(exerciseExecutionNotes || videoUrl) && (
                     <div className="mt-4 grid gap-2">
-                      {exerciseCoachNotes && (
+                      {exerciseExecutionNotes && (
                         <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-                          <span className="font-black">Note coach: </span>
-                          {exerciseCoachNotes}
-                        </div>
-                      )}
-                      {exercise.execution_mode && (
-                        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-700">
                           <span className="font-black">Esecuzione: </span>
-                          {exercise.execution_mode}
+                           {exerciseExecutionNotes}
                         </div>
                       )}
                       {videoUrl && (
@@ -21772,18 +21768,12 @@ function WorkoutPlayerModal({
                 </p>
               </div>
 
-              {(nextExerciseCoachNotes || nextExercise.execution_mode) && (
+              {nextExerciseExecutionNotes && (
                 <div className="mt-4 space-y-2">
-                  {nextExerciseCoachNotes && (
+                  {nextExerciseExecutionNotes && (
                     <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-                      <span className="font-black">Note coach: </span>
-                      {nextExerciseCoachNotes}
-                    </div>
-                  )}
-                  {nextExercise.execution_mode && (
-                    <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-700">
                       <span className="font-black">Esecuzione: </span>
-                      {nextExercise.execution_mode}
+                       {nextExerciseExecutionNotes}
                     </div>
                   )}
                 </div>
@@ -23006,10 +22996,7 @@ function WorkoutDayPreviewModal({
                         .map((value) => String(value || "").trim())
                         .filter(Boolean);
                       const groupLabel = workoutGroupLabel(exercise);
-                      const execution = String(
-                        exercise.execution_mode ||
-                          cleanWorkoutNotes(exercise.notes || "")
-                      ).trim();
+                      const execution = workoutExerciseExecutionText(exercise);
                       const exerciseHistory = getExerciseHistory?.(exercise) || [];
                       const exerciseHistoryId =
                         exercise.id || `exercise-${blockIndex}-${exerciseIndex}`;
