@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
+  ArrowRight,
   CheckCircle2,
-  ChevronLeft,
+  Clock3,
   ChevronRight,
   ClipboardCheck,
   Dumbbell,
-  FileText,
-  MessageSquareText
+  MessageSquareText,
+  Utensils
 } from "lucide-react";
 
 function StatusRow({ icon: Icon, title, value, detail, onClick, accent = false }) {
@@ -16,7 +16,7 @@ function StatusRow({ icon: Icon, title, value, detail, onClick, accent = false }
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition active:scale-[.99]"
+      className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-teal-200 hover:bg-teal-50/40 focus-visible:ring-2 focus-visible:ring-teal-700 active:scale-[.99]"
     >
       <span
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
@@ -46,11 +46,8 @@ function StatusRow({ icon: Icon, title, value, detail, onClick, accent = false }
 }
 
 export default function ClientHomePanel({
-  firstName,
   nextWorkout,
-  workouts,
-  initialWorkoutId,
-  weekSelection,
+  onOpenTraining,
   checkinStatus,
   dietStatus,
   latestMessage,
@@ -61,165 +58,30 @@ export default function ClientHomePanel({
   const workoutProgress =
     planned > 0 ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
 
-  const workoutSlides =
-    Array.isArray(workouts) && workouts.length > 0
-      ? workouts
-      : nextWorkout
-      ? [nextWorkout]
-      : [];
-
-  const [activeWorkoutIndex, setActiveWorkoutIndex] = useState(0);
-  const workoutSignature = workoutSlides
-    .map((workout, index) => String(workout?.id || workout?.title || index))
-    .join("|");
-
-  useEffect(() => {
-    const requestedIndex = workoutSlides.findIndex(
-      (workout) => String(workout?.id) === String(initialWorkoutId)
-    );
-    setActiveWorkoutIndex(requestedIndex >= 0 ? requestedIndex : 0);
-  }, [workoutSignature, initialWorkoutId, weekSelection?.value]);
-
-  function moveToWorkout(direction) {
-    setActiveWorkoutIndex((currentIndex) =>
-      Math.max(
-        0,
-        Math.min(currentIndex + direction, workoutSlides.length - 1)
-      )
-    );
-  }
-
-  const activeWorkout = workoutSlides[activeWorkoutIndex] || nextWorkout || null;
-
   return (
     <div className="space-y-4">
-      <section
-        className="overflow-hidden border border-white/10 bg-[#07111f] text-white shadow-lg"
-        style={{ borderRadius: "2rem" }}
-      >
-        <div className="p-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">
-              Il tuo prossimo passo
-            </p>
-            {workoutSlides.length > 1 && (
-              <span className="rounded-full border border-white/10 bg-white/[0.07] px-2.5 py-1 text-[10px] font-black text-slate-200">
-                {activeWorkoutIndex + 1}/{workoutSlides.length}
-              </span>
-            )}
-          </div>
-
-          <div className="mt-2 flex items-stretch gap-2" aria-live="polite">
-            {workoutSlides.length > 1 && (
-              <button
-                type="button"
-                onClick={() => moveToWorkout(-1)}
-                disabled={activeWorkoutIndex === 0}
-                className="flex w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white transition active:scale-[.96] disabled:cursor-not-allowed disabled:opacity-25"
-                aria-label="Allenamento precedente"
-              >
-                <ChevronLeft size={22} />
-              </button>
-            )}
-
-            <div className="min-w-0 flex-1 rounded-[1.45rem] border border-white/10 bg-white/[0.04] px-3 py-3">
-              <div className="flex min-h-[82px] items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="truncate text-2xl font-black leading-tight tracking-tight">
-                      {activeWorkout?.title || "Nessun allenamento disponibile"}
-                    </h1>
-                    {activeWorkout?.completed && (
-                      <span className="rounded-full bg-teal-300/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-teal-200">
-                        Completato
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-slate-300">
-                    {activeWorkout?.minutes && <span>{activeWorkout.minutes} min</span>}
-                    {activeWorkout?.minutes && activeWorkout?.week && (
-                      <span className="text-slate-600">•</span>
-                    )}
-                    {activeWorkout?.week && <span>Settimana {activeWorkout.week}</span>}
-                    {activeWorkout?.planTitle && (
-                      <>
-                        <span className="text-slate-600">•</span>
-                        <span className="min-w-0 truncate">{activeWorkout.planTitle}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-300 text-slate-950">
-                  <Dumbbell size={19} />
-                </span>
-              </div>
-            </div>
-
-            {workoutSlides.length > 1 && (
-              <button
-                type="button"
-                onClick={() => moveToWorkout(1)}
-                disabled={activeWorkoutIndex === workoutSlides.length - 1}
-                className="flex w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white transition active:scale-[.96] disabled:cursor-not-allowed disabled:opacity-25"
-                aria-label="Allenamento successivo"
-              >
-                <ChevronRight size={22} />
-              </button>
-            )}
-          </div>
-
-          {workoutSlides.length > 1 && (
-            <div className="mt-2 flex items-center justify-center gap-2" aria-label="Posizione allenamento">
-              {workoutSlides.map((workout, index) => (
-                <span
-                  key={`dot-${workout?.id || index}`}
-                  className={`h-2 rounded-full transition-all ${
-                    activeWorkoutIndex === index ? "w-7 bg-teal-300" : "w-2 bg-white/25"
-                  }`}
-                  aria-hidden="true"
-                />
-              ))}
-            </div>
+      <section className="space-y-2 rounded-[1.6rem] bg-[#07111f] p-4 text-white shadow-lg">
+        <h1 className="text-xl font-black leading-tight tracking-tight">Cosa fare oggi?</h1>
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white/10 text-[#b9e3da]">
+            <Dumbbell size={18} aria-hidden="true" />
+          </span>
+          <p className="min-w-0 flex-1 text-base font-black leading-tight">{nextWorkout.title}</p>
+          {nextWorkout.minutes && (
+            <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-slate-200" aria-label={`Durata stimata ${nextWorkout.minutes} minuti`}>
+              <Clock3 size={15} aria-hidden="true" />
+              {nextWorkout.minutes} min
+            </span>
           )}
-
-          {weekSelection?.options?.length > 1 && (
-            <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-2">
-              <span className="shrink-0 pl-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
-                Settimana
-              </span>
-              <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
-                {weekSelection.options.map((weekNumber) => (
-                  <button
-                    key={weekNumber}
-                    type="button"
-                    onClick={() => weekSelection.onChange?.(weekNumber)}
-                    className={`min-h-9 rounded-xl border text-sm font-black transition active:scale-[.97] ${
-                      Number(weekSelection.value) === Number(weekNumber)
-                        ? "border-teal-300 bg-teal-300 text-slate-950"
-                        : "border-white/10 bg-white/[0.06] text-white"
-                    }`}
-                    aria-pressed={Number(weekSelection.value) === Number(weekNumber)}
-                  >
-                    {weekNumber}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <button
-            type="button"
-            disabled={!activeWorkout?.onStart}
-            onClick={activeWorkout?.onStart}
-            className="mt-3 flex min-h-11 w-full items-center justify-center rounded-2xl bg-teal-300 px-4 py-2.5 text-sm font-black text-slate-950 transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <Dumbbell size={17} className="mr-2" />
-            {activeWorkout?.actionLabel ||
-              (activeWorkout?.available ? "Inizia allenamento" : "Apri la scheda")}
-          </button>
         </div>
+        <button
+          type="button"
+          onClick={onOpenTraining}
+          className="flex min-h-11 w-full items-center justify-between gap-2 rounded-2xl bg-[#b9e3da] px-4 py-2 text-sm font-black text-slate-950 transition hover:bg-[#cceee5] focus-visible:ring-2 focus-visible:ring-white active:scale-[.98]"
+        >
+          Vai all’allenamento
+          <ArrowRight size={17} aria-hidden="true" />
+        </button>
       </section>
 
       <section className="space-y-2">
@@ -232,7 +94,7 @@ export default function ClientHomePanel({
           accent={Boolean(checkinStatus?.completed)}
         />
         <StatusRow
-          icon={FileText}
+          icon={Utensils}
           title="Dieta"
           value={dietStatus?.label || "Non disponibile"}
           detail={dietStatus?.detail}

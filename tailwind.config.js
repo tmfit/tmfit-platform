@@ -2,6 +2,7 @@
 module.exports = {
   content: [
     "./app/**/*.{js,jsx}",
+    "./components/client/ClientHomePanel.jsx",
     "./lib/**/*.{js,jsx}"
   ],
   theme: {

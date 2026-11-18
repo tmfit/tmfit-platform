@@ -74,3 +74,27 @@ textarea {
   min-width: 48px;
   min-height: 48px;
 }
+
+.tmfit-client-shell .lucide-utensils {
+  stroke-width: 1.8;
+}
+
+.tmfit-client-shell .lucide-utensils path:first-child {
+  transform-origin: 7px 11px;
+  transform: translateX(1.5px) scale(.72, .78);
+}
+
+.tmfit-client-shell .lucide-utensils path:nth-child(2) {
+  transform-origin: 7px 22px;
+  transform: translateX(1.5px) scaleY(.9);
+}
+
+.tmfit-client-shell .lucide-utensils path:last-child {
+  transform: translateX(-1px);
+}
+
+@media (hover: hover) {
+  .tmfit-client-meals button:hover {
+    border-color: #85b3a4;
+  }
+}

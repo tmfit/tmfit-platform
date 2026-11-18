@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock3, Dumbbell, ListChecks } from "lucide-react";
+import { ClipboardCheck, Clock3, Dumbbell, ListChecks } from "lucide-react";
 
 export default function WorkoutCompletionPanel({
   completedCount,
@@ -11,7 +11,8 @@ export default function WorkoutCompletionPanel({
   setFeedback,
   onConfirm,
   onBack,
-  busy
+  busy,
+  children
 }) {
   const complete = totalPlannedSets > 0 && completedCount >= totalPlannedSets;
 
@@ -21,11 +22,11 @@ export default function WorkoutCompletionPanel({
 
   return (
     <div className="space-y-4 pb-36">
-      <section className="rounded-[1.8rem] bg-[#07111f] p-5 text-center text-white shadow-lg">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-300 text-slate-950">
-          <Check size={28} />
+      <section className="rounded-[1.6rem] bg-[#07111f] p-4 text-white">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck size={21} className="shrink-0 text-teal-300" aria-hidden="true" />
+          <h3 className="text-xl font-black tracking-tight">Riepilogo seduta</h3>
         </div>
-        <h3 className="mt-4 text-2xl font-black">Riepilogo seduta</h3>
         <p className="mt-2 text-sm font-semibold text-slate-300">
           {complete
             ? "Hai completato tutte le serie programmate."
@@ -50,6 +51,8 @@ export default function WorkoutCompletionPanel({
           <p className="text-[10px] font-black uppercase text-slate-400">Esercizi</p>
         </div>
       </div>
+
+      {children}
 
       <section className="space-y-5 rounded-[1.8rem] border border-slate-200 bg-white p-4 shadow-sm">
         <div>

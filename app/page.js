@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
+import { homeWorkoutForDay } from "../lib/workout-home.mjs";
+import { dietFoodForDisplay } from "../lib/diet-food-display.mjs";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
 import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
 import useWorkoutSync from "../components/client/useWorkoutSync";
@@ -37,9 +39,11 @@ import {
   BellRing,
   Camera,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  CloudDownload,
   Copy,
   Dumbbell,
   Eye,
@@ -63,6 +67,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Utensils,
   X
 } from "lucide-react";
 
@@ -1254,20 +1259,17 @@ function ClientSupplementProtocol({ supplements = [] }) {
           const instruction = String(item.client_instruction || "").trim();
 
           return (
-            <Card key={item.id} className="overflow-hidden">
-              <div className="p-5">
-                <h4 className="text-lg font-black text-slate-950">
-                  {item.supplement_name || "Integratore"}
-                </h4>
-
-                <div className="mt-3 rounded-[1.2rem] bg-slate-50 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
-                    Modalità di assunzione
-                  </p>
-                  <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-slate-800">
-                    {instruction || "Segui le indicazioni inserite dal professionista."}
-                  </p>
-                </div>
+            <Card key={item.id} className="border-[#c9dcd3] bg-white p-4">
+              <h4 className="break-words text-lg font-black tracking-tight text-slate-950">
+                {item.supplement_name || "Integratore"}
+              </h4>
+              <div className="mt-3 border-t border-[#dce9e3] pt-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-800">
+                  Modalità di assunzione
+                </p>
+                <p className="mt-1 whitespace-pre-line break-words text-sm font-semibold leading-6 text-slate-800">
+                  {instruction || "Segui le indicazioni inserite dal professionista."}
+                </p>
               </div>
             </Card>
           );
@@ -4370,10 +4372,8 @@ function stripDietMealNotePrefix(value) {
   if (!clean) return "";
 
   return clean
-    .replace(/^note\s+al\s+pasto\s*/i, "")
-    .replace(/^nota\s+al\s+pasto\s*/i, "")
-    .replace(/^note\s*/i, "")
-    .replace(/^nota\s*/i, "")
+    .replace(/^not[ae]\s+al\s+pasto\b\s*/i, "")
+    .replace(/^not[ae](?=\s*(?:[:\-–—]|$))\s*/i, "")
     .replace(/^[:\-–—]+\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -8800,14 +8800,14 @@ function DietSummaryBox({ diet }) {
 }
 
 
-function buildDietFoodGroups(items = [], mealNotes = []) {
+function buildDietFoodGroups(items = [], mealNotes = [], expandInlineFoods = false) {
   const blocks = [];
   let readingInlineNotes = false;
 
   function pushFood(line) {
     if (isDietAlternativeLine(line)) {
-      const lastFood = [...blocks].reverse().find((block) => block.type === "food");
-      if (lastFood) {
+      const lastFood = expandInlineFoods ? blocks[blocks.length - 1] : [...blocks].reverse().find((block) => block.type === "food");
+      if (lastFood?.type === "food") {
         lastFood.alternatives.push(line);
         return;
       }
@@ -8862,7 +8862,8 @@ function buildDietFoodGroups(items = [], mealNotes = []) {
       return;
     }
 
-    pushFood(line);
+    if (expandInlineFoods) splitRecoveredDietFoodText(line).forEach(pushFood);
+    else pushFood(line);
   });
 
   compactDietMealNoteLines(mealNotes).forEach((note) => {
@@ -8877,8 +8878,19 @@ function buildDietFoodGroups(items = [], mealNotes = []) {
   return { blocks: dedupedBlocks };
 }
 
-function DietFoodLines({ items = [], notes: mealNotes = [] }) {
-  const { blocks } = buildDietFoodGroups(items, mealNotes);
+function ClientDietPortionLine({ portion, alternative = false }) {
+  return (
+    <p className={`flex items-baseline justify-between gap-3 ${alternative
+      ? "border-l-2 border-[#95b9aa] pl-2.5 text-[13px] font-semibold leading-5 text-slate-600"
+      : "text-sm font-black leading-5 text-slate-900"}`}>
+      <span className="min-w-0 break-words">{portion.label}</span>
+      {portion.quantity && <span className="shrink-0 whitespace-nowrap tabular-nums">{portion.quantity}</span>}
+    </p>
+  );
+}
+
+function DietFoodLines({ items = [], notes: mealNotes = [], clientView = false }) {
+  const { blocks } = buildDietFoodGroups(items, mealNotes, clientView);
 
   if (blocks.length === 0) {
     return (
@@ -8889,17 +8901,17 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
   }
 
   return (
-    <div className="mt-3 space-y-2.5">
+    <div className={clientView ? "mt-1 divide-y divide-[#dbe4de]" : "mt-3 space-y-2.5"}>
       {blocks.map((block, index) => {
         if (block.type === "option") {
           return (
             <div
               key={`${block.title}-${index}`}
-              className="rounded-2xl border border-teal-200 bg-teal-50 px-3.5 py-3"
+              className={clientView ? "pt-3 text-sm" : "rounded-2xl border border-teal-200 bg-teal-50 px-3.5 py-3"}
             >
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
+              {!clientView && <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
                 Opzione
-              </p>
+              </p>}
               <p className="mt-1 text-sm font-black text-slate-950">
                 {block.title}
               </p>
@@ -8911,7 +8923,7 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
           return (
             <div
               key={`${block.text}-${index}`}
-              className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3"
+              className={clientView ? "py-3" : "rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3"}
             >
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
                 Note al pasto
@@ -8919,6 +8931,19 @@ function DietFoodLines({ items = [], notes: mealNotes = [] }) {
               <p className="mt-1 break-words text-xs font-bold leading-5 text-amber-900">
                 {block.text}
               </p>
+            </div>
+          );
+        }
+
+        if (clientView) {
+          const food = dietFoodForDisplay(block);
+          return (
+            <div key={index} className="space-y-1.5 py-3">
+              <ClientDietPortionLine portion={food.main} />
+              {food.preparation && <p className="text-[13px] font-semibold leading-5 text-slate-600">{food.preparation}</p>}
+              {food.alternatives.map((portion, altIndex) => (
+                <ClientDietPortionLine key={altIndex} portion={portion} alternative />
+              ))}
             </div>
           );
         }
@@ -8974,7 +8999,7 @@ function dietShiftContainerHeader(container) {
   return `${label.toUpperCase()} - alimenti`;
 }
 
-function DietExtractedPlan({ diet, compact = false }) {
+function DietExtractedPlan({ diet, compact = false, clientView = false }) {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [activeOptionGroupIndex, setActiveOptionGroupIndex] = useState(0);
   const extracted = dietExtractedInfo(diet);
@@ -9033,6 +9058,21 @@ function DietExtractedPlan({ diet, compact = false }) {
       : [];
     const hasStandaloneContent = items.length > 0 || (meal.notes || []).length > 0;
 
+    if (clientView) {
+      const heading = <h5 className="text-base font-black text-slate-950">{meal.name || meal.title || "Pasto"}</h5>;
+      return (
+        <section key={key} className="space-y-2">
+          {hasStandaloneContent ? (
+            <div className="rounded-2xl border border-[#c9dcd3] bg-white px-4 pb-1 pt-3.5">
+              {heading}
+              <DietFoodLines items={items} notes={meal.notes} clientView />
+            </div>
+          ) : heading}
+          {mealOptions.map((option, index) => renderOptionCard(meal, option, index))}
+        </section>
+      );
+    }
+
     return (
       <div
         key={key}
@@ -9085,38 +9125,38 @@ function DietExtractedPlan({ diet, compact = false }) {
     return (
       <div
         key={`${group?.meal || group?.title || "gruppo"}-${option.title}-${optionIndex}`}
-        className="w-full rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
+        className={clientView ? "w-full rounded-2xl border border-[#c9dcd3] bg-white px-4 pb-1 pt-3.5" : "w-full rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">
-              {option.title || `Opzione ${optionIndex + 1}`}
+              {option.title || option.name || `Opzione ${optionIndex + 1}`}
             </p>
-            <p className="mt-1 text-xs font-bold text-slate-400">
+            {!clientView && <p className="mt-1 text-xs font-bold text-slate-400">
               {group?.meal || group?.title || "Sezione"}
-            </p>
+            </p>}
           </div>
 
         </div>
-        <DietFoodLines items={items} notes={option.notes || []} />
+        <DietFoodLines items={items} notes={option.notes || []} clientView={clientView} />
       </div>
     );
   }
 
   return (
-    <div className="rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <div className={`rounded-[1.6rem] border p-4 md:p-5 ${clientView ? "tmfit-client-meals border-[#c9dcd3] bg-[#e4efe8]" : "border-teal-100 bg-teal-50/70"}`}>
+      <div className={clientView ? "space-y-1" : "flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+          {!clientView && <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
             Pasti in app
-          </p>
-          <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
+          </p>}
+          <h3 className={clientView ? "text-xl font-black tracking-tight text-slate-950" : "mt-1 text-lg font-black text-slate-950"}>
+            {clientView ? "Piano alimentare" : isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
           </h3>
         </div>
 
         {!compact && (
-          <div className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm">
+          <div className={clientView ? "text-sm font-bold leading-5 text-[#28594b]" : "rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm"}>
             {isOptions
               ? "Scegli una sezione per consultare le alternative."
               : isShiftPlan
@@ -9140,8 +9180,9 @@ function DietExtractedPlan({ diet, compact = false }) {
                   <button
                     key={`${day.day || day.title}-${dayIndex}`}
                     type="button"
+                    aria-pressed={isActive}
                     onClick={() => setActiveDayIndex(dayIndex)}
-                    className={`shrink-0 rounded-2xl border px-4 py-3 text-left transition active:scale-[.98] ${
+                    className={`min-h-11 shrink-0 rounded-2xl border px-4 py-3 text-left transition active:scale-[.98] ${
                       isActive
                         ? "border-[#07111f] bg-[#07111f] text-white shadow-lg"
                         : "border-slate-200 bg-white text-slate-700"
@@ -9156,8 +9197,12 @@ function DietExtractedPlan({ diet, compact = false }) {
           )}
 
           {!compact && activeDay && (
-            <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white">
-              {isShiftPlan ? (
+            <div className={clientView ? "space-y-2" : "overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"}>
+              {clientView ? (
+                <h4 className="px-0.5 text-xl font-black tracking-tight text-slate-950">
+                  {isShiftPlan ? dietShiftContainerHeader(activeDay) : activeDay.day || activeDay.title}
+                </h4>
+              ) : isShiftPlan ? (
                 <div className="border-b border-slate-300 bg-slate-200 px-4 py-3 text-center">
                   <p className="text-sm font-semibold italic text-slate-500">
                     {dietShiftContainerHeader(activeDay)}
@@ -9176,7 +9221,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                 </div>
               )}
 
-              <div className="grid gap-3 bg-slate-50 p-3">
+              <div className={clientView ? "grid gap-3" : "grid gap-3 bg-slate-50 p-3"}>
                 {activeDayMeals.length === 0 && (
                   <Empty
                     title="Nessun pasto riconosciuto"
@@ -9254,8 +9299,9 @@ function DietExtractedPlan({ diet, compact = false }) {
                   <button
                     key={`${group.meal || group.title}-${groupIndex}`}
                     type="button"
+                    aria-pressed={isActive}
                     onClick={() => setActiveOptionGroupIndex(groupIndex)}
-                    className={`shrink-0 rounded-2xl border px-4 py-3 text-left transition active:scale-[.98] ${
+                    className={`min-h-11 shrink-0 rounded-2xl border px-4 py-3 text-left transition active:scale-[.98] ${
                       isActive
                         ? "border-[#07111f] bg-[#07111f] text-white shadow-lg"
                         : "border-slate-200 bg-white text-slate-700"
@@ -9270,20 +9316,20 @@ function DietExtractedPlan({ diet, compact = false }) {
           )}
 
           {!compact && activeOptionGroup && (
-            <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
+            <div className={clientView ? "space-y-2" : "overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white"}>
+              <div className={clientView ? "px-0.5" : "flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4"}>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                  {!clientView && <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
                     Sezione selezionata
-                  </p>
-                  <h4 className="mt-1 text-xl font-black text-slate-950">
+                  </p>}
+                  <h4 className={`text-xl font-black text-slate-950 ${clientView ? "" : "mt-1"}`}>
                     {activeOptionGroup.meal || activeOptionGroup.title}
                   </h4>
                 </div>
 
               </div>
 
-              <div className="grid gap-3 bg-slate-50 p-3">
+              <div className={clientView ? "grid gap-3" : "grid gap-3 bg-slate-50 p-3"}>
                 {activeOptions.length === 0 && (
                   <Empty
                     title="Nessuna opzione riconosciuta"
@@ -20391,6 +20437,59 @@ function ExerciseHistoryBox({ history = [] }) {
   );
 }
 
+function WorkoutRecordedLoads({ series, exercises }) {
+  if (!series.length) return null;
+
+  const groups = new Map(exercises.map((exercise) => [
+    String(exercise.id), { name: exercise.exercise_name || "Esercizio", entries: [] }
+  ]));
+  for (const entry of series) {
+    const name = entry.workout_exercises?.exercise_name || entry.exercise_name || "Esercizio";
+    const id = String(entry.workout_exercise_id ?? name);
+    if (!groups.has(id)) groups.set(id, { name, entries: [] });
+    groups.get(id).entries.push(entry);
+  }
+  const recorded = [...groups].filter(([, group]) => group.entries.length);
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <h4 className="text-base font-black tracking-tight text-slate-950">Carichi registrati</h4>
+      <div className="mt-1 divide-y divide-[#dce9e3]">
+        {recorded.map(([id, group], index) => (
+          <details key={id} open={index === 0} className="group">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 py-2 text-sm text-slate-900 [&::-webkit-details-marker]:hidden">
+              <span className="min-w-0 flex-1 break-words font-black">{group.name}</span>
+              <span className="shrink-0 text-xs font-bold text-slate-600">{group.entries.length} serie</span>
+              <ChevronRight size={16} className="shrink-0 text-teal-800 transition-transform group-open:rotate-90" aria-hidden="true" />
+            </summary>
+            <table aria-label={`Serie di ${group.name}`} className="mb-3 w-full table-fixed border-collapse text-right text-sm tabular-nums text-slate-800">
+              <thead className="bg-[#edf5f0] text-xs font-bold text-[#345b50]">
+                <tr>
+                  <th scope="col" className="rounded-l-lg px-2 py-1.5 text-left">Serie</th>
+                  <th scope="col" className="px-2 py-1.5">Carico</th>
+                  <th scope="col" className="rounded-r-lg px-2 py-1.5">Ripetizioni</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {group.entries.sort((a, b) => a.set_number - b.set_number).map((entry) => {
+                  const load = workoutNumber(entry.load_kg);
+                  return (
+                    <tr key={workoutSeriesKey(entry)}>
+                      <th scope="row" className="px-2 py-1.5 text-left font-bold">{entry.set_number ?? "—"}</th>
+                      <td className="px-2 py-1.5 font-black">{load === null ? "—" : `${load.toLocaleString("it-IT", { maximumFractionDigits: 10 })} kg`}</td>
+                      <td className="px-2 py-1.5 font-bold">{entry.reps_done ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onClose, onReload, onRepeat,
   onRetrySync, onReauthenticate, getExerciseHistory, offlineReady, online, canSync }) {
   const plan = record.plan;
@@ -20428,6 +20527,15 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
     syncedRevision: syncedRecord?.syncedRevision ?? record.syncedRevision
   };
   const pending = uploadState.revision > uploadState.syncedRevision;
+  const receipt = syncedRecord?.receipt || record.receipt;
+  const showingSummary = Boolean(finished || storedSummary || synced);
+  const confirmed = synced && !pending;
+  let summarySeries = [];
+  if (showingSummary) {
+    const localRecord = syncedRecord?.revision > local.saved.revision ? syncedRecord : local.saved;
+    summarySeries = !pending && receipt?.logs?.length ? receipt.logs : Object.values(localRecord.series || {});
+  }
+  const registeredSets = storedSummary?.completed_sets ?? receipt?.session?.completed_sets ?? summarySeries.length;
   const conflicting = local.error instanceof WorkoutChangedError;
   const sessionStartedAt = record.startedAt;
 
@@ -21063,8 +21171,10 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4">
-          <div className="mb-3 space-y-1 text-xs font-bold text-slate-600" aria-live="polite" role="status">
-            {offlineReady && <p>Pronta offline</p>}
+          <div className={`mb-3 space-y-1 text-xs font-bold ${showingSummary
+            ? `rounded-2xl border px-4 py-3 ${local.error ? "border-red-200 bg-red-50" : "border-[#c9dcd3] bg-[#edf5f0] text-[#215c4e]"}`
+            : "text-slate-600"}`} aria-live="polite" role="status">
+            {offlineReady && !showingSummary && <p>Pronta offline</p>}
             {local.error ? (
               <p className="text-red-700">
                 {conflicting ? "Seduta aggiornata in un’altra scheda." : "Salvataggio sul dispositivo non riuscito."}{" "}
@@ -21072,8 +21182,10 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
                   {conflicting ? "Ricarica seduta" : "Riprova"}
                 </button>
               </p>
-            ) : local.writing ? <p>Salvataggio sul dispositivo…</p> : (!storedSummary && !synced && <p>Salvato sul dispositivo</p>)}
-            {!local.error && (pending || synced || local.saved.revision > 0) && <p>{workoutUploadLabel(uploadState, activeUpload, online)}</p>}
+            ) : local.writing ? <p>Salvataggio sul dispositivo…</p> : (!confirmed && <p>Salvato sul dispositivo</p>)}
+            {!local.error && (pending || synced || local.saved.revision > 0) && (
+              <p>{finished && !storedSummary && !synced && !pending ? "Serie sincronizzate" : workoutUploadLabel(uploadState, activeUpload, online)}</p>
+            )}
             {pending && (syncError === "login" || (online && !canSync)) && <button className="underline" type="button" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
             {pending && syncError === "changed" && <p>La scheda è cambiata. Le serie restano su questo dispositivo.</p>}
             {pending && syncError === "migration" && <p>Salvataggio online momentaneamente non disponibile.</p>}
@@ -21082,18 +21194,13 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
           {validationError && <p role="alert" className="mb-3 text-sm font-bold text-red-700">{validationError}</p>}
           {storedSummary || synced ? (
             <Card className="space-y-3 p-4">
-              <h3 className="text-lg font-black">{synced ? "Allenamento confermato" : "Seduta salvata sul telefono"}</h3>
-              <p className="text-sm text-slate-600">{storedSummary?.completed_sets ?? syncedRecord?.receipt?.session?.completed_sets ?? record.receipt?.session?.completed_sets} serie registrate.</p>
-              {pending && <ul className="space-y-2 text-sm text-slate-700">
-                {Object.values((syncedRecord?.summary ? syncedRecord : local.saved).series).map((entry) => (
-                  <li key={workoutSeriesKey(entry)}>
-                    {exercises.find((item) => item.id === entry.workout_exercise_id)?.exercise_name || "Esercizio"}
-                    {` · Serie ${entry.set_number} · ${entry.load_kg} kg · ${entry.reps_done} rip.`}
-                  </li>
-                ))}
-              </ul>}
+              <h3 className="text-xl font-black tracking-tight text-slate-950">Riepilogo seduta</h3>
+              <p className="text-sm font-semibold text-slate-600">
+                {registeredSets} {Number(registeredSets) === 1 ? "serie registrata" : "serie registrate"}{confirmed ? " · Nel diario allenamenti" : ""}
+              </p>
+              <WorkoutRecordedLoads series={summarySeries} exercises={exercises} />
               <Button type="button" onClick={onClose} className="w-full bg-[#07111f] text-white">Torna all’allenamento</Button>
-              {synced && <button type="button" onClick={onRepeat} className="w-full py-2 text-sm font-bold text-teal-800">Inizia una nuova seduta</button>}
+              {confirmed && <button type="button" onClick={onRepeat} className="w-full py-2 text-sm font-bold text-teal-800">Inizia una nuova seduta</button>}
             </Card>
           ) : finished ? (
             <WorkoutCompletionPanel
@@ -21106,7 +21213,9 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
               onConfirm={closeCompletedWorkout}
               onBack={returnToSeries}
               busy={completingWorkout || conflicting}
-            />
+            >
+              <WorkoutRecordedLoads series={summarySeries} exercises={exercises} />
+            </WorkoutCompletionPanel>
           ) : !exercise ? (
             <Empty title="Nessun esercizio" text="Questo allenamento non contiene esercizi." />
           ) : (
@@ -22316,7 +22425,6 @@ function compactWorkoutRecoveryLabel(value) {
 }
 
 function CompactWorkoutDayCard({
-  week,
   day,
   dayIndex,
   currentWeek,
@@ -22327,99 +22435,63 @@ function CompactWorkoutDayCard({
   startLabel = "Inizia"
 }) {
   const exercises = (day?.workout_blocks || []).flatMap(
-    (block) => block.workout_exercises || []
-  );
+    (block) => block?.workout_exercises || []
+  ).filter(Boolean);
   const estimatedMinutes = day?.estimated_minutes || 60;
-  const totalSets = exercises.reduce((sum, exercise) => {
-    const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
-    const rawSets = progression?.target_sets ?? exercise.sets ?? 0;
-    const repsSequence = workoutRepsSequence(progression?.target_reps || exercise.reps || "");
-    const numericSets =
-      repsSequence.length > 1
-        ? repsSequence.length
-        : Number(String(rawSets).match(/\d+/)?.[0] || 0);
-    return sum + numericSets;
-  }, 0);
+  const totalSets = exercises.reduce((sum, exercise) => sum + tmfitPlannedSets(exercise, currentWeek).length, 0);
   const previewExercises = exercises.slice(0, 3);
+  const title = String(day?.title || `Allenamento ${dayIndex + 1}`).trim();
+  const titleParts = /^(Allenamento\s+(?:[A-Z]|\d+))\s*(?:[·:–—]|\s-\s)\s*(.+)$/i.exec(title);
 
   return (
-    <article className="overflow-hidden rounded-[1.8rem] border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-      <div className="h-1.5 bg-teal-300" />
+    <article className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+      <div className="h-1 bg-[#b9e3da]" />
 
       <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[#07111f] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white">
-                Allenamento {dayIndex + 1}
-              </span>
-              <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-teal-800">
-                Settimana {currentWeek}
-              </span>
-            </div>
+        <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-[0.13em] text-teal-800">
+          <Dumbbell size={15} aria-hidden="true" />
+          {!/^Allenamento\s+(?:[A-Z]|\d+)\b/i.test(title) && <span>Allenamento {dayIndex + 1} ·</span>}
+          Settimana {currentWeek}
+        </p>
+        <h4 className="mt-1.5 break-words text-2xl font-black leading-tight tracking-tight text-slate-950">
+          {titleParts ? titleParts[1] : title}
+        </h4>
+        {titleParts && <p className="mt-0.5 break-words text-sm font-bold leading-5 text-slate-700">{titleParts[2]}</p>}
+        {day?.notes && <p className="mt-2 break-words text-sm font-semibold leading-5 text-slate-600">{day.notes}</p>}
 
-            <h4 className="mt-3 text-2xl font-black leading-tight tracking-tight text-slate-950">
-              {day?.title || `Allenamento ${dayIndex + 1}`}
-            </h4>
-
-            {day?.notes && (
-              <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-500">
-                {day.notes}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="rounded-2xl bg-slate-50 px-3 py-3 text-center">
-            <p className="text-lg font-black text-slate-950">{exercises.length}</p>
-            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-              Esercizi
-            </p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 px-3 py-3 text-center">
-            <p className="text-lg font-black text-slate-950">{totalSets || "—"}</p>
-            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-              Serie
-            </p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 px-3 py-3 text-center">
-            <p className="text-lg font-black text-slate-950">{estimatedMinutes}</p>
-            <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-              Minuti
-            </p>
-          </div>
-        </div>
+        <p className="mt-3 flex flex-wrap items-baseline gap-x-2 text-xs font-bold tabular-nums text-slate-600">
+          <span>{exercises.length} {exercises.length === 1 ? "esercizio" : "esercizi"}</span>
+          <span aria-hidden="true">·</span><span>{totalSets} serie</span>
+          <span aria-hidden="true">·</span><span>{estimatedMinutes} min</span>
+        </p>
 
         {previewExercises.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {previewExercises.map((exercise, exerciseIndex) => {
-              const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
-              const targetSets = progression?.target_sets || exercise.sets || "—";
-              const targetReps = progression?.target_reps || exercise.reps || "—";
-              const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
+          <div className="mt-3">
+            <ol className="divide-y divide-slate-100 border-y border-slate-100">
+              {previewExercises.map((exercise, exerciseIndex) => {
+                const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
+                const targetSets = progression?.target_sets || exercise.sets || "—";
+                const targetReps = progression?.target_reps || exercise.reps || "—";
+                const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
 
-              return (
-                <div
-                  key={exercise.id || `${day?.id || "day"}-${exerciseIndex}`}
-                  className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5"
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-black text-slate-700">
-                    {exerciseIndex + 1}
-                  </span>
-                  <p className="min-w-0 flex-1 truncate text-sm font-black text-slate-900">
-                    {exercise.exercise_name || "Esercizio"}
-                  </p>
-                  <span className="shrink-0 text-xs font-black text-slate-500">
-                    {targetPrescription || workoutSetsRepsDisplay(targetSets, targetReps)}
-                  </span>
-                </div>
-              );
-            })}
-
+                return (
+                  <li key={exercise.id || exerciseIndex} className="flex items-start gap-2.5 py-2.5">
+                    <span aria-hidden="true" className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-[#e4f2ec] text-[11px] font-black text-[#255d50]">
+                      {exerciseIndex + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm font-black leading-6 text-slate-900 [overflow-wrap:anywhere]">
+                      {exercise.exercise_name || "Esercizio"}
+                    </span>
+                    <span className="max-w-[40%] text-right text-xs font-black leading-6 tabular-nums text-slate-600 [overflow-wrap:anywhere]">
+                      {targetPrescription || workoutSetsRepsDisplay(targetSets, targetReps)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
             {exercises.length > previewExercises.length && (
-              <p className="px-1 text-xs font-bold text-slate-400">
-                +{exercises.length - previewExercises.length} esercizi
+              <p className="pt-2 text-xs font-bold text-slate-500">
+                +{exercises.length - previewExercises.length} {exercises.length - previewExercises.length === 1 ? "esercizio" : "esercizi"}
               </p>
             )}
           </div>
@@ -22429,7 +22501,7 @@ function CompactWorkoutDayCard({
           <button
             type="button"
             onClick={onOpen}
-            className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
+            className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-teal-700 active:scale-[.98]"
           >
             <FileText size={16} className="mr-2" />
             {openLabel}
@@ -22438,7 +22510,7 @@ function CompactWorkoutDayCard({
             <button
               type="button"
               onClick={onStart}
-              className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
+              className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-teal-700 active:scale-[.98]"
             >
               <Dumbbell size={16} className="mr-2" />
               {startLabel}
@@ -23172,16 +23244,9 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [], canLoad 
   return (
     <>
       <Card className="overflow-hidden border-none bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-teal-700">
-              Diario allenamenti
-            </p>
-            <h3 className="mt-1 text-xl font-black text-slate-950">
-              Ultimi 6 mesi
-            </h3>
-          </div>
-        </div>
+        <h3 className="text-base font-black uppercase tracking-[0.12em] text-slate-950">
+          DIARIO ALLENAMENTI
+        </h3>
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <button
@@ -23493,7 +23558,7 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
     });
     return { workoutCalendarSessions: [...sessions.values()], workoutCalendarLogs: logs };
   }, [remoteWorkoutSessions, workoutRecords]);
-  const offlineReady = shellReady && Boolean(offlineAccount?.plans?.length);
+  const offlineReady = !offlineStorageError && shellReady && Boolean(offlineAccount?.plans?.length);
   const [lastSeenPostsAt, setLastSeenPostsAt] = useState("");
   const workoutWeekSelectionKey = `tmfit_client_workout_weeks_${session?.user?.id || "guest"}`;
   const checkinDraftKey = `tmfit_client_checkin_draft_${session?.user?.id || "guest"}`;
@@ -23549,7 +23614,7 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
     { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
     { id: "training", label: "Allenamento", icon: <Dumbbell size={19} /> },
     { id: "update", label: "Update", icon: <RefreshCw size={19} /> },
-    { id: "diet", label: "Nutrizione", icon: <FileText size={19} /> }
+    { id: "diet", label: "Nutrizione", icon: <Utensils size={19} /> }
   ];
 
   const clientDrawerTabs = [
@@ -24442,6 +24507,7 @@ function getExerciseHistory(exercise) {
   }
 
   const activePlan = plans[0] || null;
+  const clientFirstName = client?.first_name?.trim() || fullName(client).split(" ")[0];
   const clientPublishedDiets = diets.filter(isDietPublished);
   const latestDiet = clientPublishedDiets[0] || null;
   const previewDietForModal =
@@ -24475,20 +24541,14 @@ function getExerciseHistory(exercise) {
   const currentWeekEnd = new Date(currentWeekStart);
   currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
 
-  const activePlanWeekNumber = activePlan ? currentWeekNumber(activePlan) : 1;
+  const activePlanWeekNumber = activePlan ? automaticWeekNumber(activePlan) : 1;
   const activePlanWeek = activePlan
     ? tmfitWorkoutMaterializedWeekForSelection(activePlan, activePlanWeekNumber)
     : null;
   const activeWeekDays = activePlanWeek?.workout_days || [];
   const completedWeekDayIds = completedWorkoutDays(workoutCalendarSessions, activePlan, activeWeekDays,
     activePlanWeekNumber, availableWeekNumbers(activePlan).length);
-  const pendingWorkoutDay = activeWeekDays.find((day) => !completedWeekDayIds.has(String(day.id))) || null;
-  const weekTrainingComplete = activeWeekDays.length > 0 && !pendingWorkoutDay;
-  const nextWorkoutDay =
-    pendingWorkoutDay ||
-    activeWeekDays[0] ||
-    activePlan?.workout_weeks?.flatMap((week) => week.workout_days || [])?.[0] ||
-    null;
+  const homeWorkout = homeWorkoutForDay(activeWeekDays, completedWeekDayIds);
   const latestCoachPost = posts[0] || null;
   const unreadPostCount = posts.filter((post) => {
     if (!post?.created_at) return false;
@@ -24507,27 +24567,6 @@ function getExerciseHistory(exercise) {
     String(adherenceValue).trim() !== ""
       ? Math.max(0, Math.min(100, Number(adherenceValue) * 10))
       : null;
-  const nextWorkoutMinutes = nextWorkoutDay?.estimated_minutes || 60;
-  const homeWorkoutOptions = activeWeekDays.map((day, dayIndex) => {
-    const dayId = day?.id || `${activePlan?.id || "plan"}-${activePlanWeekNumber}-${dayIndex}`;
-    const completed = completedWeekDayIds.has(String(day?.id));
-
-    return {
-      id: String(dayId),
-      available: Boolean(activePlan && day),
-      title: `Allen. ${String.fromCharCode(65 + dayIndex)}`,
-      minutes: day?.estimated_minutes || 60,
-      week: activePlanWeekNumber,
-      planTitle: activePlan?.title || "",
-      completed,
-      actionLabel: completed ? "Ripeti allenamento" : "Inizia allenamento",
-      onStart: () =>
-        activePlan && day
-          ? openWorkoutPlayer(activePlan, day, activePlanWeekNumber)
-          : setActiveTab("training")
-    };
-  });
-
   const clientTimelineItems = [
     latestCheckin && {
       id: `timeline-checkin-${latestCheckin.id}`,
@@ -24643,7 +24682,7 @@ function getExerciseHistory(exercise) {
           >
             <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">Benvenuto</p>
             <p className="mt-0.5 max-w-[220px] truncate text-xl font-black leading-none tracking-tight text-white md:max-w-none">
-              {client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
+              {clientFirstName}
             </p>
           </button>
 
@@ -24666,12 +24705,11 @@ function getExerciseHistory(exercise) {
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="tmfit-tap flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+              className="tmfit-tap grid shrink-0 place-items-center rounded-full border border-white/20 bg-[#b9e3da] text-base font-black text-[#123b32] shadow-sm transition hover:bg-[#cceee5] focus-visible:ring-2 focus-visible:ring-white active:scale-[.96]"
               aria-label="Apri menu"
+              aria-expanded={drawerOpen}
             >
-              <span className="block h-0.5 w-6 rounded bg-white" />
-              <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
-              <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+              {clientFirstName.slice(0, 1).toLocaleUpperCase("it-IT")}
             </button>
           </div>
         </div>
@@ -24691,12 +24729,21 @@ function getExerciseHistory(exercise) {
 />
       <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(7.25rem+env(safe-area-inset-bottom))] md:p-5">
         {(activeTab === "home" || activeTab === "training") && (plans.length > 0 || localOnly || workoutRecords.length > 0 || workoutOpenError) && (
-          <div className="space-y-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-            <p role="status" className="font-bold">
-              {offlineReady ? "Scheda pronta offline" : offlineStorageError ? "Salvataggio sul dispositivo non riuscito"
-                : preparingOffline ? "Preparazione offline in corso…" : offlinePreparationIssue ? "Scheda non pronta offline"
-                : "Scheda da scaricare per l’uso offline"}
-            </p>
+          <div className={`space-y-2.5 rounded-[1.4rem] border px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm ${offlineReady ? "border-[#c9dfd3] bg-[#e9f4ee]" : "border-slate-200 bg-white"}`}>
+            <div className="flex items-center gap-3">
+              {offlineReady ? (
+                <CheckCircle2 size={19} className="shrink-0 text-[#17665b]" aria-hidden="true" />
+              ) : (
+                <CloudDownload size={20} className="shrink-0 text-slate-600" aria-hidden="true" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p role="status" className="text-base font-black leading-tight tracking-tight text-slate-950">
+                  {offlineReady ? "Scheda pronta offline" : offlineStorageError ? "Salvataggio sul dispositivo non riuscito"
+                    : preparingOffline ? "Preparazione offline in corso…" : offlinePreparationIssue ? "Scheda non pronta offline"
+                    : "Scheda da scaricare per l’uso offline"}
+                </p>
+              </div>
+            </div>
             {!offlineReady && !localOnly && offlinePreparationIssue && (
               <p>{offlinePreparationIssue === "browser" ? "Apri TMFIT direttamente in Safari o Chrome e riprova."
                 : offlinePreparationIssue === "storage" ? "Il browser non ha salvato i file per l’uso offline."
@@ -24716,19 +24763,20 @@ function getExerciseHistory(exercise) {
               const confirmed = !pending && Boolean(record.receipt?.session?.completed_at);
               const syncError = syncErrors[record.sessionId];
               return (
-                <div key={record.key} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2">
-                  <div aria-live="polite">
-                    <p className="font-bold">{record.day.title || "Seduta"}</p>
+                <div key={record.key} className="space-y-2 rounded-2xl border border-[#c9dfd3] bg-white px-3 py-3">
+                  <div aria-live="polite" className="space-y-1 text-xs font-semibold leading-5 text-slate-600">
+                    <p className="text-base font-black leading-tight tracking-tight text-slate-950">{record.day.title || "Seduta"}</p>
                     <p>{confirmed ? "Sincronizzato · Nello storico" : record.summary ? "Seduta salvata sul telefono" : "Bozza salvata sul telefono"}</p>
                     {pending && <p>{workoutUploadLabel(record, activeUpload, online)}</p>}
                     {pending && syncError === "migration" && <p>Salvataggio online momentaneamente non disponibile.</p>}
                   </div>
-                  <button type="button" className="font-bold underline" onClick={async () => {
+                  <button type="button" className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-black transition focus-visible:ring-2 focus-visible:ring-teal-700 active:scale-[.98] ${record.summary || confirmed
+                    ? "border border-[#c9dcd3] text-[#17665b] hover:bg-[#edf5f0]" : "w-full bg-[#17665b] text-white hover:bg-[#115247]"}`} onClick={async () => {
                     try {
                       const latest = await readWorkout(record.key);
                       if (latest) showWorkout(await resumeWorkout(latest));
                     } catch { setWorkoutOpenError("Impossibile leggere la seduta sul dispositivo. Riprova."); }
-                  }}>{record.summary || confirmed ? "Apri riepilogo" : "Riprendi seduta"}</button>
+                  }}>{record.summary || confirmed ? "Apri riepilogo" : "Riprendi seduta"}<ChevronRight size={16} aria-hidden="true" /></button>
                   {pending && online && syncError === "login" && !localOnly && <button type="button" className="font-bold underline" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
                 </div>
               );
@@ -24739,67 +24787,41 @@ function getExerciseHistory(exercise) {
         {activeTab === "home" && (
           <div className="space-y-4">
             <ClientHomePanel
-            firstName={client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
-            nextWorkout={{
-              available: Boolean(activePlan && nextWorkoutDay),
-              statusLabel: weekTrainingComplete
-                ? "Programma settimanale completato"
-                : activePlan
-                ? "Allenamento programmato"
-                : "Il tuo percorso",
-              title: weekTrainingComplete
-                ? "Settimana completata"
-                : nextWorkoutDay?.title || "Nessun allenamento disponibile",
-              minutes: weekTrainingComplete ? null : nextWorkoutMinutes,
-              week: activePlanWeekNumber,
-              planTitle: activePlan?.title || "",
-              actionLabel: weekTrainingComplete ? "Apri la scheda" : "Inizia allenamento",
-              onStart: () =>
-                activePlan && nextWorkoutDay && !weekTrainingComplete
-                  ? openWorkoutPlayer(
-                      activePlan,
-                      nextWorkoutDay,
-                      activePlanWeekNumber
-                    )
-                  : setActiveTab("training")
-            }}
-            workouts={homeWorkoutOptions}
-            initialWorkoutId={nextWorkoutDay?.id || ""}
-            weekSelection={{
-              value: activePlanWeekNumber,
-              options: activePlan ? availableWeekNumbers(activePlan) : [],
-              onChange: activePlan
-                ? (weekNumber) => selectWorkoutWeek(activePlan, weekNumber)
-                : null
-            }}
-            checkinStatus={{
-              completed: checkinCompletedThisWeek,
-              label: checkinCompletedThisWeek ? "Completato" : "Da compilare",
-              detail: latestCheckin
-                ? `Ultimo: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}`
-                : "Nessun check-in inviato",
-              onClick: () => setActiveTab("update")
-            }}
-            dietStatus={{
-              active: Boolean(latestDiet),
-              label: latestDiet ? "Attiva" : "Non disponibile",
-              detail: latestDiet?.title || latestDiet?.file_name || "Il coach non ha ancora pubblicato una dieta",
-              onClick: () => setActiveTab("diet")
-            }}
-            latestMessage={{
-              unread: unreadPostCount > 0,
-              label: posts.length ? "Apri" : "Vuota",
-              title: latestCoachPost?.title || "Nessun messaggio",
-              onClick: openClientPosts
-            }}
-            weeklySummary={{
-              completedWorkouts: completedWeekDayIds.size,
-              trainingWeek: activePlan ? activePlanWeekNumber : null,
-              plannedWorkouts: activeWeekDays.length,
-              checkinCompleted: checkinCompletedThisWeek,
-              adherencePercent
-            }}
-          />
+              nextWorkout={homeWorkout}
+              onOpenTraining={() => {
+                if (activePlan && currentWeekNumber(activePlan) !== activePlanWeekNumber) {
+                  selectWorkoutWeek(activePlan, activePlanWeekNumber);
+                }
+                setActiveTab("training");
+              }}
+              checkinStatus={{
+                completed: checkinCompletedThisWeek,
+                label: checkinCompletedThisWeek ? "Completato" : "Da compilare",
+                detail: latestCheckin
+                  ? `Ultimo: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}`
+                  : "Nessun check-in inviato",
+                onClick: () => setActiveTab("update")
+              }}
+              dietStatus={{
+                active: Boolean(latestDiet),
+                label: latestDiet ? "Attiva" : "Non disponibile",
+                detail: latestDiet?.title || latestDiet?.file_name || "Il coach non ha ancora pubblicato una dieta",
+                onClick: () => setActiveTab("diet")
+              }}
+              latestMessage={{
+                unread: unreadPostCount > 0,
+                label: posts.length ? "Apri" : "Vuota",
+                title: latestCoachPost?.title || "Nessun messaggio",
+                onClick: openClientPosts
+              }}
+              weeklySummary={{
+                completedWorkouts: completedWeekDayIds.size,
+                trainingWeek: activePlan ? activePlanWeekNumber : null,
+                plannedWorkouts: activeWeekDays.length,
+                checkinCompleted: checkinCompletedThisWeek,
+                adherencePercent
+              }}
+            />
 
             <ClientSupplementReminder
               supplements={supplements}
@@ -25190,50 +25212,61 @@ function getExerciseHistory(exercise) {
 
             {latestDiet ? (
               <>
-                <Card className="overflow-hidden border-slate-200">
-                  <div className="bg-[#07111f] p-5 text-white md:p-6">
-                    <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
-                          Dieta attiva
-                        </p>
-                        <h2 className="mt-2 text-2xl font-black leading-tight tracking-tight md:text-3xl">
-                          {dietDisplayTitle(latestDiet)}
-                        </h2>
-                        <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
-                          {dietPeriodLabel(latestDiet)}
-                        </p>
-                      </div>
+                {dietView === "meals" || dietView === "integration" ? (
+                  <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#c9dcd3] bg-white px-4 py-3">
+                    <h2 className="min-w-0 break-words text-base font-black leading-tight tracking-tight text-slate-950">
+                      {dietDisplayTitle(latestDiet)}
+                    </h2>
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-black text-[#17665b]">
+                      <CheckCircle2 size={15} aria-hidden="true" /> Attiva
+                    </span>
+                  </div>
+                ) : (
+                  <Card className="overflow-hidden border-slate-200">
+                    <div className="bg-[#07111f] p-5 text-white md:p-6">
+                      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs font-black uppercase tracking-[0.3em] text-teal-300">
+                            Dieta attiva
+                          </p>
+                          <h2 className="mt-2 text-2xl font-black leading-tight tracking-tight md:text-3xl">
+                            {dietDisplayTitle(latestDiet)}
+                          </h2>
+                          <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+                            {dietPeriodLabel(latestDiet)}
+                          </p>
+                        </div>
 
-                      <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[420px]">
-                        <div className="rounded-2xl bg-white/10 p-3">
-                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                            Formato
-                          </p>
-                          <p className="mt-1 truncate text-sm font-black text-white">
-                            {dietTypeLabel(latestDiet.diet_type)}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-white/10 p-3">
-                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                            Kcal
-                          </p>
-                          <p className="mt-1 truncate text-sm font-black text-white">
-                            {dietStructuredInfo(latestDiet).calorieTarget || "Nel PDF"}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-teal-300 p-3 text-slate-950">
-                          <p className="text-[10px] font-black uppercase tracking-wider opacity-70">
-                            Stato
-                          </p>
-                          <p className="mt-1 text-sm font-black">
-                            Attiva
-                          </p>
+                        <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[420px]">
+                          <div className="rounded-2xl bg-white/10 p-3">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              Formato
+                            </p>
+                            <p className="mt-1 truncate text-sm font-black text-white">
+                              {dietTypeLabel(latestDiet.diet_type)}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-white/10 p-3">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                              Kcal
+                            </p>
+                            <p className="mt-1 truncate text-sm font-black text-white">
+                              {dietStructuredInfo(latestDiet).calorieTarget || "Nel PDF"}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-teal-300 p-3 text-slate-950">
+                            <p className="text-[10px] font-black uppercase tracking-wider opacity-70">
+                              Stato
+                            </p>
+                            <p className="mt-1 text-sm font-black">
+                              Attiva
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </Card>
+                  </Card>
+                )}
 
                 <div
                   className={`grid ${
@@ -25252,7 +25285,8 @@ function getExerciseHistory(exercise) {
                         key={item.id}
                         type="button"
                         onClick={() => setDietView(item.id)}
-                        className={`min-w-0 rounded-[1rem] px-1.5 py-3 text-center text-[10px] font-black leading-none tracking-tight transition sm:px-2 sm:text-[11px] ${
+                        aria-pressed={dietView === item.id}
+                        className={`min-h-11 min-w-0 rounded-[1rem] px-1.5 py-3 text-center text-[10px] font-black leading-none tracking-tight transition sm:px-2 sm:text-[11px] ${
                           dietView === item.id
                             ? "bg-[#07111f] text-white"
                             : "text-slate-500 hover:bg-slate-50"
@@ -25360,25 +25394,7 @@ function getExerciseHistory(exercise) {
                   </div>
                 )}
 
-                {dietView === "meals" && (
-                  <Card className="overflow-hidden">
-                    <div className="border-b border-slate-200 bg-white px-5 py-4">
-                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Piano alimentare
-                      </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
-                        Card pasti
-                      </h3>
-                      <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                        Consulta il piano alimentare organizzato in card. Il PDF completo resta disponibile nella sezione dedicata.
-                      </p>
-                    </div>
-
-                    <div className="p-4 md:p-5">
-                      <DietExtractedPlan diet={latestDiet} />
-                    </div>
-                  </Card>
-                )}
+                {dietView === "meals" && <DietExtractedPlan diet={latestDiet} clientView />}
 
                 {dietView === "pdf" && (
                   <Card className="overflow-hidden">
