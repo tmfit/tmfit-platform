@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
+import { homeWorkoutForDay } from "../lib/workout-home.mjs";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
 import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
 import useWorkoutSync from "../components/client/useWorkoutSync";
@@ -37,9 +38,11 @@ import {
   BellRing,
   Camera,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  CloudDownload,
   Copy,
   Dumbbell,
   Eye,
@@ -63,6 +66,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Utensils,
   X
 } from "lucide-react";
 
@@ -8974,7 +8978,7 @@ function dietShiftContainerHeader(container) {
   return `${label.toUpperCase()} - alimenti`;
 }
 
-function DietExtractedPlan({ diet, compact = false }) {
+function DietExtractedPlan({ diet, compact = false, clientView = false }) {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [activeOptionGroupIndex, setActiveOptionGroupIndex] = useState(0);
   const extracted = dietExtractedInfo(diet);
@@ -9036,7 +9040,7 @@ function DietExtractedPlan({ diet, compact = false }) {
     return (
       <div
         key={key}
-        className="w-full rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
+        className={`w-full rounded-[1.25rem] border bg-white p-3.5 shadow-sm ${clientView ? "border-[#bdd3c7]" : "border-slate-200"}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -9085,7 +9089,7 @@ function DietExtractedPlan({ diet, compact = false }) {
     return (
       <div
         key={`${group?.meal || group?.title || "gruppo"}-${option.title}-${optionIndex}`}
-        className="w-full rounded-[1.25rem] border border-slate-200 bg-white p-3.5 shadow-sm"
+        className={`w-full rounded-[1.25rem] border bg-white p-3.5 shadow-sm ${clientView ? "border-[#bdd3c7]" : "border-slate-200"}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -9104,19 +9108,19 @@ function DietExtractedPlan({ diet, compact = false }) {
   }
 
   return (
-    <div className="rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <div className={`rounded-[1.6rem] border p-4 md:p-5 ${clientView ? "tmfit-client-meals border-[#c9dcd3] bg-[#e4efe8]" : "border-teal-100 bg-teal-50/70"}`}>
+      <div className={clientView ? "space-y-1" : "flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
+          {!clientView && <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
             Pasti in app
-          </p>
-          <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
+          </p>}
+          <h3 className={clientView ? "text-xl font-black tracking-tight text-slate-950" : "mt-1 text-lg font-black text-slate-950"}>
+            {clientView ? "Piano alimentare" : isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
           </h3>
         </div>
 
         {!compact && (
-          <div className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm">
+          <div className={clientView ? "text-sm font-bold leading-5 text-[#28594b]" : "rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm"}>
             {isOptions
               ? "Scegli una sezione per consultare le alternative."
               : isShiftPlan
@@ -9176,7 +9180,7 @@ function DietExtractedPlan({ diet, compact = false }) {
                 </div>
               )}
 
-              <div className="grid gap-3 bg-slate-50 p-3">
+              <div className={`grid gap-3 p-3 ${clientView ? "bg-[#e4efe8]" : "bg-slate-50"}`}>
                 {activeDayMeals.length === 0 && (
                   <Empty
                     title="Nessun pasto riconosciuto"
@@ -9273,17 +9277,17 @@ function DietExtractedPlan({ diet, compact = false }) {
             <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white">
               <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                  {!clientView && <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
                     Sezione selezionata
-                  </p>
-                  <h4 className="mt-1 text-xl font-black text-slate-950">
+                  </p>}
+                  <h4 className={`text-xl font-black text-slate-950 ${clientView ? "" : "mt-1"}`}>
                     {activeOptionGroup.meal || activeOptionGroup.title}
                   </h4>
                 </div>
 
               </div>
 
-              <div className="grid gap-3 bg-slate-50 p-3">
+              <div className={`grid gap-3 p-3 ${clientView ? "bg-[#e4efe8]" : "bg-slate-50"}`}>
                 {activeOptions.length === 0 && (
                   <Empty
                     title="Nessuna opzione riconosciuta"
@@ -20428,6 +20432,12 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
     syncedRevision: syncedRecord?.syncedRevision ?? record.syncedRevision
   };
   const pending = uploadState.revision > uploadState.syncedRevision;
+  const receipt = syncedRecord?.receipt || record.receipt;
+  let summarySeries = [];
+  if (storedSummary || synced) {
+    const localSeries = (syncedRecord?.summary ? syncedRecord : local.saved).series;
+    summarySeries = !pending && receipt?.logs?.length ? receipt.logs : Object.values(localSeries || {});
+  }
   const conflicting = local.error instanceof WorkoutChangedError;
   const sessionStartedAt = record.startedAt;
 
@@ -21084,14 +21094,21 @@ function WorkoutPlayerModal({ record, syncedRecord, syncError, activeUpload, onC
             <Card className="space-y-3 p-4">
               <h3 className="text-lg font-black">{synced ? "Allenamento confermato" : "Seduta salvata sul telefono"}</h3>
               <p className="text-sm text-slate-600">{storedSummary?.completed_sets ?? syncedRecord?.receipt?.session?.completed_sets ?? record.receipt?.session?.completed_sets} serie registrate.</p>
-              {pending && <ul className="space-y-2 text-sm text-slate-700">
-                {Object.values((syncedRecord?.summary ? syncedRecord : local.saved).series).map((entry) => (
-                  <li key={workoutSeriesKey(entry)}>
-                    {exercises.find((item) => item.id === entry.workout_exercise_id)?.exercise_name || "Esercizio"}
-                    {` · Serie ${entry.set_number} · ${entry.load_kg} kg · ${entry.reps_done} rip.`}
-                  </li>
-                ))}
-              </ul>}
+              {summarySeries.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-black text-slate-950">Carichi registrati</h4>
+                  <ul className="mt-2 divide-y divide-slate-100 text-sm font-semibold text-slate-700">
+                    {summarySeries.map((entry) => (
+                      <li key={workoutSeriesKey(entry)} className="py-1.5">
+                        {exercises.find((item) => item.id === entry.workout_exercise_id)?.exercise_name || "Esercizio"}
+                        {` · Serie ${entry.set_number}`}
+                        {entry.load_kg != null && ` · ${Number(entry.load_kg).toLocaleString("it-IT")} kg`}
+                        {entry.reps_done != null && ` · ${entry.reps_done} rip.`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <Button type="button" onClick={onClose} className="w-full bg-[#07111f] text-white">Torna all’allenamento</Button>
               {synced && <button type="button" onClick={onRepeat} className="w-full py-2 text-sm font-bold text-teal-800">Inizia una nuova seduta</button>}
             </Card>
@@ -23172,16 +23189,9 @@ function WorkoutHistoryCalendar({ sessions = [], logs = [], plans = [], canLoad 
   return (
     <>
       <Card className="overflow-hidden border-none bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-teal-700">
-              Diario allenamenti
-            </p>
-            <h3 className="mt-1 text-xl font-black text-slate-950">
-              Ultimi 6 mesi
-            </h3>
-          </div>
-        </div>
+        <h3 className="text-base font-black uppercase tracking-[0.12em] text-slate-950">
+          DIARIO ALLENAMENTI
+        </h3>
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <button
@@ -23493,7 +23503,7 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
     });
     return { workoutCalendarSessions: [...sessions.values()], workoutCalendarLogs: logs };
   }, [remoteWorkoutSessions, workoutRecords]);
-  const offlineReady = shellReady && Boolean(offlineAccount?.plans?.length);
+  const offlineReady = !offlineStorageError && shellReady && Boolean(offlineAccount?.plans?.length);
   const [lastSeenPostsAt, setLastSeenPostsAt] = useState("");
   const workoutWeekSelectionKey = `tmfit_client_workout_weeks_${session?.user?.id || "guest"}`;
   const checkinDraftKey = `tmfit_client_checkin_draft_${session?.user?.id || "guest"}`;
@@ -23549,7 +23559,7 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
     { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
     { id: "training", label: "Allenamento", icon: <Dumbbell size={19} /> },
     { id: "update", label: "Update", icon: <RefreshCw size={19} /> },
-    { id: "diet", label: "Nutrizione", icon: <FileText size={19} /> }
+    { id: "diet", label: "Nutrizione", icon: <Utensils size={19} /> }
   ];
 
   const clientDrawerTabs = [
@@ -24442,6 +24452,7 @@ function getExerciseHistory(exercise) {
   }
 
   const activePlan = plans[0] || null;
+  const clientFirstName = client?.first_name?.trim() || fullName(client).split(" ")[0];
   const clientPublishedDiets = diets.filter(isDietPublished);
   const latestDiet = clientPublishedDiets[0] || null;
   const previewDietForModal =
@@ -24475,20 +24486,14 @@ function getExerciseHistory(exercise) {
   const currentWeekEnd = new Date(currentWeekStart);
   currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
 
-  const activePlanWeekNumber = activePlan ? currentWeekNumber(activePlan) : 1;
+  const activePlanWeekNumber = activePlan ? automaticWeekNumber(activePlan) : 1;
   const activePlanWeek = activePlan
     ? tmfitWorkoutMaterializedWeekForSelection(activePlan, activePlanWeekNumber)
     : null;
   const activeWeekDays = activePlanWeek?.workout_days || [];
   const completedWeekDayIds = completedWorkoutDays(workoutCalendarSessions, activePlan, activeWeekDays,
     activePlanWeekNumber, availableWeekNumbers(activePlan).length);
-  const pendingWorkoutDay = activeWeekDays.find((day) => !completedWeekDayIds.has(String(day.id))) || null;
-  const weekTrainingComplete = activeWeekDays.length > 0 && !pendingWorkoutDay;
-  const nextWorkoutDay =
-    pendingWorkoutDay ||
-    activeWeekDays[0] ||
-    activePlan?.workout_weeks?.flatMap((week) => week.workout_days || [])?.[0] ||
-    null;
+  const homeWorkout = homeWorkoutForDay(activeWeekDays, completedWeekDayIds);
   const latestCoachPost = posts[0] || null;
   const unreadPostCount = posts.filter((post) => {
     if (!post?.created_at) return false;
@@ -24507,27 +24512,6 @@ function getExerciseHistory(exercise) {
     String(adherenceValue).trim() !== ""
       ? Math.max(0, Math.min(100, Number(adherenceValue) * 10))
       : null;
-  const nextWorkoutMinutes = nextWorkoutDay?.estimated_minutes || 60;
-  const homeWorkoutOptions = activeWeekDays.map((day, dayIndex) => {
-    const dayId = day?.id || `${activePlan?.id || "plan"}-${activePlanWeekNumber}-${dayIndex}`;
-    const completed = completedWeekDayIds.has(String(day?.id));
-
-    return {
-      id: String(dayId),
-      available: Boolean(activePlan && day),
-      title: `Allen. ${String.fromCharCode(65 + dayIndex)}`,
-      minutes: day?.estimated_minutes || 60,
-      week: activePlanWeekNumber,
-      planTitle: activePlan?.title || "",
-      completed,
-      actionLabel: completed ? "Ripeti allenamento" : "Inizia allenamento",
-      onStart: () =>
-        activePlan && day
-          ? openWorkoutPlayer(activePlan, day, activePlanWeekNumber)
-          : setActiveTab("training")
-    };
-  });
-
   const clientTimelineItems = [
     latestCheckin && {
       id: `timeline-checkin-${latestCheckin.id}`,
@@ -24643,7 +24627,7 @@ function getExerciseHistory(exercise) {
           >
             <p className="text-[10px] font-black uppercase tracking-[0.28em] text-teal-300">Benvenuto</p>
             <p className="mt-0.5 max-w-[220px] truncate text-xl font-black leading-none tracking-tight text-white md:max-w-none">
-              {client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
+              {clientFirstName}
             </p>
           </button>
 
@@ -24666,12 +24650,11 @@ function getExerciseHistory(exercise) {
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="tmfit-tap flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-lg transition hover:bg-white/15 active:scale-[.96]"
+              className="tmfit-tap grid shrink-0 place-items-center rounded-full border border-white/20 bg-[#b9e3da] text-base font-black text-[#123b32] shadow-sm transition hover:bg-[#cceee5] focus-visible:ring-2 focus-visible:ring-white active:scale-[.96]"
               aria-label="Apri menu"
+              aria-expanded={drawerOpen}
             >
-              <span className="block h-0.5 w-6 rounded bg-white" />
-              <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
-              <span className="mt-1.5 block h-0.5 w-6 rounded bg-white" />
+              {clientFirstName.slice(0, 1).toLocaleUpperCase("it-IT")}
             </button>
           </div>
         </div>
@@ -24691,12 +24674,21 @@ function getExerciseHistory(exercise) {
 />
       <main className="mx-auto w-full max-w-[480px] flex-1 space-y-4 overflow-x-hidden p-4 pb-[calc(7.25rem+env(safe-area-inset-bottom))] md:p-5">
         {(activeTab === "home" || activeTab === "training") && (plans.length > 0 || localOnly || workoutRecords.length > 0 || workoutOpenError) && (
-          <div className="space-y-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-            <p role="status" className="font-bold">
-              {offlineReady ? "Scheda pronta offline" : offlineStorageError ? "Salvataggio sul dispositivo non riuscito"
-                : preparingOffline ? "Preparazione offline in corso…" : offlinePreparationIssue ? "Scheda non pronta offline"
-                : "Scheda da scaricare per l’uso offline"}
-            </p>
+          <div className={`space-y-2.5 rounded-[1.4rem] border px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm ${offlineReady ? "border-[#c9dfd3] bg-[#e9f4ee]" : "border-slate-200 bg-white"}`}>
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#d0e9dd] text-[#17665b]">
+                <CloudDownload size={20} aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p role="status" className="text-base font-black leading-tight tracking-tight text-slate-950">
+                  {offlineReady ? "Scheda pronta offline" : offlineStorageError ? "Salvataggio sul dispositivo non riuscito"
+                    : preparingOffline ? "Preparazione offline in corso…" : offlinePreparationIssue ? "Scheda non pronta offline"
+                    : "Scheda da scaricare per l’uso offline"}
+                </p>
+                {offlineReady && <p className="mt-0.5 text-xs font-semibold text-[#405e54]">Puoi allenarti anche senza connessione.</p>}
+              </div>
+              {offlineReady && <CheckCircle2 size={18} className="shrink-0 text-[#17665b]" aria-hidden="true" />}
+            </div>
             {!offlineReady && !localOnly && offlinePreparationIssue && (
               <p>{offlinePreparationIssue === "browser" ? "Apri TMFIT direttamente in Safari o Chrome e riprova."
                 : offlinePreparationIssue === "storage" ? "Il browser non ha salvato i file per l’uso offline."
@@ -24716,19 +24708,19 @@ function getExerciseHistory(exercise) {
               const confirmed = !pending && Boolean(record.receipt?.session?.completed_at);
               const syncError = syncErrors[record.sessionId];
               return (
-                <div key={record.key} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2">
-                  <div aria-live="polite">
-                    <p className="font-bold">{record.day.title || "Seduta"}</p>
+                <div key={record.key} className="space-y-2 rounded-2xl border border-[#c9dfd3] bg-white px-3 py-3">
+                  <div aria-live="polite" className="space-y-1 text-xs font-semibold leading-5 text-slate-600">
+                    <p className="text-base font-black leading-tight tracking-tight text-slate-950">{record.day.title || "Seduta"}</p>
                     <p>{confirmed ? "Sincronizzato · Nello storico" : record.summary ? "Seduta salvata sul telefono" : "Bozza salvata sul telefono"}</p>
                     {pending && <p>{workoutUploadLabel(record, activeUpload, online)}</p>}
                     {pending && syncError === "migration" && <p>Salvataggio online momentaneamente non disponibile.</p>}
                   </div>
-                  <button type="button" className="font-bold underline" onClick={async () => {
+                  <button type="button" className="inline-flex min-h-11 items-center gap-2 rounded-2xl bg-[#17665b] px-4 py-2 text-sm font-black text-white transition hover:bg-[#115247] focus-visible:ring-2 focus-visible:ring-teal-700 active:scale-[.98]" onClick={async () => {
                     try {
                       const latest = await readWorkout(record.key);
                       if (latest) showWorkout(await resumeWorkout(latest));
                     } catch { setWorkoutOpenError("Impossibile leggere la seduta sul dispositivo. Riprova."); }
-                  }}>{record.summary || confirmed ? "Apri riepilogo" : "Riprendi seduta"}</button>
+                  }}>{record.summary || confirmed ? "Apri riepilogo" : "Riprendi seduta"}<ChevronRight size={16} aria-hidden="true" /></button>
                   {pending && online && syncError === "login" && !localOnly && <button type="button" className="font-bold underline" onClick={onReauthenticate}>Accedi per sincronizzare</button>}
                 </div>
               );
@@ -24739,67 +24731,41 @@ function getExerciseHistory(exercise) {
         {activeTab === "home" && (
           <div className="space-y-4">
             <ClientHomePanel
-            firstName={client?.first_name || fullName(client).split(" ")[0] || "Cliente"}
-            nextWorkout={{
-              available: Boolean(activePlan && nextWorkoutDay),
-              statusLabel: weekTrainingComplete
-                ? "Programma settimanale completato"
-                : activePlan
-                ? "Allenamento programmato"
-                : "Il tuo percorso",
-              title: weekTrainingComplete
-                ? "Settimana completata"
-                : nextWorkoutDay?.title || "Nessun allenamento disponibile",
-              minutes: weekTrainingComplete ? null : nextWorkoutMinutes,
-              week: activePlanWeekNumber,
-              planTitle: activePlan?.title || "",
-              actionLabel: weekTrainingComplete ? "Apri la scheda" : "Inizia allenamento",
-              onStart: () =>
-                activePlan && nextWorkoutDay && !weekTrainingComplete
-                  ? openWorkoutPlayer(
-                      activePlan,
-                      nextWorkoutDay,
-                      activePlanWeekNumber
-                    )
-                  : setActiveTab("training")
-            }}
-            workouts={homeWorkoutOptions}
-            initialWorkoutId={nextWorkoutDay?.id || ""}
-            weekSelection={{
-              value: activePlanWeekNumber,
-              options: activePlan ? availableWeekNumbers(activePlan) : [],
-              onChange: activePlan
-                ? (weekNumber) => selectWorkoutWeek(activePlan, weekNumber)
-                : null
-            }}
-            checkinStatus={{
-              completed: checkinCompletedThisWeek,
-              label: checkinCompletedThisWeek ? "Completato" : "Da compilare",
-              detail: latestCheckin
-                ? `Ultimo: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}`
-                : "Nessun check-in inviato",
-              onClick: () => setActiveTab("update")
-            }}
-            dietStatus={{
-              active: Boolean(latestDiet),
-              label: latestDiet ? "Attiva" : "Non disponibile",
-              detail: latestDiet?.title || latestDiet?.file_name || "Il coach non ha ancora pubblicato una dieta",
-              onClick: () => setActiveTab("diet")
-            }}
-            latestMessage={{
-              unread: unreadPostCount > 0,
-              label: posts.length ? "Apri" : "Vuota",
-              title: latestCoachPost?.title || "Nessun messaggio",
-              onClick: openClientPosts
-            }}
-            weeklySummary={{
-              completedWorkouts: completedWeekDayIds.size,
-              trainingWeek: activePlan ? activePlanWeekNumber : null,
-              plannedWorkouts: activeWeekDays.length,
-              checkinCompleted: checkinCompletedThisWeek,
-              adherencePercent
-            }}
-          />
+              nextWorkout={homeWorkout}
+              onOpenTraining={() => {
+                if (activePlan && currentWeekNumber(activePlan) !== activePlanWeekNumber) {
+                  selectWorkoutWeek(activePlan, activePlanWeekNumber);
+                }
+                setActiveTab("training");
+              }}
+              checkinStatus={{
+                completed: checkinCompletedThisWeek,
+                label: checkinCompletedThisWeek ? "Completato" : "Da compilare",
+                detail: latestCheckin
+                  ? `Ultimo: ${formatClientDate(latestCheckin.checkin_date || latestCheckin.created_at)}`
+                  : "Nessun check-in inviato",
+                onClick: () => setActiveTab("update")
+              }}
+              dietStatus={{
+                active: Boolean(latestDiet),
+                label: latestDiet ? "Attiva" : "Non disponibile",
+                detail: latestDiet?.title || latestDiet?.file_name || "Il coach non ha ancora pubblicato una dieta",
+                onClick: () => setActiveTab("diet")
+              }}
+              latestMessage={{
+                unread: unreadPostCount > 0,
+                label: posts.length ? "Apri" : "Vuota",
+                title: latestCoachPost?.title || "Nessun messaggio",
+                onClick: openClientPosts
+              }}
+              weeklySummary={{
+                completedWorkouts: completedWeekDayIds.size,
+                trainingWeek: activePlan ? activePlanWeekNumber : null,
+                plannedWorkouts: activeWeekDays.length,
+                checkinCompleted: checkinCompletedThisWeek,
+                adherencePercent
+              }}
+            />
 
             <ClientSupplementReminder
               supplements={supplements}
@@ -25360,25 +25326,7 @@ function getExerciseHistory(exercise) {
                   </div>
                 )}
 
-                {dietView === "meals" && (
-                  <Card className="overflow-hidden">
-                    <div className="border-b border-slate-200 bg-white px-5 py-4">
-                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Piano alimentare
-                      </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
-                        Card pasti
-                      </h3>
-                      <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                        Consulta il piano alimentare organizzato in card. Il PDF completo resta disponibile nella sezione dedicata.
-                      </p>
-                    </div>
-
-                    <div className="p-4 md:p-5">
-                      <DietExtractedPlan diet={latestDiet} />
-                    </div>
-                  </Card>
-                )}
+                {dietView === "meals" && <DietExtractedPlan diet={latestDiet} clientView />}
 
                 {dietView === "pdf" && (
                   <Card className="overflow-hidden">
