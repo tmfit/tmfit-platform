@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
+import { ClientMealCard, ClientMealOption, ClientWorkoutOverview } from "../components/client/ClientPlanCards";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
 import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
 import useWorkoutSync from "../components/client/useWorkoutSync";
@@ -8974,12 +8975,14 @@ function dietShiftContainerHeader(container) {
   return `${label.toUpperCase()} - alimenti`;
 }
 
-function DietExtractedPlan({ diet, compact = false }) {
+function DietExtractedPlan({ diet, compact = false, clientView = false }) {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [activeOptionGroupIndex, setActiveOptionGroupIndex] = useState(0);
   const extracted = dietExtractedInfo(diet);
 
-  if (!extracted) return null;
+  if (!extracted) {
+    return clientView ? <Empty title="Piano alimentare" text="Puoi consultare il piano nella sezione PDF." /> : null;
+  }
 
   const dailyDays = Array.isArray(extracted.days) ? extracted.days : [];
   const optionGroups = Array.isArray(extracted.optionGroups)
@@ -9033,6 +9036,15 @@ function DietExtractedPlan({ diet, compact = false }) {
       : [];
     const hasStandaloneContent = items.length > 0 || (meal.notes || []).length > 0;
 
+    if (clientView) {
+      return (
+        <ClientMealCard key={key} title={meal.name || meal.title || "Pasto"}>
+          {hasStandaloneContent && <ClientMealOption blocks={buildDietFoodGroups(items, meal.notes).blocks} />}
+          {mealOptions.map((option, index) => renderOptionCard(meal, option, index))}
+        </ClientMealCard>
+      );
+    }
+
     return (
       <div
         key={key}
@@ -9081,6 +9093,15 @@ function DietExtractedPlan({ diet, compact = false }) {
 
   function renderOptionCard(group, option, optionIndex) {
     const items = option.items || [];
+    if (clientView) {
+      return (
+        <ClientMealOption
+          key={`${option.title || option.name || "opzione"}-${optionIndex}`}
+          title={option.title || option.name || `Opzione ${optionIndex + 1}`}
+          blocks={buildDietFoodGroups(items, option.notes).blocks}
+        />
+      );
+    }
 
     return (
       <div
@@ -9103,20 +9124,27 @@ function DietExtractedPlan({ diet, compact = false }) {
     );
   }
 
+  function renderActiveOptions() {
+    if (!activeOptions.length) {
+      return <Empty title="Nessuna opzione riconosciuta" text="Consulta il PDF originale per verificare questa sezione." />;
+    }
+    return activeOptions.map((option, index) => renderOptionCard(activeOptionGroup, option, index));
+  }
+
   return (
-    <div className="rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <div className={clientView ? "min-w-0" : "rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5"}>
+      <div className={clientView ? "space-y-1" : "flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
-            Pasti in app
-          </p>
-          <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
+          {!clientView && (
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">Pasti in app</p>
+          )}
+          <h3 className={clientView ? "text-xl font-black text-slate-950" : "mt-1 text-lg font-black text-slate-950"}>
+            {clientView ? "Piano alimentare" : isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
           </h3>
         </div>
 
         {!compact && (
-          <div className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm">
+          <div className={clientView ? "text-sm font-semibold text-slate-600" : "rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm"}>
             {isOptions
               ? "Scegli una sezione per consultare le alternative."
               : isShiftPlan
@@ -9269,7 +9297,11 @@ function DietExtractedPlan({ diet, compact = false }) {
             </div>
           )}
 
-          {!compact && activeOptionGroup && (
+          {!compact && activeOptionGroup && (clientView ? (
+            <ClientMealCard title={activeOptionGroup.meal || activeOptionGroup.title || "Pasto"}>
+              {renderActiveOptions()}
+            </ClientMealCard>
+          ) : (
             <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white">
               <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
                 <div>
@@ -9284,19 +9316,10 @@ function DietExtractedPlan({ diet, compact = false }) {
               </div>
 
               <div className="grid gap-3 bg-slate-50 p-3">
-                {activeOptions.length === 0 && (
-                  <Empty
-                    title="Nessuna opzione riconosciuta"
-                    text="Consulta il PDF originale per verificare questa sezione."
-                  />
-                )}
-
-                {activeOptions.map((option, optionIndex) =>
-                  renderOptionCard(activeOptionGroup, option, optionIndex)
-                )}
+                {renderActiveOptions()}
               </div>
             </div>
-          )}
+          ))}
 
           {compact && visibleOptionGroups.map((group, groupIndex) => (
             <details
@@ -22316,7 +22339,7 @@ function compactWorkoutRecoveryLabel(value) {
 }
 
 function CompactWorkoutDayCard({
-  week,
+  clientView = false,
   day,
   dayIndex,
   currentWeek,
@@ -22327,8 +22350,8 @@ function CompactWorkoutDayCard({
   startLabel = "Inizia"
 }) {
   const exercises = (day?.workout_blocks || []).flatMap(
-    (block) => block.workout_exercises || []
-  );
+    (block) => block?.workout_exercises || []
+  ).filter(Boolean);
   const estimatedMinutes = day?.estimated_minutes || 60;
   const totalSets = exercises.reduce((sum, exercise) => {
     const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
@@ -22340,7 +22363,54 @@ function CompactWorkoutDayCard({
         : Number(String(rawSets).match(/\d+/)?.[0] || 0);
     return sum + numericSets;
   }, 0);
-  const previewExercises = exercises.slice(0, 3);
+  const previewExercises = exercises.slice(0, 3).map((exercise, index) => {
+    const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
+    const sets = progression?.target_sets || exercise.sets || "—";
+    const reps = progression?.target_reps || exercise.reps || "—";
+    return {
+      id: exercise.id || `${day?.id || "day"}-${index}`,
+      name: exercise.exercise_name || "Esercizio",
+      prescription: workoutProgressionPrescriptionText(progression, exercise) || workoutSetsRepsDisplay(sets, reps)
+    };
+  });
+  const actions = (
+    <div className={`mt-4 grid ${showStart ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
+      >
+        <FileText size={16} className="mr-2" />
+        {openLabel}
+      </button>
+      {showStart && (
+        <button
+          type="button"
+          onClick={onStart}
+          className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
+        >
+          <Dumbbell size={16} className="mr-2" />
+          {startLabel}
+        </button>
+      )}
+    </div>
+  );
+
+  if (clientView) {
+    return (
+      <ClientWorkoutOverview
+        title={day?.title || `Allenamento ${dayIndex + 1}`}
+        notes={day?.notes}
+        week={currentWeek}
+        minutes={estimatedMinutes}
+        exerciseCount={exercises.length}
+        setCount={totalSets || "—"}
+        preview={previewExercises}
+      >
+        {actions}
+      </ClientWorkoutOverview>
+    );
+  }
 
   return (
     <article className="overflow-hidden rounded-[1.8rem] border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
@@ -22393,29 +22463,22 @@ function CompactWorkoutDayCard({
 
         {previewExercises.length > 0 && (
           <div className="mt-4 space-y-2">
-            {previewExercises.map((exercise, exerciseIndex) => {
-              const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
-              const targetSets = progression?.target_sets || exercise.sets || "—";
-              const targetReps = progression?.target_reps || exercise.reps || "—";
-              const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
-
-              return (
-                <div
-                  key={exercise.id || `${day?.id || "day"}-${exerciseIndex}`}
-                  className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5"
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-black text-slate-700">
-                    {exerciseIndex + 1}
-                  </span>
-                  <p className="min-w-0 flex-1 truncate text-sm font-black text-slate-900">
-                    {exercise.exercise_name || "Esercizio"}
-                  </p>
-                  <span className="shrink-0 text-xs font-black text-slate-500">
-                    {targetPrescription || workoutSetsRepsDisplay(targetSets, targetReps)}
-                  </span>
-                </div>
-              );
-            })}
+            {previewExercises.map((exercise, exerciseIndex) => (
+              <div
+                key={exercise.id}
+                className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-black text-slate-700">
+                  {exerciseIndex + 1}
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-black text-slate-900">
+                  {exercise.name}
+                </p>
+                <span className="shrink-0 text-xs font-black text-slate-500">
+                  {exercise.prescription}
+                </span>
+              </div>
+            ))}
 
             {exercises.length > previewExercises.length && (
               <p className="px-1 text-xs font-bold text-slate-400">
@@ -22425,26 +22488,7 @@ function CompactWorkoutDayCard({
           </div>
         )}
 
-        <div className={`mt-4 grid ${showStart ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
-          <button
-            type="button"
-            onClick={onOpen}
-            className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
-          >
-            <FileText size={16} className="mr-2" />
-            {openLabel}
-          </button>
-          {showStart && (
-            <button
-              type="button"
-              onClick={onStart}
-              className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
-            >
-              <Dumbbell size={16} className="mr-2" />
-              {startLabel}
-            </button>
-          )}
-        </div>
+        {actions}
       </div>
     </article>
   );
@@ -24901,7 +24945,7 @@ function getExerciseHistory(exercise) {
                         {visibleTrainingDays.map(({ week, day }, dayIndex) => (
                           <CompactWorkoutDayCard
                             key={`${week?.id || week?.week_number || "week"}-${day.id}`}
-                            week={week}
+                            clientView
                             day={day}
                             dayIndex={dayIndex}
                             currentWeek={currentWeek}
@@ -25360,25 +25404,7 @@ function getExerciseHistory(exercise) {
                   </div>
                 )}
 
-                {dietView === "meals" && (
-                  <Card className="overflow-hidden">
-                    <div className="border-b border-slate-200 bg-white px-5 py-4">
-                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Piano alimentare
-                      </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
-                        Card pasti
-                      </h3>
-                      <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                        Consulta il piano alimentare organizzato in card. Il PDF completo resta disponibile nella sezione dedicata.
-                      </p>
-                    </div>
-
-                    <div className="p-4 md:p-5">
-                      <DietExtractedPlan diet={latestDiet} />
-                    </div>
-                  </Card>
-                )}
+                {dietView === "meals" && <DietExtractedPlan diet={latestDiet} clientView />}
 
                 {dietView === "pdf" && (
                   <Card className="overflow-hidden">
