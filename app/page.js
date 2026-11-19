@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import loginStyles from "./login.module.css";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
@@ -63,6 +64,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Utensils,
   X
 } from "lucide-react";
 
@@ -1356,35 +1358,21 @@ function ClientSupplementReminder({ supplements = [], logs = [], busyId = "", on
   );
 }
 
-function BrandLogo({
-  className = "",
-  white = true,
-  compact = false,
-  size = "default"
-}) {
-  let sizeClass = "h-14 md:h-16";
-
-  if (compact) {
-    sizeClass = "h-9 md:h-10";
-  }
-
-  if (size === "login") {
-    sizeClass = "h-28 md:h-36";
-  }
-
+function LoginLogo() {
   return (
-    <img
-      src="/tmfit-logo.png"
-      alt="TM FIT"
-      className={`${sizeClass} w-auto object-contain ${
-        white ? "brightness-0 invert" : ""
-      } ${className}`}
-      onError={(event) => {
-        event.currentTarget.style.display = "none";
-      }}
-    />
+    <svg role="img" aria-label="TM FIT" viewBox="0 0 590 219" fill="currentColor" className={loginStyles.logo}>
+      <path d="M162 5 249 6 181 97 238 66 288 66 290 68 210 173 153 172 180 136 114 169 80 214 6 214 74 120Z" />
+      <path d="M46 5 139 6 100 55 12 55Z" />
+      <path d="M276 6 341 6 304 54 240 55Z" />
+      <path d="M316 84 365 84 364 97 349 98 348 138 332 138 332 98 316 97Z" />
+      <path d="M371 84 388 84 404 106 420 84 436 84 437 138 421 138 420 109 407 128 404 129 388 108 387 138 372 138Z" />
+      <path d="M465 84 506 84 506 97 482 98 482 107 504 108 504 118 502 120 482 120 480 139 464 138Z" />
+      <path d="M514 84 530 84 530 136 528 139 513 138Z" />
+      <path d="M536 84 585 84 584 97 569 98 568 138 552 138 552 98 536 96Z" />
+    </svg>
   );
 }
+
 function AppFooter({ role = "coach" }) {
   const isClient = role === "client";
 
@@ -3007,61 +2995,37 @@ function LegalDocumentModal({ documentKey, onClose }) {
   );
 }
 function LegalLinksPanel() {
-  const [expanded, setExpanded] = useState(false);
   const [openLegal, setOpenLegal] = useState(null);
 
   return (
     <>
-      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[.06] text-left">
-        <button
-          type="button"
-          onClick={() => setExpanded((current) => !current)}
-          className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
-        >
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
-              Documenti legali
-            </p>
-
-            <p className="mt-1 text-xs font-semibold text-slate-300">
-              Termini, Privacy e consenso coaching
-            </p>
-          </div>
-
-          <span className="text-lg font-black text-white">
-            {expanded ? "−" : "+"}
-          </span>
-        </button>
-
-        {expanded && (
-          <div className="border-t border-white/10 px-4 pb-4 pt-3">
-            <div className="grid gap-2">
-              {Object.entries(LEGAL_DOCUMENTS).map(([key, item]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setOpenLegal(key)}
-                  className="flex w-full items-center justify-between rounded-xl bg-white/10 px-3 py-3 text-left text-xs font-black text-white transition hover:bg-white/15"
-                >
-                  <span>{item.label}</span>
-                  <span className="text-teal-300">Leggi</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <LegalDocumentModal
-        documentKey={openLegal}
-        onClose={() => setOpenLegal(null)}
-      />
+      <details className={loginStyles.legal}>
+        <summary>
+          Documenti legali
+          <span aria-hidden="true" className={loginStyles.disclosureIcon} />
+        </summary>
+        <ul>
+          {Object.entries(LEGAL_DOCUMENTS).map(([key, item]) => (
+            <li key={key}>
+              <button type="button" onClick={() => setOpenLegal(key)}>
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </details>
+      {openLegal && createPortal(
+        <LegalDocumentModal documentKey={openLegal} onClose={() => setOpenLegal(null)} />,
+        document.body
+      )}
     </>
   );
 }
+
 function LoginScreen({ onSignedIn, onCancel } = {}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -3088,73 +3052,76 @@ function LoginScreen({ onSignedIn, onCancel } = {}) {
   }
 
   return (
-    <div className="min-h-screen bg-[#07111f] px-5 py-8 text-white">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md items-center">
-        <form
-          onSubmit={handleLogin}
-          className="w-full rounded-[2rem] border border-white/10 bg-white/[.06] p-6 shadow-2xl backdrop-blur-xl"
-        >
-          <div className="mb-8 text-center">
-  <div className="flex justify-center">
-    <BrandLogo size="login" className="-mb-5 drop-shadow-2xl md:-mb-7" white />
-  </div>
-
-  <p className="mt-0 text-lg font-black tracking-tight text-white">
-    Dott. Matteo Trobbiani
-  </p>
-
-  <p className="mt-1 text-sm font-bold text-slate-300">
-    Allenamento & Nutrizione
-  </p>
-
-  <div className="mt-4 inline-flex rounded-full border border-teal-300/30 bg-teal-300/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
-    Webapp Coaching
-  </div>
-</div>
-          {error && (
-            <div className="mb-4 rounded-2xl border border-red-300 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-3">
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
-              placeholder="Email"
-            />
-
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
-              placeholder="Password"
-            />
-
-            <Button
-  type="submit"
-  disabled={loading}
-  className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
->
-  {loading ? "Accesso..." : "Accedi"}
-</Button>
-              <LegalLinksPanel />
+    <main className={loginStyles.page}>
+      <section className={loginStyles.card} aria-labelledby="login-heading">
+        <header className={loginStyles.brand}>
+          <LoginLogo />
+          <div className={loginStyles.identity}>
+            <p>Dott. Matteo Trobbiani</p>
+            <span>Biologo nutrizionista e personal trainer</span>
           </div>
-        {onCancel && (
-          <button type="button" onClick={onCancel} className="mt-4 w-full text-sm font-bold text-teal-300">
-            Torna alla seduta sul dispositivo
-          </button>
-        )}
+        </header>
+
+        <div className={loginStyles.content}>
+          <h1 id="login-heading">Area riservata</h1>
+          <form onSubmit={handleLogin} aria-busy={loading}>
+            {error && <p className={loginStyles.error} role="alert">{error}</p>}
+            <div className={loginStyles.field}>
+              <label htmlFor="login-email">Email</label>
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder="Email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </div>
+            <div className={loginStyles.field}>
+              <label htmlFor="login-password">Password</label>
+              <div className={loginStyles.password}>
+                <input
+                  id="login-password"
+                  name="password"
+                  type={passwordVisible ? "text" : "password"}
+                  autoComplete="current-password"
+                  placeholder="Password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                <button
+                  type="button"
+                  aria-controls="login-password"
+                  aria-label={passwordVisible ? "Nascondi password" : "Mostra password"}
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                >
+                  {passwordVisible ? "Nascondi" : "Mostra"}
+                </button>
+              </div>
+            </div>
+            <button className={loginStyles.submit} type="submit" disabled={loading}>
+              {loading ? "Accesso..." : "Accedi"}
+              <span aria-hidden="true">→</span>
+            </button>
           </form>
-      </div>
-    </div>
+
+          <LegalLinksPanel />
+          {onCancel && (
+            <button type="button" onClick={onCancel} className={loginStyles.cancel}>
+              Torna alla seduta sul dispositivo
+            </button>
+          )}
+        </div>
+      </section>
+    </main>
   );
 }
+
 function LegalAcceptanceScreen({ session, onAccepted, onLogout }) {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
@@ -23546,10 +23513,10 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
   }, [dietView]);
 
   const clientTabs = [
-    { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
-    { id: "training", label: "Allenamento", icon: <Dumbbell size={19} /> },
-    { id: "update", label: "Update", icon: <RefreshCw size={19} /> },
-    { id: "diet", label: "Nutrizione", icon: <FileText size={19} /> }
+    { id: "home", label: "Home", icon: <HomeIcon size={19} aria-hidden="true" /> },
+    { id: "training", label: "Allenamento", icon: <Dumbbell size={19} aria-hidden="true" /> },
+    { id: "update", label: "Update", icon: <RefreshCw size={19} aria-hidden="true" /> },
+    { id: "diet", label: "Nutrizione", icon: <Utensils size={19} aria-hidden="true" /> }
   ];
 
   const clientDrawerTabs = [
