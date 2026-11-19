@@ -1,0 +1,202 @@
+.workout,
+.meal {
+  --ink: #07111f;
+  --muted: #495968;
+  --deep: #18594e;
+  --line: #dbe4de;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d5dedb;
+  border-radius: 21px;
+  background: white;
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.meal {
+  border-color: #c7d9ce;
+  background: #e9f2ed;
+}
+
+.header {
+  padding: 19px 20px 14px;
+}
+
+.workout .header {
+  padding-bottom: 4px;
+  border-top: 4px solid #b9e3da;
+}
+
+.kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  color: var(--deep);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .105em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.kicker svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+
+.header h4 {
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: -.035em;
+  line-height: 1.12;
+}
+
+.subtitle,
+.notes {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.subtitle {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .025em;
+}
+
+.workoutBody {
+  padding: 0 18px 14px;
+}
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 13px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.metrics span,
+.foodLine b,
+.quantity {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics b,
+.foodLine b {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.exercises li {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr) fit-content(40%);
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+}
+
+.exercises li + li,
+.foods li + li {
+  border-top: 1px solid var(--line);
+}
+
+.exercises strong {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.index {
+  display: grid;
+  min-height: 23px;
+  place-items: center;
+  border-radius: 7px;
+  background: #e8f3ee;
+  color: var(--deep);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.prescription {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.extra {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.option {
+  margin: 0 10px 10px;
+  padding: 17px 18px 4px;
+  border-radius: 15px;
+  background: white;
+}
+
+.optionTitle {
+  color: var(--deep);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.foods li {
+  padding: 13px 0;
+}
+
+.foodLine,
+.alternative {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.foodLine {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.foodLine strong { font-weight: 850; }
+.foodLine small { font-size: 12px; font-weight: 700; }
+.foodLine strong::first-letter,
+.preparation::first-letter { text-transform: uppercase; }
+
+.preparation,
+.alternative {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 570;
+  line-height: 1.5;
+}
+
+.preparation { margin-top: 3px; }
+.alternative {
+  margin-top: 6px;
+  padding-left: 9px;
+  border-left: 2px solid #95b9aa;
+}
+
+@media (max-width: 360px) {
+  .option { padding-inline: 12px; }
+  .workoutBody { padding-inline: 12px; }
+  .exercises li { grid-template-columns: 20px minmax(0, 1fr) fit-content(40%); gap: 6px; }
+}

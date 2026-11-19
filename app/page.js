@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import loginStyles from "./login.module.css";
 import { createClient } from "@supabase/supabase-js";
 import ClientHomePanel from "../components/client/ClientHomePanel";
+import { ClientMealCard, ClientMealOption, ClientWorkoutOverview } from "../components/client/ClientPlanCards";
 import ClientCheckinWizard from "../components/client/ClientCheckinWizard";
 import WorkoutCompletionPanel from "../components/client/WorkoutCompletionPanel";
 import useWorkoutSync from "../components/client/useWorkoutSync";
@@ -64,7 +64,6 @@ import {
   UserPlus,
   UserRound,
   Users,
-  Utensils,
   X
 } from "lucide-react";
 
@@ -1358,21 +1357,35 @@ function ClientSupplementReminder({ supplements = [], logs = [], busyId = "", on
   );
 }
 
-function LoginLogo() {
+function BrandLogo({
+  className = "",
+  white = true,
+  compact = false,
+  size = "default"
+}) {
+  let sizeClass = "h-14 md:h-16";
+
+  if (compact) {
+    sizeClass = "h-9 md:h-10";
+  }
+
+  if (size === "login") {
+    sizeClass = "h-28 md:h-36";
+  }
+
   return (
-    <svg role="img" aria-label="TM FIT" viewBox="0 0 590 219" fill="currentColor" className={loginStyles.logo}>
-      <path d="M162 5 249 6 181 97 238 66 288 66 290 68 210 173 153 172 180 136 114 169 80 214 6 214 74 120Z" />
-      <path d="M46 5 139 6 100 55 12 55Z" />
-      <path d="M276 6 341 6 304 54 240 55Z" />
-      <path d="M316 84 365 84 364 97 349 98 348 138 332 138 332 98 316 97Z" />
-      <path d="M371 84 388 84 404 106 420 84 436 84 437 138 421 138 420 109 407 128 404 129 388 108 387 138 372 138Z" />
-      <path d="M465 84 506 84 506 97 482 98 482 107 504 108 504 118 502 120 482 120 480 139 464 138Z" />
-      <path d="M514 84 530 84 530 136 528 139 513 138Z" />
-      <path d="M536 84 585 84 584 97 569 98 568 138 552 138 552 98 536 96Z" />
-    </svg>
+    <img
+      src="/tmfit-logo.png"
+      alt="TM FIT"
+      className={`${sizeClass} w-auto object-contain ${
+        white ? "brightness-0 invert" : ""
+      } ${className}`}
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
   );
 }
-
 function AppFooter({ role = "coach" }) {
   const isClient = role === "client";
 
@@ -2995,37 +3008,61 @@ function LegalDocumentModal({ documentKey, onClose }) {
   );
 }
 function LegalLinksPanel() {
+  const [expanded, setExpanded] = useState(false);
   const [openLegal, setOpenLegal] = useState(null);
 
   return (
     <>
-      <details className={loginStyles.legal}>
-        <summary>
-          Documenti legali
-          <span aria-hidden="true" className={loginStyles.disclosureIcon} />
-        </summary>
-        <ul>
-          {Object.entries(LEGAL_DOCUMENTS).map(([key, item]) => (
-            <li key={key}>
-              <button type="button" onClick={() => setOpenLegal(key)}>
-                {item.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </details>
-      {openLegal && createPortal(
-        <LegalDocumentModal documentKey={openLegal} onClose={() => setOpenLegal(null)} />,
-        document.body
-      )}
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[.06] text-left">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+        >
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+              Documenti legali
+            </p>
+
+            <p className="mt-1 text-xs font-semibold text-slate-300">
+              Termini, Privacy e consenso coaching
+            </p>
+          </div>
+
+          <span className="text-lg font-black text-white">
+            {expanded ? "−" : "+"}
+          </span>
+        </button>
+
+        {expanded && (
+          <div className="border-t border-white/10 px-4 pb-4 pt-3">
+            <div className="grid gap-2">
+              {Object.entries(LEGAL_DOCUMENTS).map(([key, item]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setOpenLegal(key)}
+                  className="flex w-full items-center justify-between rounded-xl bg-white/10 px-3 py-3 text-left text-xs font-black text-white transition hover:bg-white/15"
+                >
+                  <span>{item.label}</span>
+                  <span className="text-teal-300">Leggi</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <LegalDocumentModal
+        documentKey={openLegal}
+        onClose={() => setOpenLegal(null)}
+      />
     </>
   );
 }
-
 function LoginScreen({ onSignedIn, onCancel } = {}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -3052,76 +3089,73 @@ function LoginScreen({ onSignedIn, onCancel } = {}) {
   }
 
   return (
-    <main className={loginStyles.page}>
-      <section className={loginStyles.card} aria-labelledby="login-heading">
-        <header className={loginStyles.brand}>
-          <LoginLogo />
-          <div className={loginStyles.identity}>
-            <p>Dott. Matteo Trobbiani</p>
-            <span>Biologo nutrizionista e personal trainer</span>
-          </div>
-        </header>
+    <div className="min-h-screen bg-[#07111f] px-5 py-8 text-white">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md items-center">
+        <form
+          onSubmit={handleLogin}
+          className="w-full rounded-[2rem] border border-white/10 bg-white/[.06] p-6 shadow-2xl backdrop-blur-xl"
+        >
+          <div className="mb-8 text-center">
+  <div className="flex justify-center">
+    <BrandLogo size="login" className="-mb-5 drop-shadow-2xl md:-mb-7" white />
+  </div>
 
-        <div className={loginStyles.content}>
-          <h1 id="login-heading">Area riservata</h1>
-          <form onSubmit={handleLogin} aria-busy={loading}>
-            {error && <p className={loginStyles.error} role="alert">{error}</p>}
-            <div className={loginStyles.field}>
-              <label htmlFor="login-email">Email</label>
-              <input
-                id="login-email"
-                name="email"
-                type="email"
-                autoComplete="username"
-                autoCapitalize="none"
-                spellCheck={false}
-                placeholder="Email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            <div className={loginStyles.field}>
-              <label htmlFor="login-password">Password</label>
-              <div className={loginStyles.password}>
-                <input
-                  id="login-password"
-                  name="password"
-                  type={passwordVisible ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder="Password"
-                  required
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-                <button
-                  type="button"
-                  aria-controls="login-password"
-                  aria-label={passwordVisible ? "Nascondi password" : "Mostra password"}
-                  onClick={() => setPasswordVisible((visible) => !visible)}
-                >
-                  {passwordVisible ? "Nascondi" : "Mostra"}
-                </button>
-              </div>
-            </div>
-            <button className={loginStyles.submit} type="submit" disabled={loading}>
-              {loading ? "Accesso..." : "Accedi"}
-              <span aria-hidden="true">→</span>
-            </button>
-          </form>
+  <p className="mt-0 text-lg font-black tracking-tight text-white">
+    Dott. Matteo Trobbiani
+  </p>
 
-          <LegalLinksPanel />
-          {onCancel && (
-            <button type="button" onClick={onCancel} className={loginStyles.cancel}>
-              Torna alla seduta sul dispositivo
-            </button>
+  <p className="mt-1 text-sm font-bold text-slate-300">
+    Allenamento & Nutrizione
+  </p>
+
+  <div className="mt-4 inline-flex rounded-full border border-teal-300/30 bg-teal-300/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.25em] text-teal-300">
+    Webapp Coaching
+  </div>
+</div>
+          {error && (
+            <div className="mb-4 rounded-2xl border border-red-300 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
+              {error}
+            </div>
           )}
-        </div>
-      </section>
-    </main>
+
+          <div className="space-y-3">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
+              placeholder="Email"
+            />
+
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 font-semibold outline-none"
+              placeholder="Password"
+            />
+
+            <Button
+  type="submit"
+  disabled={loading}
+  className="w-full bg-teal-300 text-slate-950 hover:bg-teal-200"
+>
+  {loading ? "Accesso..." : "Accedi"}
+</Button>
+              <LegalLinksPanel />
+          </div>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="mt-4 w-full text-sm font-bold text-teal-300">
+            Torna alla seduta sul dispositivo
+          </button>
+        )}
+          </form>
+      </div>
+    </div>
   );
 }
-
 function LegalAcceptanceScreen({ session, onAccepted, onLogout }) {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
@@ -8941,12 +8975,14 @@ function dietShiftContainerHeader(container) {
   return `${label.toUpperCase()} - alimenti`;
 }
 
-function DietExtractedPlan({ diet, compact = false }) {
+function DietExtractedPlan({ diet, compact = false, clientView = false }) {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [activeOptionGroupIndex, setActiveOptionGroupIndex] = useState(0);
   const extracted = dietExtractedInfo(diet);
 
-  if (!extracted) return null;
+  if (!extracted) {
+    return clientView ? <Empty title="Piano alimentare" text="Puoi consultare il piano nella sezione PDF." /> : null;
+  }
 
   const dailyDays = Array.isArray(extracted.days) ? extracted.days : [];
   const optionGroups = Array.isArray(extracted.optionGroups)
@@ -9000,6 +9036,15 @@ function DietExtractedPlan({ diet, compact = false }) {
       : [];
     const hasStandaloneContent = items.length > 0 || (meal.notes || []).length > 0;
 
+    if (clientView) {
+      return (
+        <ClientMealCard key={key} title={meal.name || meal.title || "Pasto"}>
+          {hasStandaloneContent && <ClientMealOption blocks={buildDietFoodGroups(items, meal.notes).blocks} />}
+          {mealOptions.map((option, index) => renderOptionCard(meal, option, index))}
+        </ClientMealCard>
+      );
+    }
+
     return (
       <div
         key={key}
@@ -9048,6 +9093,15 @@ function DietExtractedPlan({ diet, compact = false }) {
 
   function renderOptionCard(group, option, optionIndex) {
     const items = option.items || [];
+    if (clientView) {
+      return (
+        <ClientMealOption
+          key={`${option.title || option.name || "opzione"}-${optionIndex}`}
+          title={option.title || option.name || `Opzione ${optionIndex + 1}`}
+          blocks={buildDietFoodGroups(items, option.notes).blocks}
+        />
+      );
+    }
 
     return (
       <div
@@ -9070,20 +9124,27 @@ function DietExtractedPlan({ diet, compact = false }) {
     );
   }
 
+  function renderActiveOptions() {
+    if (!activeOptions.length) {
+      return <Empty title="Nessuna opzione riconosciuta" text="Consulta il PDF originale per verificare questa sezione." />;
+    }
+    return activeOptions.map((option, index) => renderOptionCard(activeOptionGroup, option, index));
+  }
+
   return (
-    <div className="rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <div className={clientView ? "min-w-0" : "rounded-[1.6rem] border border-teal-100 bg-teal-50/70 p-4 md:p-5"}>
+      <div className={clientView ? "space-y-1" : "flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">
-            Pasti in app
-          </p>
-          <h3 className="mt-1 text-lg font-black text-slate-950">
-            {isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
+          {!clientView && (
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-teal-700">Pasti in app</p>
+          )}
+          <h3 className={clientView ? "text-xl font-black text-slate-950" : "mt-1 text-lg font-black text-slate-950"}>
+            {clientView ? "Piano alimentare" : isOptions ? "Opzioni alimentari" : isShiftPlan ? "Piano per turni" : "Piano giornaliero"}
           </h3>
         </div>
 
         {!compact && (
-          <div className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm">
+          <div className={clientView ? "text-sm font-semibold text-slate-600" : "rounded-2xl bg-white px-4 py-3 text-sm font-black text-teal-700 shadow-sm"}>
             {isOptions
               ? "Scegli una sezione per consultare le alternative."
               : isShiftPlan
@@ -9236,7 +9297,11 @@ function DietExtractedPlan({ diet, compact = false }) {
             </div>
           )}
 
-          {!compact && activeOptionGroup && (
+          {!compact && activeOptionGroup && (clientView ? (
+            <ClientMealCard title={activeOptionGroup.meal || activeOptionGroup.title || "Pasto"}>
+              {renderActiveOptions()}
+            </ClientMealCard>
+          ) : (
             <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white">
               <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4">
                 <div>
@@ -9251,19 +9316,10 @@ function DietExtractedPlan({ diet, compact = false }) {
               </div>
 
               <div className="grid gap-3 bg-slate-50 p-3">
-                {activeOptions.length === 0 && (
-                  <Empty
-                    title="Nessuna opzione riconosciuta"
-                    text="Consulta il PDF originale per verificare questa sezione."
-                  />
-                )}
-
-                {activeOptions.map((option, optionIndex) =>
-                  renderOptionCard(activeOptionGroup, option, optionIndex)
-                )}
+                {renderActiveOptions()}
               </div>
             </div>
-          )}
+          ))}
 
           {compact && visibleOptionGroups.map((group, groupIndex) => (
             <details
@@ -22283,7 +22339,7 @@ function compactWorkoutRecoveryLabel(value) {
 }
 
 function CompactWorkoutDayCard({
-  week,
+  clientView = false,
   day,
   dayIndex,
   currentWeek,
@@ -22294,8 +22350,8 @@ function CompactWorkoutDayCard({
   startLabel = "Inizia"
 }) {
   const exercises = (day?.workout_blocks || []).flatMap(
-    (block) => block.workout_exercises || []
-  );
+    (block) => block?.workout_exercises || []
+  ).filter(Boolean);
   const estimatedMinutes = day?.estimated_minutes || 60;
   const totalSets = exercises.reduce((sum, exercise) => {
     const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
@@ -22307,7 +22363,54 @@ function CompactWorkoutDayCard({
         : Number(String(rawSets).match(/\d+/)?.[0] || 0);
     return sum + numericSets;
   }, 0);
-  const previewExercises = exercises.slice(0, 3);
+  const previewExercises = exercises.slice(0, 3).map((exercise, index) => {
+    const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
+    const sets = progression?.target_sets || exercise.sets || "—";
+    const reps = progression?.target_reps || exercise.reps || "—";
+    return {
+      id: exercise.id || `${day?.id || "day"}-${index}`,
+      name: exercise.exercise_name || "Esercizio",
+      prescription: workoutProgressionPrescriptionText(progression, exercise) || workoutSetsRepsDisplay(sets, reps)
+    };
+  });
+  const actions = (
+    <div className={`mt-4 grid ${showStart ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
+      >
+        <FileText size={16} className="mr-2" />
+        {openLabel}
+      </button>
+      {showStart && (
+        <button
+          type="button"
+          onClick={onStart}
+          className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
+        >
+          <Dumbbell size={16} className="mr-2" />
+          {startLabel}
+        </button>
+      )}
+    </div>
+  );
+
+  if (clientView) {
+    return (
+      <ClientWorkoutOverview
+        title={day?.title || `Allenamento ${dayIndex + 1}`}
+        notes={day?.notes}
+        week={currentWeek}
+        minutes={estimatedMinutes}
+        exerciseCount={exercises.length}
+        setCount={totalSets || "—"}
+        preview={previewExercises}
+      >
+        {actions}
+      </ClientWorkoutOverview>
+    );
+  }
 
   return (
     <article className="overflow-hidden rounded-[1.8rem] border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
@@ -22360,29 +22463,22 @@ function CompactWorkoutDayCard({
 
         {previewExercises.length > 0 && (
           <div className="mt-4 space-y-2">
-            {previewExercises.map((exercise, exerciseIndex) => {
-              const progression = tmfitWorkoutProgressionForWeek(exercise, currentWeek);
-              const targetSets = progression?.target_sets || exercise.sets || "—";
-              const targetReps = progression?.target_reps || exercise.reps || "—";
-              const targetPrescription = workoutProgressionPrescriptionText(progression, exercise);
-
-              return (
-                <div
-                  key={exercise.id || `${day?.id || "day"}-${exerciseIndex}`}
-                  className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5"
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-black text-slate-700">
-                    {exerciseIndex + 1}
-                  </span>
-                  <p className="min-w-0 flex-1 truncate text-sm font-black text-slate-900">
-                    {exercise.exercise_name || "Esercizio"}
-                  </p>
-                  <span className="shrink-0 text-xs font-black text-slate-500">
-                    {targetPrescription || workoutSetsRepsDisplay(targetSets, targetReps)}
-                  </span>
-                </div>
-              );
-            })}
+            {previewExercises.map((exercise, exerciseIndex) => (
+              <div
+                key={exercise.id}
+                className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-black text-slate-700">
+                  {exerciseIndex + 1}
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-black text-slate-900">
+                  {exercise.name}
+                </p>
+                <span className="shrink-0 text-xs font-black text-slate-500">
+                  {exercise.prescription}
+                </span>
+              </div>
+            ))}
 
             {exercises.length > previewExercises.length && (
               <p className="px-1 text-xs font-bold text-slate-400">
@@ -22392,26 +22488,7 @@ function CompactWorkoutDayCard({
           </div>
         )}
 
-        <div className={`mt-4 grid ${showStart ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
-          <button
-            type="button"
-            onClick={onOpen}
-            className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 transition active:scale-[.98]"
-          >
-            <FileText size={16} className="mr-2" />
-            {openLabel}
-          </button>
-          {showStart && (
-            <button
-              type="button"
-              onClick={onStart}
-              className="flex min-h-12 items-center justify-center rounded-2xl bg-[#07111f] px-3 text-sm font-black text-white transition active:scale-[.98]"
-            >
-              <Dumbbell size={16} className="mr-2" />
-              {startLabel}
-            </button>
-          )}
-        </div>
+        {actions}
       </div>
     </article>
   );
@@ -23513,10 +23590,10 @@ function ClientDashboard({ session, userProfile, onLogout, onReauthenticate, onl
   }, [dietView]);
 
   const clientTabs = [
-    { id: "home", label: "Home", icon: <HomeIcon size={19} aria-hidden="true" /> },
-    { id: "training", label: "Allenamento", icon: <Dumbbell size={19} aria-hidden="true" /> },
-    { id: "update", label: "Update", icon: <RefreshCw size={19} aria-hidden="true" /> },
-    { id: "diet", label: "Nutrizione", icon: <Utensils size={19} aria-hidden="true" /> }
+    { id: "home", label: "Home", icon: <HomeIcon size={19} /> },
+    { id: "training", label: "Allenamento", icon: <Dumbbell size={19} /> },
+    { id: "update", label: "Update", icon: <RefreshCw size={19} /> },
+    { id: "diet", label: "Nutrizione", icon: <FileText size={19} /> }
   ];
 
   const clientDrawerTabs = [
@@ -24868,7 +24945,7 @@ function getExerciseHistory(exercise) {
                         {visibleTrainingDays.map(({ week, day }, dayIndex) => (
                           <CompactWorkoutDayCard
                             key={`${week?.id || week?.week_number || "week"}-${day.id}`}
-                            week={week}
+                            clientView
                             day={day}
                             dayIndex={dayIndex}
                             currentWeek={currentWeek}
@@ -25327,25 +25404,7 @@ function getExerciseHistory(exercise) {
                   </div>
                 )}
 
-                {dietView === "meals" && (
-                  <Card className="overflow-hidden">
-                    <div className="border-b border-slate-200 bg-white px-5 py-4">
-                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-teal-700">
-                        Piano alimentare
-                      </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
-                        Card pasti
-                      </h3>
-                      <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                        Consulta il piano alimentare organizzato in card. Il PDF completo resta disponibile nella sezione dedicata.
-                      </p>
-                    </div>
-
-                    <div className="p-4 md:p-5">
-                      <DietExtractedPlan diet={latestDiet} />
-                    </div>
-                  </Card>
-                )}
+                {dietView === "meals" && <DietExtractedPlan diet={latestDiet} clientView />}
 
                 {dietView === "pdf" && (
                   <Card className="overflow-hidden">
